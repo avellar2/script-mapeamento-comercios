@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Playwright
+.ms-playwright/
+
+# Output e progresso
+output/
+*.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
