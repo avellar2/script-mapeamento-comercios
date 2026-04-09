@@ -1,6 +1,6 @@
 """
-Mapeador de Comércios - Duque de Caxias, RJ
-=============================================
+Mapeador de Comércios - Baixada Fluminense, RJ
+===============================================
 Busca comércios no Google Maps que NÃO possuem site,
 gerando uma planilha de leads para prospecção.
 
@@ -20,7 +20,20 @@ from pathlib import Path
 OUTPUT_DIR = Path(__file__).parent / "output"
 OUTPUT_DIR.mkdir(exist_ok=True)
 
-CITY = "Duque de Caxias, RJ"
+# Lista de cidades da Baixada Fluminense
+CIDADES = [
+    "Duque de Caxias, RJ",
+    "Nova Iguaçu, RJ",
+    "São João de Meriti, RJ",
+    "Belford Roxo, RJ",
+    "Nilópolis, RJ",
+    "Mesquita, RJ",
+    "Queimados, RJ",
+    "Itaguaí, RJ",
+    "Seropédica, RJ",
+    "Paracambi, RJ",
+    "Japeri, RJ",
+]
 MAX_RESULTS_PER_CATEGORY = 20  # Reduzido para ser mais rápido
 DELAY_MIN = 2.0
 DELAY_MAX = 5.0
@@ -90,8 +103,8 @@ def save_progress(progress):
 def export_csv(businesses, filename):
     filepath = OUTPUT_DIR / filename
     fieldnames = [
-        "nome", "endereco", "telefone", "categoria",
-        "tem_site", "url_site", "avaliacao", "num_avaliacoes",
+        "nome", "endereco", "telefone", "email", "categoria",
+        "tem_site", "url_site", "avaliacao", "num_avaliacoes", "cidade",
     ]
     with open(filepath, "w", newline="", encoding="utf-8-sig") as f:
         w = csv.DictWriter(f, fieldnames=fieldnames)
@@ -111,8 +124,8 @@ def export_excel(businesses, filename):
         ws.title = "Leads sem Site"
 
         headers = [
-            "Nome", "Endereço", "Telefone", "Categoria",
-            "Tem Site?", "URL do Site", "Avaliação", "Nº Avaliações",
+            "Nome", "Endereço", "Telefone", "Email", "Categoria",
+            "Tem Site?", "URL do Site", "Avaliação", "Nº Avaliações", "Cidade",
         ]
         header_font = Font(bold=True, color="FFFFFF")
         header_fill = PatternFill("solid", fgColor="2563EB")
@@ -126,20 +139,22 @@ def export_excel(businesses, filename):
             ws.cell(row=row_idx, column=1, value=b["nome"])
             ws.cell(row=row_idx, column=2, value=b["endereco"])
             ws.cell(row=row_idx, column=3, value=b["telefone"])
-            ws.cell(row=row_idx, column=4, value=b["categoria"])
-            ws.cell(row=row_idx, column=5, value="Sim" if b["tem_site"] else "NÃO")
-            ws.cell(row=row_idx, column=6, value=b["url_site"])
-            ws.cell(row=row_idx, column=7, value=b["avaliacao"])
-            ws.cell(row=row_idx, column=8, value=b["num_avaliacoes"])
+            ws.cell(row=row_idx, column=4, value=b.get("email", ""))
+            ws.cell(row=row_idx, column=5, value=b["categoria"])
+            ws.cell(row=row_idx, column=6, value="Sim" if b["tem_site"] else "NÃO")
+            ws.cell(row=row_idx, column=7, value=b["url_site"])
+            ws.cell(row=row_idx, column=8, value=b["avaliacao"])
+            ws.cell(row=row_idx, column=9, value=b["num_avaliacoes"])
+            ws.cell(row=row_idx, column=10, value=b.get("cidade", ""))
 
             # Destaca leads sem site em amarelo
             if not b["tem_site"]:
                 highlight = PatternFill("solid", fgColor="FEF08A")
-                for col in range(1, 9):
+                for col in range(1, 11):
                     ws.cell(row=row_idx, column=col).fill = highlight
 
         # Ajusta largura das colunas
-        widths = [35, 45, 18, 25, 10, 35, 10, 12]
+        widths = [35, 45, 18, 30, 25, 10, 35, 10, 12, 20]
         for i, w in enumerate(widths, 1):
             ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = w
 
@@ -187,7 +202,7 @@ async def scroll_panel(page, max_scrolls=25):
             break
 
 
-async def extrair_detalhes(page, categoria):
+async def extrair_detalhes(page, categoria, cidade=""):
     """Extrai dados de um comércio na página de detalhes aberta."""
     await page.wait_for_timeout(1500)
 
@@ -195,23 +210,32 @@ async def extrair_detalhes(page, categoria):
         "nome": "",
         "endereco": "",
         "telefone": "",
+        "email": "",
         "categoria": categoria,
         "tem_site": False,
         "url_site": "",
         "avaliacao": "",
         "num_avaliacoes": "",
+        "cidade": cidade,
     }
 
-    # Nome
-    for sel in ['h1.DUwDvf', 'h1[class*="fontHeadline"]', 'h1']:
+    # Nome - mais seletivo para evitar pegar elementos errados
+    for sel in ['h1.DUwDvf', 'h1[class*="fontHeadline"]', 'h1[class*="fontTitle"]']:
         el = page.locator(sel).first
         if await el.count() > 0:
             txt = (await el.inner_text()).strip()
-            if txt:
+            if txt and len(txt) > 3:  # Nome deve ter mais de 3 caracteres
                 dados["nome"] = txt
                 break
 
-    if not dados["nome"]:
+    # Validação: ignora nomes inválidos
+    if not dados["nome"] or len(dados["nome"]) < 5:
+        return None
+
+    # Ignora entradas com nomes genéricos/inválidos
+    nomes_invalidos = ["resultados", "todos", "categorias", "ver mais", "mostrar mais",
+                       "próximo", "anterior", "fechar", "voltar", "menu", "pesquisa"]
+    if dados["nome"].lower() in nomes_invalidos:
         return None
 
     # Avaliação
@@ -235,6 +259,8 @@ async def extrair_detalhes(page, categoria):
     ).first
     if await addr_el.count() > 0:
         dados["endereco"] = (await addr_el.inner_text()).strip()
+        # Remove caracteres especiais do início
+        dados["endereco"] = re.sub(r'^[\W\u200b-\u200d]+', '', dados["endereco"])
 
     # Telefone
     phone_el = page.locator(
@@ -243,6 +269,8 @@ async def extrair_detalhes(page, categoria):
     ).first
     if await phone_el.count() > 0:
         dados["telefone"] = (await phone_el.inner_text()).strip()
+        # Remove caracteres especiais do início
+        dados["telefone"] = re.sub(r'^[\W\u200b-\u200d]+', '', dados["telefone"])
 
     # Website
     web_el = page.locator(
@@ -253,12 +281,39 @@ async def extrair_detalhes(page, categoria):
         dados["tem_site"] = True
         dados["url_site"] = (await web_el.get_attribute("href")) or ""
 
+    # Email - Tenta encontrar em vários locais
+    email_selectors = [
+        'a[href^="mailto:"]',
+        'button[data-item-id*="email"]',
+        'div[aria-label*="Email"]',
+        'span:has-text("@")',
+    ]
+
+    for sel in email_selectors:
+        email_el = page.locator(sel).first
+        if await email_el.count() > 0:
+            try:
+                # Se for um link mailto:
+                href = await email_el.get_attribute("href")
+                if href and href.startswith("mailto:"):
+                    dados["email"] = href.replace("mailto:", "").strip().split('?')[0]
+                    break
+
+                # Se for texto, tenta extrair email
+                text = await email_el.inner_text()
+                email_match = re.search(r'[\w.+-]+@[\w-]+\.[\w.-]+', text)
+                if email_match:
+                    dados["email"] = email_match.group(0)
+                    break
+            except Exception:
+                pass
+
     return dados
 
 
-async def buscar_categoria(page, categoria, start_index=0, progress=None):
+async def buscar_categoria(page, categoria, cidade, start_index=0, progress=None):
     """Busca uma categoria no Google Maps e retorna lista de comércios."""
-    query = f"{categoria} em {CITY}"
+    query = f"{categoria} em {cidade}"
     url = f"https://www.google.com/maps/search/{query.replace(' ', '+')}/"
 
     try:
@@ -284,87 +339,154 @@ async def buscar_categoria(page, categoria, start_index=0, progress=None):
     print(f"  > {total} resultados encontrados")
 
     comercios = []
-    limite = min(total, MAX_RESULTS_PER_CATEGORY)
+    vistos = set()  # Controle de duplicatas nesta sessão
+    limite = min(total, MAX_RESULTS_PER_CATEGORY * 3)  # Tentar até 3x mais que o limite
 
-    # Se está continuando de onde parou
+    # Se está continuando de onde parou, carrega já vistos do progresso
     if start_index > 0:
         print(f"  > Continuando do indice {start_index}...")
+        # Carrega duplicatas já vistas do progresso salvo
+        for c in progress.get("comercios", []):
+            if c.get("categoria") == categoria and c.get("cidade") == cidade:
+                chave = f"{c['nome'].lower()}|{cidade}"
+                vistos.add(chave)
+        print(f"  > {len(vistos)} comércios já processados")
 
-    for i in range(start_index, limite):
-        try:
-            # Recarrega os itens a cada iteração (o DOM pode mudar)
+    # Loop até encontrar MAX_RESULTS únicos ou atingir limite
+    i = start_index
+    resultados_encontrados = len(vistos)
+
+    while i < limite and resultados_encontrados < MAX_RESULTS_PER_CATEGORY:
+        # Recarrega os itens a cada iteração (o DOM pode mudar)
+        items = page.locator('div[role="feed"] > div > div[jsaction], div[role="feed"] > div > a[jsaction]')
+        total_itens = await items.count()
+
+        if total_itens <= i:
+            print(f"    [{resultados_encontrados}/{MAX_RESULTS_PER_CATEGORY}] Itens reduzidos, recarregando pagina...")
+            await scroll_panel(page)
+            await asyncio.sleep(1)
             items = page.locator('div[role="feed"] > div > div[jsaction], div[role="feed"] > div > a[jsaction]')
-
-            if await items.count() <= i:
-                print(f"    [{i+1}] Itens reduzidos, recarregando pagina...")
-                await scroll_panel(page)
-                await asyncio.sleep(1)
-                items = page.locator('div[role="feed"] > div > div[jsaction], div[role="feed"] > div > a[jsaction]')
-                if await items.count() <= i:
+            total_itens = await items.count()
+            if total_itens <= i:
+                # Verifica se chegou ao fim da lista
+                fim_lista = page.locator('span:has-text("fim da lista"), span:has-text("end of the list")')
+                if await fim_lista.count() > 0:
+                    print(f"    [{resultados_encontrados}/{MAX_RESULTS_PER_CATEGORY}] Fim da lista - Sem mais resultados")
+                    break
+                else:
+                    print(f"    [{resultados_encontrados}/{MAX_RESULTS_PER_CATEGORY}] Nao ha mais itens disponiveis")
                     break
 
-            item = items.nth(i)
-            await item.click(timeout=5000)
-            await asyncio.sleep(random.uniform(1.8, 3.5))
+        # Verifica se chegou ao fim da lista antes de processar
+        fim_lista = page.locator('span:has-text("fim da lista"), span:has-text("end of the list")')
+        if await fim_lista.count() > 0 and i >= total_itens - 1:
+            print(f"    [{resultados_encontrados}/{MAX_RESULTS_PER_CATEGORY}] Fim da lista atingido")
+            break
 
-            dados = await extrair_detalhes(page, categoria)
-            if dados:
+        item = items.nth(i)
+
+        # Verifica se o elemento está visível antes de tentar clicar
+        try:
+            if not await item.is_visible():
+                print(f"    [{resultados_encontrados+1}/{MAX_RESULTS_PER_CATEGORY}] Elemento não visível, pulando...")
+                i += 1
+                continue
+        except:
+            # Se não conseguir verificar visibilidade, tenta clicar mesmo assim
+            pass
+
+        # Tenta clicar com retry e maior timeout
+        clicou = False
+        for tentativa in range(3):
+            try:
+                await item.click(timeout=10000)
+                clicou = True
+                break
+            except Exception as e:
+                erro_str = str(e).lower()
+                # Se o erro for "not visible", pula este elemento
+                if 'not visible' in erro_str or 'element is not visible' in erro_str:
+                    print(f"    [{resultados_encontrados+1}/{MAX_RESULTS_PER_CATEGORY}] Elemento invisível, pulando...")
+                    break
+                elif tentativa < 2:
+                    print(f"    [{resultados_encontrados+1}/{MAX_RESULTS_PER_CATEGORY}] Retry clique {tentativa + 1}/3...")
+                    await asyncio.sleep(1)
+                    # Tenta scroll com menor timeout
+                    try:
+                        await item.scroll_into_view_if_needed(timeout=1000)
+                    except:
+                        pass
+                    await asyncio.sleep(0.5)
+                else:
+                    print(f"    [{resultados_encontrados+1}/{MAX_RESULTS_PER_CATEGORY}] Erro ao clicar: {str(e)[:60]}")
+                    break
+
+        if not clicou:
+            i += 1
+            continue
+
+        await asyncio.sleep(random.uniform(1.8, 3.5))
+
+        dados = await extrair_detalhes(page, categoria, cidade)
+        if dados:
+            # Verifica duplicata por nome + cidade
+            chave = f"{dados['nome'].lower()}|{cidade}"
+            if chave in vistos:
+                print(f"    [{resultados_encontrados+1}/{MAX_RESULTS_PER_CATEGORY}] DUPLICATA - {dados['nome'][:40]}")
+            else:
+                vistos.add(chave)
                 comercios.append(dados)
+                resultados_encontrados = len(vistos)
                 tag = "COM site" if dados["tem_site"] else "SEM site"
-                print(f"    [{i+1}/{limite}] {tag} - {dados['nome'][:40]}")
+                email_info = f" | Email: {dados['email']}" if dados['email'] else ""
+                print(f"    [{resultados_encontrados}/{MAX_RESULTS_PER_CATEGORY}] {tag} - {dados['nome'][:40]}{email_info}")
 
                 # Salva progresso incrementalmente
                 if progress:
-                    progress["categorias_em_andamento"][categoria] = {"indice": i + 1, "total": limite}
+                    chave_progresso = f"{cidade}::{categoria}"
+                    progress["categorias_em_andamento"][chave_progresso] = {"indice": i + 1, "total": limite}
                     progress["comercios"].extend(comercios)
                     comercios.clear()  # Limpa a lista local já que salvou no progress
                     save_progress(progress)
 
-            # Volta para resultados - TENTATIVA 1: botão voltar
-            voltou = False
-            for _ in range(2):
-                try:
-                    back = page.locator('button[aria-label*="Voltar"], button[aria-label*="Back"]').first
-                    if await back.count() > 0:
-                        await back.click(timeout=3000)
-                        await asyncio.sleep(0.5)
-                        voltou = True
-                        break
-                except Exception:
-                    pass
-
-                # TENTATIVA 2: go_back
-                try:
-                    await page.go_back(timeout=3000)
+        # Volta para resultados - TENTATIVA 1: botão voltar
+        voltou = False
+        for _ in range(2):
+            try:
+                back = page.locator('button[aria-label*="Voltar"], button[aria-label*="Back"]').first
+                if await back.count() > 0:
+                    await back.click(timeout=3000)
                     await asyncio.sleep(0.5)
                     voltou = True
                     break
-                except Exception:
-                    pass
-
-            if not voltou:
-                # TENTATIVA 3: recarrega a URL de busca
-                print(f"    [{i+1}] Navegacao travada, recarregando...")
-                await page.goto(url, wait_until="domcontentloaded", timeout=30000)
-                await asyncio.sleep(2)
-                await scroll_panel(page, max_scrolls=5)
-                await asyncio.sleep(1)
-
-            await asyncio.sleep(random.uniform(0.8, 1.5))
-
-        except Exception as e:
-            print(f"    [{i+1}/{limite}] Erro: {str(e)[:50]}")
-            # Salva onde parou mesmo com erro
-            if progress:
-                progress["categorias_em_andamento"][categoria] = {"indice": i + 1, "total": limite}
-                save_progress(progress)
-            # Tenta recuperar navegacao
-            try:
-                await page.goto(url, wait_until="domcontentloaded", timeout=20000)
-                await asyncio.sleep(2)
             except Exception:
                 pass
-            continue
+
+            # TENTATIVA 2: go_back
+            try:
+                await page.go_back(timeout=3000)
+                await asyncio.sleep(0.5)
+                voltou = True
+                break
+            except Exception:
+                pass
+
+        if not voltou:
+            # TENTATIVA 3: recarrega a URL de busca
+            print(f"    [{resultados_encontrados}/{MAX_RESULTS_PER_CATEGORY}] Navegacao travada, recarregando...")
+            await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            await asyncio.sleep(2)
+            await scroll_panel(page, max_scrolls=5)
+            await asyncio.sleep(1)
+
+        await asyncio.sleep(random.uniform(0.8, 1.5))
+        i += 1
+
+    # Mensagem final sobre a categoria
+    if resultados_encontrados >= MAX_RESULTS_PER_CATEGORY:
+        print(f"  > Categoria completa: {resultados_encontrados} resultados únicos encontrados")
+    else:
+        print(f"  > Fim dos resultados: {resultados_encontrados}/20 (não há mais comércios no Google Maps)")
 
     return comercios
 
@@ -390,8 +512,9 @@ async def main():
         from playwright.async_api import async_playwright
 
     print("=" * 60)
-    print("  MAPEADOR DE COMÉRCIOS — DUQUE DE CAXIAS, RJ")
+    print("  MAPEADOR DE COMÉRCIOS — BAIXADA FLUMINENSE, RJ")
     print("  Buscando comércios SEM site para prospecção")
+    print(f"  {len(CIDADES)} cidades serão mapeadas")
     print("=" * 60)
 
     progress = load_progress()
@@ -399,9 +522,15 @@ async def main():
     em_andamento = progress.get("categorias_em_andamento", {})
     todos = progress.get("comercios", [])
 
+    # Formato antigo de progresso (cidade única) - migra para novo formato
+    if not feitas and not em_andamento and not todos:
+        print("\n[!] Progresso antigo detectado. Resetando para nova estrutura multi-cidade.")
+        print("    Todas as cidades e categorias serão reprocessadas.\n")
+
     # Adiciona categorias em andamento às restantes (para continuar)
     restantes = [c for c in CATEGORIAS if c not in feitas]
     print(f"\nCategorias restantes: {len(restantes)}/{len(CATEGORIAS)}")
+    print(f"Cidades a processar: {len(CIDADES)}")
     print(f"Comércios já mapeados: {len(todos)}")
     if em_andamento:
         print(f"Em andamento: {list(em_andamento.keys())}\n")
@@ -436,43 +565,59 @@ async def main():
         await aceitar_cookies(page)
         await asyncio.sleep(1)
 
-        for idx, cat in enumerate(restantes):
-            print(f"\n[{idx+1}/{len(restantes)}] Buscando: {cat}")
+        # Itera sobre cada cidade e cada categoria
+        total_tarefas = len(CIDADES) * len(CATEGORIAS)
+        tarefa_atual = 0
 
-            # Verifica se já estava em andamento
-            start_idx = 0
-            if cat in em_andamento:
-                start_idx = em_andamento[cat].get("indice", 0)
-                print(f"  > Continuando do índice {start_idx}")
+        for cidade_idx, cidade in enumerate(CIDADES):
+            print(f"\n{'='*60}")
+            print(f"  CIDADE {cidade_idx+1}/{len(CIDADES)}: {cidade}")
+            print(f"{'='*60}")
 
-            try:
-                resultados = await buscar_categoria(page, cat, start_index=start_idx, progress=progress)
+            for cat_idx, cat in enumerate(CATEGORIAS):
+                tarefa_atual += 1
 
-                # Marca categoria como completa
-                if cat in em_andamento:
-                    del em_andamento[cat]
-                feitas.add(cat)
-                progress["categorias_prontas"] = list(feitas)
-                progress["categorias_em_andamento"] = em_andamento
-                save_progress(progress)
+                # Pula categorias já concluídas
+                chave_progresso = f"{cidade}::{cat}"
+                if chave_progresso in feitas:
+                    continue
 
-                # Conta sem site (do progresso atualizado)
-                sem = sum(1 for c in progress["comercios"] if c["categoria"] == cat and not c["tem_site"])
-                todos_categoria = [c for c in progress["comercios"] if c["categoria"] == cat]
-                print(f"  > {len(todos_categoria)} encontrados | {sem} sem site")
+                print(f"\n[{tarefa_atual}/{total_tarefas}] {cidade} - {cat}")
 
-            except Exception as e:
-                print(f"  X Erro geral: {e}")
-                # Tenta navegar de volta ao Maps
+                # Verifica se já estava em andamento
+                start_idx = 0
+                if chave_progresso in em_andamento:
+                    start_idx = em_andamento[chave_progresso].get("indice", 0)
+                    print(f"  > Continuando do índice {start_idx}")
+
                 try:
-                    await page.goto("https://www.google.com/maps", wait_until="commit", timeout=15000)
-                except Exception:
-                    pass
-                continue
+                    resultados = await buscar_categoria(page, cat, cidade, start_index=start_idx, progress=progress)
 
-            delay = random.uniform(DELAY_MIN, DELAY_MAX)
-            print(f"  Aguardando {delay:.1f}s...")
-            await asyncio.sleep(delay)
+                    # Marca categoria como completa
+                    if chave_progresso in em_andamento:
+                        del em_andamento[chave_progresso]
+                    feitas.add(chave_progresso)
+                    progress["categorias_prontas"] = list(feitas)
+                    progress["categorias_em_andamento"] = em_andamento
+                    save_progress(progress)
+
+                    # Conta sem site (do progresso atualizado)
+                    sem = sum(1 for c in progress["comercios"] if c["categoria"] == cat and c.get("cidade") == cidade and not c["tem_site"])
+                    todos_categoria = [c for c in progress["comercios"] if c["categoria"] == cat and c.get("cidade") == cidade]
+                    print(f"  > {len(todos_categoria)} encontrados | {sem} sem site")
+
+                except Exception as e:
+                    print(f"  X Erro geral: {e}")
+                    # Tenta navegar de volta ao Maps
+                    try:
+                        await page.goto("https://www.google.com/maps", wait_until="commit", timeout=15000)
+                    except Exception:
+                        pass
+                    continue
+
+                delay = random.uniform(DELAY_MIN, DELAY_MAX)
+                print(f"  Aguardando {delay:.1f}s...")
+                await asyncio.sleep(delay)
 
         await browser.close()
 
@@ -503,11 +648,21 @@ async def main():
     com_site = len(todos) - len(sem_site)
     taxa = (len(sem_site) / len(todos) * 100) if todos else 0
     print(f"\n{'='*50}")
-    print(f"  RESUMO FINAL")
+    print(f"  RESUMO FINAL - BAIXADA FLUMINENSE")
     print(f"  Total mapeados:     {len(todos)}")
     print(f"  COM site:           {com_site}")
     print(f"  SEM site (leads):   {len(sem_site)}")
     print(f"  Taxa de prospecção: {taxa:.1f}%")
+    print(f"{'='*50}")
+
+    # Estatísticas por cidade
+    print(f"\n  ESTATÍSTICAS POR CIDADE:")
+    print(f"  {'-'*50}")
+    for cidade in CIDADES:
+        da_cidade = [c for c in todos if c.get("cidade") == cidade]
+        sem_site_cidade = [c for c in da_cidade if not c["tem_site"]]
+        if da_cidade:
+            print(f"  {cidade.split(',')[0]:20s}: {len(da_cidade):4d} total | {len(sem_site_cidade):4d} sem site")
     print(f"{'='*50}")
 
 

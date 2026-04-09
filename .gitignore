@@ -7,9 +7,9 @@ __pycache__/
 # Playwright
 .ms-playwright/
 
-# Output e progresso
-output/
-*.json
+# Output (mantem progresso.json para salvar progresso)
+output/*.csv
+output/*.xlsx
 
 # IDE
 .vscode/

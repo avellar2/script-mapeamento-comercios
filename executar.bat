@@ -1,8 +1,9 @@
 @echo off
 chcp 65001 >nul
 echo ============================================================
-echo   MAPEADOR DE COMÉRCIOS - DUQUE DE CAXIAS
+echo   MAPEADOR DE COMÉRCIOS - BAIXADA FLUMINENSE
 echo   Setup e Execução
+echo   11 Cidades • Email + Telefone • Leads sem Site
 echo ============================================================
 echo.
 
@@ -29,6 +30,10 @@ python mapear_comercios.py
 
 echo.
 echo ============================================================
-echo   Concluído! Verifique a pasta /output para os resultados.
+echo   Concluído! Verifique a pasta /output para os resultados:
+echo    - todos_comercios.csv (todos os mapeados)
+echo    - leads_sem_site.csv / .xlsx (apenas leads sem site)
+echo ============================================================
+echo   Baixada Fluminense completa!
 echo ============================================================
 pause
