@@ -1,0 +1,749 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Comércios da Baixada Fluminense</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Outfit:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --bg-deep: #0a0a0b;
+            --bg-card: #141416;
+            --bg-elevated: #1a1a1d;
+            --accent-primary: #f97316;
+            --accent-glow: rgba(249, 115, 22, 0.3);
+            --accent-secondary: #22d3ee;
+            --text-primary: #fafafa;
+            --text-secondary: #a1a1aa;
+            --text-muted: #71717a;
+            --border-subtle: rgba(255, 255, 255, 0.06);
+            --border-active: rgba(249, 115, 22, 0.5);
+            --success: #22c55e;
+            --warning: #f59e0b;
+            --gradient-thermal: linear-gradient(135deg, #f97316 0%, #fb923c 50%, #22d3ee 100%);
+        }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background: var(--bg-deep);
+            color: var(--text-primary);
+            min-height: 100vh;
+            line-height: 1.6;
+        }
+
+        /* Animated background mesh */
+        .bg-mesh {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 0;
+            opacity: 0.4;
+            background-image:
+                radial-gradient(ellipse at 20% 20%, rgba(249, 115, 22, 0.08) 0%, transparent 50%),
+                radial-gradient(ellipse at 80% 80%, rgba(34, 211, 238, 0.06) 0%, transparent 50%),
+                radial-gradient(ellipse at 50% 50%, rgba(249, 115, 22, 0.04) 0%, transparent 70%);
+        }
+
+        .container {
+            position: relative;
+            z-index: 1;
+            max-width: 1600px;
+            margin: 0 auto;
+            padding: 0 24px;
+        }
+
+        /* Header */
+        header {
+            padding: 40px 0;
+            border-bottom: 1px solid var(--border-subtle);
+            margin-bottom: 40px;
+        }
+
+        .header-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 40px;
+        }
+
+        .header-title h1 {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: clamp(2rem, 5vw, 3.5rem);
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            background: var(--gradient-thermal);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 8px;
+        }
+
+        .header-title p {
+            color: var(--text-secondary);
+            font-size: 1rem;
+            font-weight: 400;
+        }
+
+        /* Stats bar */
+        .stats-bar {
+            display: flex;
+            gap: 32px;
+            margin-top: 24px;
+        }
+
+        .stat-item {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .stat-value {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 2rem;
+            font-weight: 700;
+            color: var(--accent-primary);
+            line-height: 1;
+        }
+
+        .stat-label {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            margin-top: 4px;
+        }
+
+        /* Filters */
+        .filters {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 16px;
+            margin-bottom: 32px;
+            padding: 24px;
+            background: var(--bg-card);
+            border-radius: 16px;
+            border: 1px solid var(--border-subtle);
+        }
+
+        .filter-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .filter-group label {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            font-weight: 500;
+        }
+
+        .filter-select {
+            background: var(--bg-elevated);
+            border: 1px solid var(--border-subtle);
+            border-radius: 8px;
+            padding: 10px 16px;
+            color: var(--text-primary);
+            font-family: 'Outfit', sans-serif;
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            min-width: 160px;
+        }
+
+        .filter-select:hover {
+            border-color: var(--border-active);
+        }
+
+        .filter-select:focus {
+            outline: none;
+            border-color: var(--accent-primary);
+            box-shadow: 0 0 0 3px var(--accent-glow);
+        }
+
+        .search-box {
+            flex: 1;
+            min-width: 280px;
+        }
+
+        .search-input {
+            width: 100%;
+            background: var(--bg-elevated);
+            border: 1px solid var(--border-subtle);
+            border-radius: 8px;
+            padding: 10px 16px;
+            color: var(--text-primary);
+            font-family: 'Outfit', sans-serif;
+            font-size: 0.9rem;
+            transition: all 0.2s ease;
+        }
+
+        .search-input:focus {
+            outline: none;
+            border-color: var(--accent-primary);
+            box-shadow: 0 0 0 3px var(--accent-glow);
+        }
+
+        /* Results count */
+        .results-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+        }
+
+        .results-count {
+            font-size: 1rem;
+            color: var(--text-secondary);
+        }
+
+        .results-count strong {
+            color: var(--accent-primary);
+            font-weight: 600;
+        }
+
+        /* Grid */
+        .comercios-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+            gap: 24px;
+            margin-bottom: 60px;
+        }
+
+        /* Card */
+        .card {
+            background: var(--bg-card);
+            border-radius: 16px;
+            border: 1px solid var(--border-subtle);
+            overflow: hidden;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+        }
+
+        .card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: var(--gradient-thermal);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-4px);
+            border-color: var(--border-active);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3), 0 0 60px var(--accent-glow);
+        }
+
+        .card:hover::before {
+            opacity: 1;
+        }
+
+        .card-header {
+            padding: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 12px;
+        }
+
+        .card-category {
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            padding: 4px 10px;
+            border-radius: 100px;
+            background: var(--bg-elevated);
+            color: var(--accent-primary);
+            font-weight: 600;
+        }
+
+        .card-city {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        .card-body {
+            padding: 0 20px 20px;
+        }
+
+        .card-title {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-bottom: 16px;
+            line-height: 1.3;
+        }
+
+        .card-info {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .info-row {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+        }
+
+        .info-icon {
+            width: 18px;
+            height: 18px;
+            flex-shrink: 0;
+            opacity: 0.6;
+        }
+
+        .info-content {
+            flex: 1;
+        }
+
+        .site-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            font-weight: 500;
+        }
+
+        .site-badge.has-site {
+            background: rgba(34, 197, 94, 0.15);
+            color: var(--success);
+        }
+
+        .site-badge.no-site {
+            background: rgba(113, 113, 122, 0.15);
+            color: var(--text-muted);
+        }
+
+        .site-link {
+            color: var(--accent-secondary);
+            text-decoration: none;
+            font-size: 0.85rem;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            transition: opacity 0.2s;
+        }
+
+        .site-link:hover {
+            opacity: 0.8;
+            text-decoration: underline;
+        }
+
+        .rating {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .rating-stars {
+            color: var(--warning);
+            font-size: 0.9rem;
+        }
+
+        .rating-value {
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        /* Footer */
+        footer {
+            padding: 40px 0;
+            border-top: 1px solid var(--border-subtle);
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+
+        /* Loading state */
+        .loading {
+            text-align: center;
+            padding: 80px 20px;
+            color: var(--text-secondary);
+        }
+
+        .loading-spinner {
+            width: 48px;
+            height: 48px;
+            border: 3px solid var(--border-subtle);
+            border-top-color: var(--accent-primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Stagger animation */
+        .card {
+            opacity: 0;
+            animation: fadeInUp 0.5s ease forwards;
+        }
+
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* Empty state */
+        .empty-state {
+            text-align: center;
+            padding: 80px 20px;
+            color: var(--text-muted);
+        }
+
+        .empty-state h3 {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 1.5rem;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .header-content {
+                flex-direction: column;
+            }
+
+            .stats-bar {
+                flex-wrap: wrap;
+                gap: 24px;
+            }
+
+            .filters {
+                padding: 16px;
+            }
+
+            .filter-select,
+            .search-box {
+                min-width: 100%;
+            }
+
+            .comercios-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="bg-mesh"></div>
+
+    <div class="container">
+        <header>
+            <div class="header-content">
+                <div class="header-title">
+                    <h1>Comércios da Baixada</h1>
+                    <p>Mapeamento de estabelecimentos comerciais da Baixada Fluminense</p>
+                    <div class="stats-bar" id="statsBar">
+                        <div class="stat-item">
+                            <span class="stat-value" id="totalCount">-</span>
+                            <span class="stat-label">Total</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-value" id="siteCount">-</span>
+                            <span class="stat-label">Com Site</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-value" id="noSiteCount">-</span>
+                            <span class="stat-label">Sem Site</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-value" id="cityCount">-</span>
+                            <span class="stat-label">Cidades</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <section class="filters">
+            <div class="filter-group search-box">
+                <label>Buscar</label>
+                <input type="text" class="search-input" id="searchInput" placeholder="Nome do comércio...">
+            </div>
+            <div class="filter-group">
+                <label>Cidade</label>
+                <select class="filter-select" id="cityFilter">
+                    <option value="">Todas</option>
+                </select>
+            </div>
+            <div class="filter-group">
+                <label>Categoria</label>
+                <select class="filter-select" id="categoryFilter">
+                    <option value="">Todas</option>
+                </select>
+            </div>
+            <div class="filter-group">
+                <label>Site</label>
+                <select class="filter-select" id="siteFilter">
+                    <option value="">Todos</option>
+                    <option value="has">Com site</option>
+                    <option value="none">Sem site</option>
+                </select>
+            </div>
+        </section>
+
+        <section class="results-header">
+            <p class="results-count">Mostrando <strong id="visibleCount">0</strong> de <span id="totalFiltered">0</span> comércios</p>
+        </section>
+
+        <main class="comercios-grid" id="comerciosGrid">
+            <div class="loading">
+                <div class="loading-spinner"></div>
+                <p>Carregando dados...</p>
+            </div>
+        </main>
+
+        <footer>
+            <p>Dados coletados via Google Maps • Atualizado em <span id="updateDate"></span></p>
+        </footer>
+    </div>
+
+    <script>
+        let comerciosData = null;
+        let filteredComercios = [];
+
+        // SVG Icons
+        const icons = {
+            location: `<svg class="info-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>`,
+            phone: `<svg class="info-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"/></svg>`,
+            world: `<svg class="info-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"/></svg>`,
+            star: `<svg class="info-icon" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>`,
+            external: `<svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>`,
+            check: `<svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/></svg>`,
+            x: `<svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M6 18L18 6M6 6l12 12"/></svg>`
+        };
+
+        async function loadData() {
+            try {
+                const response = await fetch('../output/progresso.json');
+                const data = await response.json();
+                comerciosData = data.comercios || [];
+                initializeApp();
+            } catch (error) {
+                console.error('Erro ao carregar dados:', error);
+                document.getElementById('comerciosGrid').innerHTML = `
+                    <div class="empty-state">
+                        <h3>Erro ao carregar dados</h3>
+                        <p>Verifique se o arquivo progresso.json existe na pasta output.</p>
+                    </div>
+                `;
+            }
+        }
+
+        function initializeApp() {
+            updateStats();
+            populateFilters();
+            filterAndRender();
+            setupEventListeners();
+            document.getElementById('updateDate').textContent = new Date().toLocaleDateString('pt-BR');
+        }
+
+        function updateStats() {
+            const total = comerciosData.length;
+            const withSite = comerciosData.filter(c => c.tem_site).length;
+            const withoutSite = total - withSite;
+            const cities = [...new Set(comerciosData.map(c => c.cidade))].length;
+
+            animateNumber('totalCount', total);
+            animateNumber('siteCount', withSite);
+            animateNumber('noSiteCount', withoutSite);
+            animateNumber('cityCount', cities);
+        }
+
+        function animateNumber(id, target) {
+            const el = document.getElementById(id);
+            const duration = 1000;
+            const start = 0;
+            const startTime = performance.now();
+
+            function update(currentTime) {
+                const elapsed = currentTime - startTime;
+                const progress = Math.min(elapsed / duration, 1);
+                const easeOut = 1 - Math.pow(1 - progress, 3);
+                const current = Math.floor(start + (target - start) * easeOut);
+                el.textContent = current.toLocaleString('pt-BR');
+
+                if (progress < 1) {
+                    requestAnimationFrame(update);
+                }
+            }
+
+            requestAnimationFrame(update);
+        }
+
+        function populateFilters() {
+            // Cities
+            const cities = [...new Set(comerciosData.map(c => c.cidade))].sort();
+            const cityFilter = document.getElementById('cityFilter');
+            cities.forEach(city => {
+                const option = document.createElement('option');
+                option.value = city;
+                option.textContent = city;
+                cityFilter.appendChild(option);
+            });
+
+            // Categories
+            const categories = [...new Set(comerciosData.map(c => c.categoria))].sort();
+            const categoryFilter = document.getElementById('categoryFilter');
+            categories.forEach(cat => {
+                const option = document.createElement('option');
+                option.value = cat;
+                option.textContent = cat;
+                categoryFilter.appendChild(option);
+            });
+        }
+
+        function setupEventListeners() {
+            document.getElementById('searchInput').addEventListener('input', debounce(filterAndRender, 300));
+            document.getElementById('cityFilter').addEventListener('change', filterAndRender);
+            document.getElementById('categoryFilter').addEventListener('change', filterAndRender);
+            document.getElementById('siteFilter').addEventListener('change', filterAndRender);
+        }
+
+        function debounce(func, wait) {
+            let timeout;
+            return function executedFunction(...args) {
+                const later = () => {
+                    clearTimeout(timeout);
+                    func(...args);
+                };
+                clearTimeout(timeout);
+                timeout = setTimeout(later, wait);
+            };
+        }
+
+        function filterAndRender() {
+            const search = document.getElementById('searchInput').value.toLowerCase();
+            const city = document.getElementById('cityFilter').value;
+            const category = document.getElementById('categoryFilter').value;
+            const site = document.getElementById('siteFilter').value;
+
+            filteredComercios = comerciosData.filter(c => {
+                const matchSearch = !search ||
+                    c.nome.toLowerCase().includes(search) ||
+                    c.endereco.toLowerCase().includes(search);
+                const matchCity = !city || c.cidade === city;
+                const matchCategory = !category || c.categoria === category;
+                const matchSite = !site ||
+                    (site === 'has' && c.tem_site) ||
+                    (site === 'none' && !c.tem_site);
+
+                return matchSearch && matchCity && matchCategory && matchSite;
+            });
+
+            document.getElementById('totalFiltered').textContent = filteredComercios.length.toLocaleString('pt-BR');
+            renderCards(filteredComercios);
+        }
+
+        function renderCards(comercios) {
+            const grid = document.getElementById('comerciosGrid');
+
+            if (comercios.length === 0) {
+                grid.innerHTML = `
+                    <div class="empty-state" style="grid-column: 1 / -1;">
+                        <h3>Nenhum comércio encontrado</h3>
+                        <p>Tente ajustar os filtros de busca.</p>
+                    </div>
+                `;
+                document.getElementById('visibleCount').textContent = '0';
+                return;
+            }
+
+            // Limit to 100 cards for performance
+            const displayComercios = comercios.slice(0, 100);
+            document.getElementById('visibleCount').textContent = displayComercios.length.toLocaleString('pt-BR');
+
+            grid.innerHTML = displayComercios.map((c, index) => `
+                <article class="card" style="animation-delay: ${index * 30}ms">
+                    <div class="card-header">
+                        <span class="card-category">${c.categoria}</span>
+                        <span class="card-city">${c.cidade}</span>
+                    </div>
+                    <div class="card-body">
+                        <h2 class="card-title">${c.nome}</h2>
+                        <div class="card-info">
+                            <div class="info-row">
+                                ${icons.location}
+                                <span class="info-content">${c.endereco}</span>
+                            </div>
+                            ${c.telefone ? `
+                            <div class="info-row">
+                                ${icons.phone}
+                                <span class="info-content">${c.telefone}</span>
+                            </div>
+                            ` : ''}
+                            ${c.email ? `
+                            <div class="info-row">
+                                <span class="info-icon">📧</span>
+                                <span class="info-content">${c.email}</span>
+                            </div>
+                            ` : ''}
+                            <div class="info-row">
+                                ${icons.world}
+                                <div class="info-content">
+                                    ${c.tem_site ? `
+                                        <span class="site-badge has-site">${icons.check} Tem site</span>
+                                        ${c.url_site ? `<br><a href="${c.url_site}" target="_blank" class="site-link">${c.url_site}${icons.external}</a>` : ''}
+                                    ` : `
+                                        <span class="site-badge no-site">${icons.x} Sem site</span>
+                                    `}
+                                </div>
+                            </div>
+                            ${c.avaliacao ? `
+                            <div class="info-row">
+                                ${icons.star}
+                                <div class="info-content">
+                                    <span class="rating">
+                                        <span class="rating-value">${c.avaliacao}</span>
+                                        <span class="rating-stars">★</span>
+                                    </span>
+                                </div>
+                            </div>
+                            ` : ''}
+                        </div>
+                    </div>
+                </article>
+            `).join('');
+
+            if (comercios.length > 100) {
+                const moreDiv = document.createElement('div');
+                moreDiv.className = 'empty-state';
+                moreDiv.style.gridColumn = '1 / -1';
+                moreDiv.innerHTML = `<p>E mais ${comercios.length - 100} comércios. Refine sua busca para ver todos.</p>`;
+                grid.appendChild(moreDiv);
+            }
+        }
+
+        // Initialize
+        loadData();
+    </script>
+</body>
+</html>
