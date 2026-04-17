@@ -217,6 +217,64 @@ async def extrair_email_detalhes(page, blacklist_emails):
         await page.wait_for_load_state("networkidle", timeout=10000)
         await asyncio.sleep(3)
 
+        # FECHAR POPUP/MODAL/NOTIFICACAO do site antes de tudo
+        print(f"    [  ] Fechando popups...")
+        try:
+            fechou = await page.evaluate("""() => {
+                // Fecha overlays/modais comuns
+                const seletores_fechar = [
+                    // Botoes de fechar (X)
+                    '[class*="close"]', '[class*="fechar"]', '[class*="dismiss"]',
+                    '[aria-label="Close"]', '[aria-label="Fechar"]',
+                    '.modal-close', '.popup-close', '.notification-close',
+                    // Botoes de "Nao" / "Depois"
+                    'button:has-text("Nao")', 'button:has-text("Depois")',
+                    'button:has-text("Não")', 'button:has-text("Agora não")',
+                    'a:has-text("Nao")', 'a:has-text("Não")',
+                    // Backdrop/overlay
+                    '.modal-backdrop', '.overlay', '.popup-overlay',
+                ];
+
+                for (let sel of seletores_fechar) {
+                    try {
+                        const els = document.querySelectorAll(sel);
+                        for (let el of els) {
+                            if (el && el.offsetParent !== null) {  // visivel
+                                el.click();
+                                return true;
+                            }
+                        }
+                    } catch(e) {}
+                }
+
+                // Remove overlays que bloqueiam a tela
+                const overlays = document.querySelectorAll(
+                    '[style*="z-index"], [class*="modal"], [class*="popup"], [class*="overlay"], [class*="notification"]'
+                );
+                for (let o of overlays) {
+                    const style = window.getComputedStyle(o);
+                    if (style.position === 'fixed' || style.position === 'absolute') {
+                        if (o.offsetWidth > 300 && o.offsetHeight > 200) {
+                            o.style.display = 'none';
+                        }
+                    }
+                }
+
+                return false;
+            }""")
+
+            if fechou:
+                await asyncio.sleep(1)
+
+            # Tambem tenta apertar Escape pra fechar
+            await page.keyboard.press("Escape")
+            await asyncio.sleep(0.5)
+            await page.keyboard.press("Escape")
+            await asyncio.sleep(0.5)
+
+        except Exception:
+            pass
+
         # PRIMEIRO: Tenta extrair email direto do HTML (pode estar escondido)
         html = await page.inner_html("body")
         emails = extract_emails(html)
@@ -609,7 +667,18 @@ async def main():
                 "Chrome/131.0.0.0 Safari/537.36"
             ),
         )
+
+        # Bloqueia notificacoes push do navegador
+        await ctx.route("**/sw.js", lambda route: route.abort())
+        await ctx.route("**/manifest.json", lambda route: route.abort())
+        await ctx.route("**/firebase-messaging-sw.js", lambda route: route.abort())
+        await ctx.route("**/OneSignalSDK*", lambda route: route.abort())
+        await ctx.route("**/push*", lambda route: route.abort())
+
         page = await ctx.new_page()
+
+        # Handler para fechar alerts nativos do navegador
+        page.on("dialog", lambda dialog: dialog.dismiss())
 
         try:
             await page.goto("https://www.bing.com", wait_until="domcontentloaded", timeout=15000)
