@@ -148,8 +148,14 @@ async def buscar_email_cnpj(page, nome, cidade, blacklist_emails):
         total_links = await todos_links.count()
 
         nome_lower = nome.lower()
+        tentativas_max = 10  # Limita tentativas pra evitar loop infinito
+        tentativas = 0
 
         for idx in range(total_links):
+            if tentativas >= tentativas_max:
+                print(f"    [!] Limite de tentativas atingido para {nome[:30]}")
+                break
+
             try:
                 link = todos_links.nth(idx)
                 link_text = (await link.inner_text()).strip()
@@ -174,6 +180,9 @@ async def buscar_email_cnpj(page, nome, cidade, blacklist_emails):
 
                 # Aceita se tem ATIVA + cidade
                 if "ATIVA" in parent_upper and cidade_clean.lower() in parent_text.lower():
+                    tentativas += 1
+                    print(f"    [{tentativas}/{tentativas_max}] Tentando: {link_text[:40]}")
+
                     # Clica!
                     await link.click()
                     await asyncio.sleep(3)
@@ -186,7 +195,8 @@ async def buscar_email_cnpj(page, nome, cidade, blacklist_emails):
                     # Volta pra lista
                     await page.go_back(timeout=10000)
                     await asyncio.sleep(2)
-            except Exception:
+            except Exception as e:
+                print(f"    [!] Erro ao processar link: {str(e)[:40]}")
                 try:
                     await page.go_back(timeout=5000)
                     await asyncio.sleep(1)
@@ -195,36 +205,122 @@ async def buscar_email_cnpj(page, nome, cidade, blacklist_emails):
 
         return ""
 
-    except Exception:
+    except Exception as e:
+        print(f"    [!] Erro em buscar_email_cnpj: {str(e)[:50]}")
         return ""
 
 
 async def extrair_email_detalhes(page, blacklist_emails):
     """Na pagina de detalhes da empresa, clica em Ver E-mail e extrai o email revelado."""
     try:
-        # Clica em "Ver E-mail" para revelar o email oculto
-        ver_email = page.locator('a:has-text("Ver E-mail"), button:has-text("Ver E-mail"), '
-                                  'a:has-text("ver email"), span:has-text("Ver E-mail"), '
-                                  '[class*="ver-email"], a[href*="email"]')
-        count_ve = await ver_email.count()
-        for idx in range(count_ve):
-            try:
-                el = ver_email.nth(idx)
-                if await el.is_visible():
-                    await el.click(timeout=3000)
-                    await asyncio.sleep(3)  # Espera o email ser revelado
-                    break
-            except Exception:
-                pass
-
-        # Extrai o email revelado do body
+        # PRIMEIRO: Tenta extrair email direto da pagina (pode ja estar visivel)
         body = await page.inner_text("body")
         emails = extract_emails(body)
         emails = [e for e in emails if e not in blacklist_emails]
+        if emails:
+            print(f"    [✓] Email encontrado direto: {emails[0]}")
+            return emails[0]
 
-        return emails[0] if emails else ""
+        # SEGUNDO: Tenta clicar no botao "Ver E-mail" com multiplas estrategias
+        estrategias_clique = [
+            # Estrategia 1: Texto exato "Ver E-mail"
+            'a:has-text("Ver E-mail")',
+            'button:has-text("Ver E-mail")',
+            'span:has-text("Ver E-mail")',
+            'div:has-text("Ver E-mail")',
 
-    except Exception:
+            # Estrategia 2: Variacoes de texto
+            'a:has-text("ver email")',
+            'a:has-text("VER E-MAIL")',
+            'a:has-text("Email")',
+            'button:has-text("Email")',
+
+            # Estrategia 3: Por classe/atributo
+            '[class*="email"]',
+            '[id*="email"]',
+            'a[href*="mailto"]',
+
+            # Estrategia 4: Por icone (comum em sites modernos)
+            'button svg',
+            'a svg',
+        ]
+
+        clicou_com_sucesso = False
+        for estrategia in estrategias_clique:
+            try:
+                elementos = page.locator(estrategia)
+                count = await elementos.count()
+                if count == 0:
+                    continue
+
+                for idx in range(min(count, 5)):  # Max 5 elementos por estrategia
+                    try:
+                        el = elementos.nth(idx)
+
+                        # Verifica se esta visivel
+                        if not await el.is_visible():
+                            continue
+
+                        # Faz scroll ate o elemento
+                        await el.scroll_into_view_if_needed(timeout=2000)
+                        await asyncio.sleep(0.3)
+
+                        # Tenta clicar
+                        await el.click(timeout=3000)
+                        await asyncio.sleep(2)
+
+                        # Verifica se o email apareceu
+                        body_novo = await page.inner_text("body")
+                        emails_novos = extract_emails(body_novo)
+                        emails_novos = [e for e in emails_novos if e not in blacklist_emails]
+
+                        if emails_novos and emails_novos != emails:
+                            print(f"    [✓] Email revelado: {emails_novos[0]}")
+                            return emails_novos[0]
+
+                        clicou_com_sucesso = True
+
+                    except Exception:
+                        continue
+
+            except Exception:
+                continue
+
+        # TERCEIRO: Tentativa com JavaScript direto (ultima opcao)
+        if not clicou_com_sucesso:
+            try:
+                # Procura qualquer elemento com texto "email" e tenta clicar via JS
+                js_result = await page.evaluate("""() => {
+                    // Procura links e botoes com "email" no texto
+                    const elementos = document.querySelectorAll('a, button, span, div');
+                    for (let el of elementos) {
+                        const texto = el.textContent || '';
+                        if (texto.toLowerCase().includes('ver e-mail') ||
+                            texto.toLowerCase().includes('email')) {
+                            el.click();
+                            return true;
+                        }
+                    }
+                    return false;
+                }""")
+                await asyncio.sleep(2)
+
+                if js_result:
+                    body_novo = await page.inner_text("body")
+                    emails_novos = extract_emails(body_novo)
+                    emails_novos = [e for e in emails_novos if e not in blacklist_emails]
+                    if emails_novos:
+                        print(f"    [✓] Email revelado via JS: {emails_novos[0]}")
+                        return emails_novos[0]
+
+            except Exception:
+                pass
+
+        print(f"    [-] Nenhum email encontrado na pagina de detalhes")
+        return ""
+
+    except Exception as e:
+        print(f"    [!] Erro ao extrair email: {str(e)[:50]}")
         return ""
 
 
