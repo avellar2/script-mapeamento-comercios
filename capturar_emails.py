@@ -225,7 +225,32 @@ async def extrair_email_detalhes(page, blacklist_emails):
             print(f"    [✓] Email encontrado direto: {emails[0]}")
             return emails[0]
 
-        # SEGUNDO: Tenta clicar no botao "Ver E-mail" com multiplas estrategias
+        # SEGUNDO: Scroll agressivo na pagina pra garantir que carregou tudo
+        print(f"    [  ] Fazendo scroll na pagina...")
+        try:
+            # Scroll ate o fundo da pagina devagar
+            await page.evaluate("""
+                async () => {
+                    for (let i = 0; i < 5; i++) {
+                        window.scrollBy(0, 300);
+                        await new Promise(r => setTimeout(r, 200));
+                    }
+                }
+            """)
+            await asyncio.sleep(2)
+
+            # Scroll de volta pro topo devagar
+            await page.evaluate("""
+                async () => {
+                    window.scrollTo({top: 0, behavior: 'smooth'});
+                    await new Promise(r => setTimeout(r, 500));
+                }
+            """)
+            await asyncio.sleep(1)
+        except Exception:
+            pass
+
+        # TERCEIRO: Tenta clicar no botao "Ver E-mail" com multiplas estrategias
         estrategias_clique = [
             # Estrategia 1: Texto exato "Ver E-mail"
             'a:has-text("Ver E-mail")',
@@ -263,15 +288,23 @@ async def extrair_email_detalhes(page, blacklist_emails):
                     try:
                         el = elementos.nth(idx)
 
+                        # Faz scroll ate o elemento MESMO se nao estiver visivel
+                        try:
+                            await el.scroll_into_view_if_needed(timeout=5000)
+                        except Exception:
+                            # Se falhar, tenta scroll manual
+                            await page.evaluate("""(el) => {
+                                el.scrollIntoView({behavior: 'smooth', block: 'center'});
+                            }""", el)
+                        await asyncio.sleep(1)  # Espera extra apos scroll
+
                         # Verifica se esta visivel
-                        if not await el.is_visible():
+                        is_visible = await el.is_visible()
+                        if not is_visible:
+                            print(f"    [  ] Elemento {idx + 1} nao visivel, pulando...")
                             continue
 
                         print(f"    [  ] Tentando elemento {idx + 1}...")
-
-                        # Faz scroll ate o elemento devagar
-                        await el.scroll_into_view_if_needed(timeout=5000)
-                        await asyncio.sleep(1)  # Espera extra apos scroll
 
                         # Highlight visual (para debug)
                         await el.evaluate("el => el.style.border = '3px solid red'")
@@ -300,7 +333,7 @@ async def extrair_email_detalhes(page, blacklist_emails):
                 print(f"    [!] Erro na estrategia {estrategia_idx + 1}: {str(e)[:30]}")
                 continue
 
-        # TERCEIRO: Tentativa com JavaScript direto (ultima opcao)
+        # QUARTO: Tentativa com JavaScript direto (ultima opcao)
         if not clicou_com_sucesso:
             try:
                 print(f"    [  ] Tentando JavaScript direto...")
