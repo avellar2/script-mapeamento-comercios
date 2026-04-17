@@ -106,104 +106,74 @@ def extract_emails(text):
 
 # ── Etapa 1: Email CNPJ (pessoal do dono) ──────────────────────────
 
-async def buscar_email_cnpj(page, nome, cidade, blacklist_emails):
-    """Busca email CNPJ direto no cnpj.biz. Retorna email ou vazio."""
+def extract_cnpj(text):
+    """Extrai CNPJ de um texto. Retorna so numeros ou vazio."""
+    if not text:
+        return ""
+    # Padrao: XX.XXX.XXX/XXXX-XX ou XXXXXXXXXXXXXX
+    match = re.search(r'(\d{2}\.?\d{3}\.?\d{3}[\/\\]?\d{4}-?\d{2})', text)
+    if match:
+        cnpj = re.sub(r'[^\d]', '', match.group(1))
+        if len(cnpj) == 14:
+            return cnpj
+    return ""
+
+
+async def buscar_cnpj_google(page, nome, cidade):
+    """Busca o CNPJ de uma empresa no Bing. Retorna CNPJ limpo ou vazio."""
     cidade_clean = cidade.replace(", RJ", "").replace(",RJ", "").strip()
+    queries = [
+        f'"{nome}" {cidade_clean} CNPJ',
+        f'{nome} {cidade_clean} cnpj',
+    ]
 
+    for query in queries:
+        try:
+            url = f"https://www.bing.com/search?q={urllib.parse.quote(query)}"
+            await page.goto(url, wait_until="domcontentloaded", timeout=15000)
+            await asyncio.sleep(1.5)
+
+            # Extrai texto dos resultados
+            textos = []
+            try:
+                body = await page.inner_text("body")
+                textos.append(body)
+            except Exception:
+                pass
+
+            texto = " ".join(textos)
+            cnpj = extract_cnpj(texto)
+            if cnpj:
+                return cnpj
+
+        except Exception:
+            pass
+
+    return ""
+
+
+async def buscar_email_cnpj(page, nome, cidade, blacklist_emails):
+    """Busca CNPJ no Bing, acessa cnpj.biz direto e extrai email."""
     try:
-        # Vai direto na busca de empresas do cnpj.biz
-        await page.goto("https://cnpj.biz/empresas", wait_until="domcontentloaded", timeout=20000)
-        await asyncio.sleep(2)
+        # PASSO 1: Buscar CNPJ no Bing
+        print(f"    [→] Buscando CNPJ de: {nome[:40]}")
+        cnpj = await buscar_cnpj_google(page, nome, cidade)
 
-        # Verifica se a pagina carregou (nao foi bloqueada)
-        body_check = await page.inner_text("body")
-        if any(p in body_check.lower() for p in ["navegador", "browser is too old", "cloudflare"]):
+        if not cnpj:
+            print(f"    [-] CNPJ nao encontrado")
             return ""
 
-        # Preenche o campo de busca
-        search_input = page.locator('input[type="text"], input[type="search"], input[name="q"], '
-                                     'input[placeholder*="Buscar"], input[placeholder*="empresa"], '
-                                     'input[placeholder*="nome"]').first
-        if await search_input.count() == 0:
-            return ""
+        print(f"    [✓] CNPJ encontrado: {cnpj[:2]}.{cnpj[2:5]}.{cnpj[5:8]}/{cnpj[8:12]}-{cnpj[12:]}")
 
-        await search_input.click()
-        await asyncio.sleep(0.3)
-        await search_input.fill(nome)
-        await asyncio.sleep(0.5)
-        await search_input.press("Enter")
+        # PASSO 2: Acessar pagina de detalhes direto pela URL
+        url_cnpj = f"https://cnpj.biz/{cnpj}"
+        print(f"    [→] Acessando: {url_cnpj}")
+        await page.goto(url_cnpj, wait_until="domcontentloaded", timeout=20000)
         await asyncio.sleep(3)
 
-        # Pega todo o HTML da pagina pra analisar
-        body = await page.inner_text("body")
-
-        # Se nao tem ATIVA, nao achou resultados
-        if "ATIVA" not in body.upper():
-            return ""
-
-        # Estrategia simples: pega TODOS os links da pagina
-        # Encontra o link cujo texto contem parte do nome da empresa
-        # e que esteja proximo de "ATIVA" e da cidade
-        todos_links = page.locator("a")
-        total_links = await todos_links.count()
-
-        nome_lower = nome.lower()
-        tentativas_max = 10  # Limita tentativas pra evitar loop infinito
-        tentativas = 0
-
-        for idx in range(total_links):
-            if tentativas >= tentativas_max:
-                print(f"    [!] Limite de tentativas atingido para {nome[:30]}")
-                break
-
-            try:
-                link = todos_links.nth(idx)
-                link_text = (await link.inner_text()).strip()
-
-                # Verifica se o link tem a ver com o nome do comercio
-                if len(link_text) < 5:
-                    continue
-
-                # Pega o HTML do parente proximo pra ver contexto
-                parent = link.locator("xpath=ancestor::*[position() <= 3]")
-                parent_text = ""
-                try:
-                    parent_text = await parent.first.inner_text()
-                except Exception:
-                    parent_text = link_text
-
-                parent_upper = parent_text.upper()
-
-                # Pula se BAIXADA
-                if "BAIXADA" in parent_upper:
-                    continue
-
-                # Aceita se tem ATIVA + cidade
-                if "ATIVA" in parent_upper and cidade_clean.lower() in parent_text.lower():
-                    tentativas += 1
-                    print(f"    [{tentativas}/{tentativas_max}] Tentando: {link_text[:40]}")
-
-                    # Clica!
-                    await link.click()
-                    await asyncio.sleep(3)
-
-                    # Extrai email da pagina de detalhes
-                    email = await extrair_email_detalhes(page, blacklist_emails)
-                    if email:
-                        return email
-
-                    # Volta pra lista
-                    await page.go_back(timeout=10000)
-                    await asyncio.sleep(2)
-            except Exception as e:
-                print(f"    [!] Erro ao processar link: {str(e)[:40]}")
-                try:
-                    await page.go_back(timeout=5000)
-                    await asyncio.sleep(1)
-                except Exception:
-                    pass
-
-        return ""
+        # PASSO 3: Extrair email da pagina de detalhes
+        email = await extrair_email_detalhes(page, blacklist_emails)
+        return email
 
     except Exception as e:
         print(f"    [!] Erro em buscar_email_cnpj: {str(e)[:50]}")
