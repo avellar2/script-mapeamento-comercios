@@ -327,82 +327,113 @@ async def extrair_email_detalhes(page, blacklist_emails):
 # ── Etapa 2: Email comercial (onde o comercio atende) ──────────────
 
 async def buscar_email_comercial(page, nome, cidade, blacklist_emails, email_cnpj=""):
-    """Busca email comercial do comercio via Bing."""
+    """Busca email comercial do comercio via Bing e diretamente em sites."""
     cidade_clean = cidade.replace(", RJ", "").replace(",RJ", "").strip()
     # Adiciona o email CNPJ na blacklist pra nao repetir
     bl = set(blacklist_emails)
     if email_cnpj:
         bl.add(email_cnpj)
 
-    query = f'"{nome}" {cidade_clean} email contato'
-    url = f"https://www.bing.com/search?q={urllib.parse.quote(query)}"
+    print(f"    [→] Buscando email comercial para: {nome[:40]}")
 
-    for tentativa in range(MAX_RETRIES):
+    # ESTRATEGIA 1: Busca no Bing com varias queries
+    queries = [
+        f'"{nome}" {cidade_clean} email',
+        f'"{nome}" {cidade_clean} contato',
+        f'"{nome}" {cidade_clean} @',
+        f"{nome} {cidade_clean} site oficial",
+    ]
+
+    for query_idx, query in enumerate(queries):
         try:
+            url = f"https://www.bing.com/search?q={urllib.parse.quote(query)}"
+            print(f"    [  ] Busca {query_idx + 1}: {query[:50]}")
+
             await page.goto(url, wait_until="domcontentloaded", timeout=20000)
             await asyncio.sleep(1.5)
 
+            # Extrai emails dos snippets e titulos
             textos = []
 
-            for sel in [".b_caption p", ".b_lineclamp2", "li.b_algo p"]:
-                snippets = page.locator(sel)
-                count = await snippets.count()
-                for j in range(min(count, 15)):
-                    try:
-                        txt = await snippets.nth(j).inner_text()
-                        textos.append(txt)
-                    except Exception:
-                        pass
+            # Seletores do Bing para snippets
+            seletores_bing = [
+                ".b_caption p", ".b_lineclamp2", "li.b_algo p",
+                ".b_snippet", "p.snippet", ".algoSnippet",
+            ]
 
-            for sel in ["li.b_algo h2"]:
-                titulos = page.locator(sel)
+            for sel in seletores_bing:
+                try:
+                    snippets = page.locator(sel)
+                    count = await snippets.count()
+                    for j in range(min(count, 20)):
+                        try:
+                            txt = await snippets.nth(j).inner_text()
+                            textos.append(txt)
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+
+            # Titulos
+            try:
+                titulos = page.locator("li.b_algo h2, h2 a, .b_title")
                 count_t = await titulos.count()
-                for j in range(min(count_t, 10)):
+                for j in range(min(count_t, 15)):
                     try:
                         txt = await titulos.nth(j).inner_text()
                         textos.append(txt)
                     except Exception:
                         pass
+            except Exception:
+                pass
 
+            # Body completo
             try:
                 body = await page.inner_text("body")
                 textos.append(body)
             except Exception:
                 pass
 
+            # Extrai emails
             texto_completo = " ".join(textos)
             emails = extract_emails(texto_completo)
             emails = [e for e in emails if e not in bl]
 
             if emails:
+                print(f"    [✓] Email encontrado no Bing: {emails[0]}")
                 return emails[0]
 
-            # Segunda busca mais ampla
-            if tentativa == 0:
-                query2 = f"{nome} {cidade_clean} telefone contato"
-                url2 = f"https://www.bing.com/search?q={urllib.parse.quote(query2)}"
-                await page.goto(url2, wait_until="domcontentloaded", timeout=20000)
-                await asyncio.sleep(1.5)
+            # ESTRATEGIA 2: Clica no primeiro resultado relevante e extrai email do site
+            try:
+                # Pega o primeiro link de resultado
+                primeiro_link = page.locator("li.b_algo h2 a").first
+                if await primeiro_link.count() > 0:
+                    href = await primeiro_link.get_attribute("href")
+                    if href and not any(x in href for x in ["linkedin", "facebook", "instagram", "twitter"]):
+                        print(f"    [  ] Visitando site: {href[:60]}")
+                        await page.goto(href, wait_until="domcontentloaded", timeout=15000)
+                        await asyncio.sleep(2)
 
-                try:
-                    body2 = await page.inner_text("body")
-                    emails2 = extract_emails(body2)
-                    emails2 = [e for e in emails2 if e not in bl]
-                    if emails2:
-                        return emails2[0]
-                except Exception:
-                    pass
+                        # Procura email no site
+                        body_site = await page.inner_text("body")
+                        emails_site = extract_emails(body_site)
+                        emails_site = [e for e in emails_site if e not in bl]
 
-            return ""
+                        if emails_site:
+                            print(f"    [✓] Email encontrado no site: {emails_site[0]}")
+                            return emails_site[0]
+
+                        # Volta pro Bing
+                        await page.go_back(timeout=10000)
+                        await asyncio.sleep(1)
+            except Exception:
+                pass
 
         except Exception as e:
-            if tentativa < MAX_RETRIES - 1:
-                print(f"    [!] Erro (tentativa {tentativa + 1}): {str(e)[:60]}")
-                await asyncio.sleep(random.uniform(5, 10))
-            else:
-                print(f"    [X] Falha: {str(e)[:60]}")
-                return ""
+            print(f"    [!] Erro na busca {query_idx + 1}: {str(e)[:40]}")
+            await asyncio.sleep(2)
 
+    print(f"    [-] Nenhum email comercial encontrado")
     return ""
 
 
