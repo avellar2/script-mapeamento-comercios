@@ -213,6 +213,10 @@ async def buscar_email_cnpj(page, nome, cidade, blacklist_emails):
 async def extrair_email_detalhes(page, blacklist_emails):
     """Na pagina de detalhes da empresa, clica em Ver E-mail e extrai o email revelado."""
     try:
+        # Espera a pagina carregar completamente
+        await page.wait_for_load_state("networkidle", timeout=10000)
+        await asyncio.sleep(2)
+
         # PRIMEIRO: Tenta extrair email direto da pagina (pode ja estar visivel)
         body = await page.inner_text("body")
         emails = extract_emails(body)
@@ -246,12 +250,14 @@ async def extrair_email_detalhes(page, blacklist_emails):
         ]
 
         clicou_com_sucesso = False
-        for estrategia in estrategias_clique:
+        for estrategia_idx, estrategia in enumerate(estrategias_clique):
             try:
                 elementos = page.locator(estrategia)
                 count = await elementos.count()
                 if count == 0:
                     continue
+
+                print(f"    [  ] Estrategia {estrategia_idx + 1}: {estrategia[:40]} ({count} elementos)")
 
                 for idx in range(min(count, 5)):  # Max 5 elementos por estrategia
                     try:
@@ -261,13 +267,19 @@ async def extrair_email_detalhes(page, blacklist_emails):
                         if not await el.is_visible():
                             continue
 
-                        # Faz scroll ate o elemento
-                        await el.scroll_into_view_if_needed(timeout=2000)
-                        await asyncio.sleep(0.3)
+                        print(f"    [  ] Tentando elemento {idx + 1}...")
+
+                        # Faz scroll ate o elemento devagar
+                        await el.scroll_into_view_if_needed(timeout=5000)
+                        await asyncio.sleep(1)  # Espera extra apos scroll
+
+                        # Highlight visual (para debug)
+                        await el.evaluate("el => el.style.border = '3px solid red'")
+                        await asyncio.sleep(1)
 
                         # Tenta clicar
-                        await el.click(timeout=3000)
-                        await asyncio.sleep(2)
+                        await el.click(timeout=5000)
+                        await asyncio.sleep(3)  # Espera MAIOR para o email aparecer
 
                         # Verifica se o email apareceu
                         body_novo = await page.inner_text("body")
@@ -280,15 +292,18 @@ async def extrair_email_detalhes(page, blacklist_emails):
 
                         clicou_com_sucesso = True
 
-                    except Exception:
+                    except Exception as e:
+                        print(f"    [!] Erro no elemento {idx + 1}: {str(e)[:30]}")
                         continue
 
-            except Exception:
+            except Exception as e:
+                print(f"    [!] Erro na estrategia {estrategia_idx + 1}: {str(e)[:30]}")
                 continue
 
         # TERCEIRO: Tentativa com JavaScript direto (ultima opcao)
         if not clicou_com_sucesso:
             try:
+                print(f"    [  ] Tentando JavaScript direto...")
                 # Procura qualquer elemento com texto "email" e tenta clicar via JS
                 js_result = await page.evaluate("""() => {
                     // Procura links e botoes com "email" no texto
@@ -296,14 +311,16 @@ async def extrair_email_detalhes(page, blacklist_emails):
                     for (let el of elementos) {
                         const texto = el.textContent || '';
                         if (texto.toLowerCase().includes('ver e-mail') ||
-                            texto.toLowerCase().includes('email')) {
+                            texto.toLowerCase().includes('ver email') ||
+                            texto.toLowerCase().includes('mostrar email')) {
+                            el.scrollIntoView({behavior: 'smooth', block: 'center'});
                             el.click();
                             return true;
                         }
                     }
                     return false;
                 }""")
-                await asyncio.sleep(2)
+                await asyncio.sleep(4)  # Espera maior apos JS
 
                 if js_result:
                     body_novo = await page.inner_text("body")
