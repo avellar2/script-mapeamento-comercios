@@ -211,188 +211,127 @@ async def buscar_email_cnpj(page, nome, cidade, blacklist_emails):
 
 
 async def extrair_email_detalhes(page, blacklist_emails):
-    """Na pagina de detalhes da empresa, clica em Ver E-mail e extrai o email revelado."""
+    """Na pagina de detalhes, intercepta a API do cnpj.biz para pegar o email."""
     try:
-        # Espera a pagina carregar completamente
         await page.wait_for_load_state("networkidle", timeout=10000)
-        await asyncio.sleep(3)
+        await asyncio.sleep(2)
 
-        # FECHAR POPUP/MODAL/NOTIFICACAO do site antes de tudo
-        print(f"    [  ] Fechando popups...")
-        try:
-            fechou = await page.evaluate("""() => {
-                // Fecha overlays/modais comuns
-                const seletores_fechar = [
-                    // Botoes de fechar (X)
-                    '[class*="close"]', '[class*="fechar"]', '[class*="dismiss"]',
-                    '[aria-label="Close"]', '[aria-label="Fechar"]',
-                    '.modal-close', '.popup-close', '.notification-close',
-                    // Botoes de "Nao" / "Depois"
-                    'button:has-text("Nao")', 'button:has-text("Depois")',
-                    'button:has-text("Não")', 'button:has-text("Agora não")',
-                    'a:has-text("Nao")', 'a:has-text("Não")',
-                    // Backdrop/overlay
-                    '.modal-backdrop', '.overlay', '.popup-overlay',
-                ];
+        # FECHAR qualquer popup/modal/overlay
+        await page.keyboard.press("Escape")
+        await asyncio.sleep(0.5)
+        await page.evaluate("""() => {
+            // Remove todos os overlays e popups
+            document.querySelectorAll(
+                '[class*="modal"], [class*="popup"], [class*="overlay"], [class*="notification"], [class*="banner"], [class*="subscribe"]'
+            ).forEach(el => el.remove());
+        }""")
+        await asyncio.sleep(0.5)
 
-                for (let sel of seletores_fechar) {
-                    try {
-                        const els = document.querySelectorAll(sel);
-                        for (let el of els) {
-                            if (el && el.offsetParent !== null) {  // visivel
-                                el.click();
-                                return true;
-                            }
-                        }
-                    } catch(e) {}
-                }
-
-                // Remove overlays que bloqueiam a tela
-                const overlays = document.querySelectorAll(
-                    '[style*="z-index"], [class*="modal"], [class*="popup"], [class*="overlay"], [class*="notification"]'
-                );
-                for (let o of overlays) {
-                    const style = window.getComputedStyle(o);
-                    if (style.position === 'fixed' || style.position === 'absolute') {
-                        if (o.offsetWidth > 300 && o.offsetHeight > 200) {
-                            o.style.display = 'none';
-                        }
-                    }
-                }
-
-                return false;
-            }""")
-
-            if fechou:
-                await asyncio.sleep(1)
-
-            # Tambem tenta apertar Escape pra fechar
-            await page.keyboard.press("Escape")
-            await asyncio.sleep(0.5)
-            await page.keyboard.press("Escape")
-            await asyncio.sleep(0.5)
-
-        except Exception:
-            pass
-
-        # PRIMEIRO: Tenta extrair email direto do HTML (pode estar escondido)
-        html = await page.inner_html("body")
-        emails = extract_emails(html)
+        # PRIMEIRO: Verifica se o email ja esta no HTML completo
+        html_completo = await page.content()
+        emails = extract_emails(html_completo)
         emails = [e for e in emails if e not in blacklist_emails]
         if emails:
-            print(f"    [✓] Email encontrado no HTML: {emails[0]}")
+            print(f"    [✓] Email no HTML: {emails[0]}")
             return emails[0]
 
-        # SEGUNDO: Scroll total ate o fundo e volta
-        print(f"    [  ] Scroll completo da pagina...")
-        try:
-            # Scroll ate o fundo
-            for _ in range(10):
-                await page.keyboard.press("End")
-                await asyncio.sleep(0.2)
-            await asyncio.sleep(2)
+        # SEGUNDO: Intercepta requisicoes de rede para pegar email da API
+        print(f"    [  ] Interceptando rede...")
+        email_capturado = []
 
-            # Scroll de volta pro topo
-            for _ in range(10):
-                await page.keyboard.press("Home")
-                await asyncio.sleep(0.2)
-            await asyncio.sleep(2)
-        except Exception:
-            pass
+        async def capturar_email_response(response):
+            try:
+                url = response.url
+                if "email" in url.lower() or "contact" in url.lower() or "empresa" in url.lower():
+                    body = await response.text()
+                    encontrados = extract_emails(body)
+                    encontrados = [e for e in encontrados if e not in blacklist_emails]
+                    if encontrados:
+                        email_capturado.append(encontrados[0])
+            except Exception:
+                pass
 
-        # TERCEIRO: Procura e clica no botao por texto exato
-        print(f"    [  ] Procurando botao por texto...")
-        try:
-            # JavaScript para achar e clicar no botao
-            result = await page.evaluate("""() => {
-                // Textos que procuramos
-                const textos = ['ver e-mail', 'ver email', 'mostrar e-mail', 'ver e mail', 'email'];
+        page.on("response", capturar_email_response)
 
-                // Procura todos os elementos clicaveis
-                const elementos = document.querySelectorAll('a, button, span, div, label, input[type="button"]');
+        # TERCEIRO: Scroll ate a secao de contatos e clica no Ver E-mail
+        print(f"    [  ] Procurando botao Ver E-mail...")
 
-                for (let el of elementos) {
-                    const texto = el.textContent || '';
-                    const textoLower = texto.toLowerCase().trim();
-
-                    // Verifica se contem algum dos textos
-                    for (let t of textos) {
-                        if (textoLower === t || textoLower.includes(t)) {
-                            // Scroll ate o elemento
-                            el.scrollIntoView({behavior: 'smooth', block: 'center'});
-
-                            // Tenta varios metodos de clique
-                            try {
-                                el.click();
-                            } catch(e) {
-                                try {
-                                    el.dispatchEvent(new MouseEvent('click', {bubbles: true}));
-                                } catch(e2) {
-                                    try {
-                                        el.dispatchEvent(new Event('click', {bubbles: true}));
-                                    } catch(e3) {}
-                                }
-                            }
-                            return true;
+        # Scroll ate encontrar o texto "E-mail" na pagina
+        await page.evaluate("""() => {
+            // Procura o texto "E-mail" e faz scroll ate ele
+            const walker = document.createTreeWalker(
+                document.body,
+                NodeFilter.SHOW_TEXT,
+                {
+                    acceptNode: function(node) {
+                        if (node.textContent.includes('E-mail') || node.textContent.includes('Email')) {
+                            return NodeFilter.FILTER_ACCEPT;
                         }
+                        return NodeFilter.FILTER_SKIP;
                     }
                 }
-                return false;
-            }""")
+            );
+            const node = walker.nextNode();
+            if (node) {
+                node.parentElement.scrollIntoView({behavior: 'smooth', block: 'center'});
+            }
+        }""")
+        await asyncio.sleep(2)
 
-            if result:
-                await asyncio.sleep(4)  # Espera o email aparecer
+        # Fecha popup novamente apos scroll
+        await page.keyboard.press("Escape")
+        await asyncio.sleep(0.3)
 
-                # Tenta extrair de novo
-                html_novo = await page.inner_html("body")
-                emails_novos = extract_emails(html_novo)
-                emails_novos = [e for e in emails_novos if e not in blacklist_emails]
+        # Agora clica no link "Ver E-mail" que esta ao lado do email mascarado
+        clicou = await page.evaluate("""() => {
+            // Procura especificamente pelo texto "(Ver E-mail)"
+            const allElements = document.querySelectorAll('a, span, button, div, p');
+            for (let el of allElements) {
+                const text = el.textContent || '';
+                // Procura o texto exato "Ver E-mail" ou "(Ver E-mail)"
+                if (text.includes('Ver E-mail') || text.includes('Ver Email') || text.includes('ver e-mail')) {
+                    // Remove qualquer overlay que possa estar em cima
+                    document.querySelectorAll('[style*="z-index"]').forEach(o => {
+                        const s = window.getComputedStyle(o);
+                        if (s.position === 'fixed' && parseInt(s.zIndex) > 100) {
+                            o.remove();
+                        }
+                    });
 
-                if emails_novos and emails_novos != emails:
-                    print(f"    [✓] Email revelado: {emails_novos[0]}")
-                    return emails_novos[0]
-
-        except Exception as e:
-            print(f"    [!] Erro no JavaScript: {str(e)[:40]}")
-
-        # QUARTO: Tenta clicar em TODOS os links/botoes com a palavra "email"
-        print(f"    [  ] Tentando clicar em tudo com 'email'...")
-        try:
-            result2 = await page.evaluate("""() => {
-                const elementos = document.querySelectorAll('a, button, span, div');
-                for (let i = 0; i < elementos.length && i < 50; i++) {
-                    const el = elementos[i];
-                    const texto = (el.textContent || '').toLowerCase();
-
-                    if (texto.includes('email') || texto.includes('e-mail')) {
-                        el.scrollIntoView({behavior: 'smooth', block: 'center'});
-                        try {
-                            el.click();
-                            return true;
-                        } catch(e) {}
-                    }
+                    el.scrollIntoView({behavior: 'smooth', block: 'center'});
+                    el.click();
+                    return true;
                 }
-                return false;
-            }""")
+            }
+            return false;
+        }""")
 
-            if result2:
-                await asyncio.sleep(3)
-                html_novo2 = await page.inner_html("body")
-                emails_novos2 = extract_emails(html_novo2)
-                emails_novos2 = [e for e in emails_novos2 if e not in blacklist_emails]
+        if clicou:
+            print(f"    [✓] Clicou no Ver E-mail!")
+            await asyncio.sleep(4)
 
-                if emails_novos2 and emails_novos2 != emails:
-                    print(f"    [✓] Email revelado (tentativa 2): {emails_novos2[0]}")
-                    return emails_novos2[0]
+            # Verifica se interceptou o email via rede
+            if email_capturado:
+                print(f"    [✓] Email via rede: {email_capturado[0]}")
+                page.remove_listener("response", capturar_email_response)
+                return email_capturado[0]
 
-        except Exception:
-            pass
+            # Verifica se o email apareceu no HTML
+            html_novo = await page.content()
+            emails_novos = extract_emails(html_novo)
+            emails_novos = [e for e in emails_novos if e not in blacklist_emails]
+            if emails_novos and emails_novos != emails:
+                print(f"    [✓] Email revelado: {emails_novos[0]}")
+                page.remove_listener("response", capturar_email_response)
+                return emails_novos[0]
 
-        print(f"    [-] Nenhum email encontrado na pagina de detalhes")
+        page.remove_listener("response", capturar_email_response)
+
+        print(f"    [-] Nenhum email encontrado")
         return ""
 
     except Exception as e:
-        print(f"    [!] Erro ao extrair email: {str(e)[:50]}")
+        print(f"    [!] Erro: {str(e)[:50]}")
         return ""
 
 
