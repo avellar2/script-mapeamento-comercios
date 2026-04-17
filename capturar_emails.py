@@ -215,156 +215,120 @@ async def extrair_email_detalhes(page, blacklist_emails):
     try:
         # Espera a pagina carregar completamente
         await page.wait_for_load_state("networkidle", timeout=10000)
-        await asyncio.sleep(2)
+        await asyncio.sleep(3)
 
-        # PRIMEIRO: Tenta extrair email direto da pagina (pode ja estar visivel)
-        body = await page.inner_text("body")
-        emails = extract_emails(body)
+        # PRIMEIRO: Tenta extrair email direto do HTML (pode estar escondido)
+        html = await page.inner_html("body")
+        emails = extract_emails(html)
         emails = [e for e in emails if e not in blacklist_emails]
         if emails:
-            print(f"    [✓] Email encontrado direto: {emails[0]}")
+            print(f"    [✓] Email encontrado no HTML: {emails[0]}")
             return emails[0]
 
-        # SEGUNDO: Scroll agressivo na pagina pra garantir que carregou tudo
-        print(f"    [  ] Fazendo scroll na pagina...")
+        # SEGUNDO: Scroll total ate o fundo e volta
+        print(f"    [  ] Scroll completo da pagina...")
         try:
-            # Scroll ate o fundo da pagina devagar
-            await page.evaluate("""
-                async () => {
-                    for (let i = 0; i < 5; i++) {
-                        window.scrollBy(0, 300);
-                        await new Promise(r => setTimeout(r, 200));
-                    }
-                }
-            """)
+            # Scroll ate o fundo
+            for _ in range(10):
+                await page.keyboard.press("End")
+                await asyncio.sleep(0.2)
             await asyncio.sleep(2)
 
-            # Scroll de volta pro topo devagar
-            await page.evaluate("""
-                async () => {
-                    window.scrollTo({top: 0, behavior: 'smooth'});
-                    await new Promise(r => setTimeout(r, 500));
-                }
-            """)
-            await asyncio.sleep(1)
+            # Scroll de volta pro topo
+            for _ in range(10):
+                await page.keyboard.press("Home")
+                await asyncio.sleep(0.2)
+            await asyncio.sleep(2)
         except Exception:
             pass
 
-        # TERCEIRO: Tenta clicar no botao "Ver E-mail" com multiplas estrategias
-        estrategias_clique = [
-            # Estrategia 1: Texto exato "Ver E-mail"
-            'a:has-text("Ver E-mail")',
-            'button:has-text("Ver E-mail")',
-            'span:has-text("Ver E-mail")',
-            'div:has-text("Ver E-mail")',
+        # TERCEIRO: Procura e clica no botao por texto exato
+        print(f"    [  ] Procurando botao por texto...")
+        try:
+            # JavaScript para achar e clicar no botao
+            result = await page.evaluate("""() => {
+                // Textos que procuramos
+                const textos = ['ver e-mail', 'ver email', 'mostrar e-mail', 'ver e mail', 'email'];
 
-            # Estrategia 2: Variacoes de texto
-            'a:has-text("ver email")',
-            'a:has-text("VER E-MAIL")',
-            'a:has-text("Email")',
-            'button:has-text("Email")',
+                // Procura todos os elementos clicaveis
+                const elementos = document.querySelectorAll('a, button, span, div, label, input[type="button"]');
 
-            # Estrategia 3: Por classe/atributo
-            '[class*="email"]',
-            '[id*="email"]',
-            'a[href*="mailto"]',
+                for (let el of elementos) {
+                    const texto = el.textContent || '';
+                    const textoLower = texto.toLowerCase().trim();
 
-            # Estrategia 4: Por icone (comum em sites modernos)
-            'button svg',
-            'a svg',
-        ]
-
-        clicou_com_sucesso = False
-        for estrategia_idx, estrategia in enumerate(estrategias_clique):
-            try:
-                elementos = page.locator(estrategia)
-                count = await elementos.count()
-                if count == 0:
-                    continue
-
-                print(f"    [  ] Estrategia {estrategia_idx + 1}: {estrategia[:40]} ({count} elementos)")
-
-                for idx in range(min(count, 5)):  # Max 5 elementos por estrategia
-                    try:
-                        el = elementos.nth(idx)
-
-                        # Faz scroll ate o elemento MESMO se nao estiver visivel
-                        try:
-                            await el.scroll_into_view_if_needed(timeout=5000)
-                        except Exception:
-                            # Se falhar, tenta scroll manual
-                            await page.evaluate("""(el) => {
-                                el.scrollIntoView({behavior: 'smooth', block: 'center'});
-                            }""", el)
-                        await asyncio.sleep(1)  # Espera extra apos scroll
-
-                        # Verifica se esta visivel
-                        is_visible = await el.is_visible()
-                        if not is_visible:
-                            print(f"    [  ] Elemento {idx + 1} nao visivel, pulando...")
-                            continue
-
-                        print(f"    [  ] Tentando elemento {idx + 1}...")
-
-                        # Highlight visual (para debug)
-                        await el.evaluate("el => el.style.border = '3px solid red'")
-                        await asyncio.sleep(1)
-
-                        # Tenta clicar
-                        await el.click(timeout=5000)
-                        await asyncio.sleep(3)  # Espera MAIOR para o email aparecer
-
-                        # Verifica se o email apareceu
-                        body_novo = await page.inner_text("body")
-                        emails_novos = extract_emails(body_novo)
-                        emails_novos = [e for e in emails_novos if e not in blacklist_emails]
-
-                        if emails_novos and emails_novos != emails:
-                            print(f"    [✓] Email revelado: {emails_novos[0]}")
-                            return emails_novos[0]
-
-                        clicou_com_sucesso = True
-
-                    except Exception as e:
-                        print(f"    [!] Erro no elemento {idx + 1}: {str(e)[:30]}")
-                        continue
-
-            except Exception as e:
-                print(f"    [!] Erro na estrategia {estrategia_idx + 1}: {str(e)[:30]}")
-                continue
-
-        # QUARTO: Tentativa com JavaScript direto (ultima opcao)
-        if not clicou_com_sucesso:
-            try:
-                print(f"    [  ] Tentando JavaScript direto...")
-                # Procura qualquer elemento com texto "email" e tenta clicar via JS
-                js_result = await page.evaluate("""() => {
-                    // Procura links e botoes com "email" no texto
-                    const elementos = document.querySelectorAll('a, button, span, div');
-                    for (let el of elementos) {
-                        const texto = el.textContent || '';
-                        if (texto.toLowerCase().includes('ver e-mail') ||
-                            texto.toLowerCase().includes('ver email') ||
-                            texto.toLowerCase().includes('mostrar email')) {
+                    // Verifica se contem algum dos textos
+                    for (let t of textos) {
+                        if (textoLower === t || textoLower.includes(t)) {
+                            // Scroll ate o elemento
                             el.scrollIntoView({behavior: 'smooth', block: 'center'});
-                            el.click();
+
+                            // Tenta varios metodos de clique
+                            try {
+                                el.click();
+                            } catch(e) {
+                                try {
+                                    el.dispatchEvent(new MouseEvent('click', {bubbles: true}));
+                                } catch(e2) {
+                                    try {
+                                        el.dispatchEvent(new Event('click', {bubbles: true}));
+                                    } catch(e3) {}
+                                }
+                            }
                             return true;
                         }
                     }
-                    return false;
-                }""")
-                await asyncio.sleep(4)  # Espera maior apos JS
+                }
+                return false;
+            }""")
 
-                if js_result:
-                    body_novo = await page.inner_text("body")
-                    emails_novos = extract_emails(body_novo)
-                    emails_novos = [e for e in emails_novos if e not in blacklist_emails]
-                    if emails_novos:
-                        print(f"    [✓] Email revelado via JS: {emails_novos[0]}")
-                        return emails_novos[0]
+            if result:
+                await asyncio.sleep(4)  # Espera o email aparecer
 
-            except Exception:
-                pass
+                # Tenta extrair de novo
+                html_novo = await page.inner_html("body")
+                emails_novos = extract_emails(html_novo)
+                emails_novos = [e for e in emails_novos if e not in blacklist_emails]
+
+                if emails_novos and emails_novos != emails:
+                    print(f"    [✓] Email revelado: {emails_novos[0]}")
+                    return emails_novos[0]
+
+        except Exception as e:
+            print(f"    [!] Erro no JavaScript: {str(e)[:40]}")
+
+        # QUARTO: Tenta clicar em TODOS os links/botoes com a palavra "email"
+        print(f"    [  ] Tentando clicar em tudo com 'email'...")
+        try:
+            result2 = await page.evaluate("""() => {
+                const elementos = document.querySelectorAll('a, button, span, div');
+                for (let i = 0; i < elementos.length && i < 50; i++) {
+                    const el = elementos[i];
+                    const texto = (el.textContent || '').toLowerCase();
+
+                    if (texto.includes('email') || texto.includes('e-mail')) {
+                        el.scrollIntoView({behavior: 'smooth', block: 'center'});
+                        try {
+                            el.click();
+                            return true;
+                        } catch(e) {}
+                    }
+                }
+                return false;
+            }""")
+
+            if result2:
+                await asyncio.sleep(3)
+                html_novo2 = await page.inner_html("body")
+                emails_novos2 = extract_emails(html_novo2)
+                emails_novos2 = [e for e in emails_novos2 if e not in blacklist_emails]
+
+                if emails_novos2 and emails_novos2 != emails:
+                    print(f"    [✓] Email revelado (tentativa 2): {emails_novos2[0]}")
+                    return emails_novos2[0]
+
+        except Exception:
+            pass
 
         print(f"    [-] Nenhum email encontrado na pagina de detalhes")
         return ""
