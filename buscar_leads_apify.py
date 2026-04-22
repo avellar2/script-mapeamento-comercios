@@ -25,8 +25,8 @@ if sys.platform == "win32":
 
 APIFY_TOKEN = "apify_api_g35riRIYbexQigTpDwRm4GJ40emppP36z2dc"
 APIFY_API = "https://api.apify.com/v2"
-OUTPUT_DIR = Path(__file__).parent / "output"
-OUTPUT_DIR.mkdir(exist_ok=True)
+OUTPUT_DIR = Path(__file__).parent / "output" / "apify"
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 ACTOR_ID = "lukaskrivka~google-maps-with-contact-details"
 

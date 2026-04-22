@@ -20,8 +20,8 @@ if sys.platform == "win32":
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 APIFY_TOKEN = "apify_api_g35riRIYbexQigTpDwRm4GJ40emppP36z2dc"
-OUTPUT_DIR = Path(__file__).parent / "output"
-OUTPUT_DIR.mkdir(exist_ok=True)
+OUTPUT_DIR = Path(__file__).parent / "output" / "apify"
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # Datasets ja coletados
 DATASETS = {

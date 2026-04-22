@@ -39,9 +39,9 @@ except ImportError:
 # Diretorios
 OUTPUT_DIR = Path(__file__).parent / "output"
 TEMPLATES_DIR = Path(__file__).parent / "templates"
-PROGRESS_FILE = OUTPUT_DIR / "progresso_envio.json"
-LEADS_FILE = OUTPUT_DIR / "todos_comercios.csv"
-EMAILS_FILE = OUTPUT_DIR / "progresso_emails.json"
+PROGRESS_FILE = OUTPUT_DIR / "envios" / "progresso_envio.json"
+LEADS_FILE = OUTPUT_DIR / "playwright" / "todos_comercios.csv"
+EMAILS_FILE = OUTPUT_DIR / "playwright" / "progresso_emails.json"
 
 # Zoho Mail SMTP
 SMTP_HOST = os.getenv("ZOHO_SMTP_HOST", "smtppro.zoho.com")
@@ -53,9 +53,9 @@ SUPABASE_URL = os.getenv("SUPABASE_URL", "https://ivqaccppqcchqshaplao.supabase.
 SUPABASE_KEY = os.getenv("SUPABASE_ANON_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml2cWFjY3BwcWNjaHFzaGFwbGFvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY3Mjg4MDMsImV4cCI6MjA5MjMwNDgwM30.jXVgYGRCH5MFXtKvqQ2Y_dcUfoY0DY-CBBTu_iKMt60")
 
 # Limites
-DELAY_MIN = 120   # 2 minutos
-DELAY_MAX = 300    # 5 minutos
-LIMITE_DIA = 50   # emails por dia
+DELAY_MIN = 30    # 30 segundos
+DELAY_MAX = 60    # 60 segundos
+LIMITE_DIA = 250  # emails por dia (Zoho Mail Lite)
 
 # Mapeamento de categoria -> template
 # Chave = categoria normalizada (lowercase, sem acento)
@@ -74,8 +74,9 @@ CATEGORIA_TEMPLATE = {
     "dentista": "dentista.html",
     "pet shop": "petshop.html",
     "advogado": "advogado.html",
+    "contador": "contador.html",
     "oficina mecanica": "oficina.html",
-    "auto escola": "oficina.html",
+    "auto escola": "auto_escola.html",
 }
 
 
@@ -175,7 +176,8 @@ def carregar_leads():
         # Limpa telefone
         telefone = c.get("telefone", "").replace("(", "").replace(")", "").replace("-", "").replace(" ", "")
 
-        if email_cnpj or email_comercial:
+        tem_site = c.get("tem_site", "False") == "True"
+        if not tem_site and (email_cnpj or email_comercial):
             leads.append({
                 "nome": nome,
                 "categoria": c.get("categoria", ""),
@@ -183,7 +185,7 @@ def carregar_leads():
                 "telefone": telefone,
                 "email_cnpj": email_cnpj,
                 "email_comercial": email_comercial,
-                "tem_site": c.get("tem_site", "False") == "True",
+                "tem_site": tem_site,
             })
 
     return leads
@@ -297,6 +299,24 @@ def pode_enviar():
     return agora.weekday() < 6 and 9 <= agora.hour < 18
 
 
+def escolher_opcoes(lista, label):
+    """Permite usuario escolher multiplas opcoes de uma lista."""
+    print(f"\n  {label}:")
+    print(f"  0. TODOS")
+    for i, item in enumerate(lista, 1):
+        print(f"  {i}. {item}")
+    print()
+    escolha = input(f"  Escolha (ex: 0 para todos, ou 1,3,5 para multiplos): ").strip()
+    if not escolha or escolha == "0":
+        return None  # None = todos
+    try:
+        indices = [int(x.strip()) - 1 for x in escolha.split(",")]
+        return [lista[i] for i in indices if 0 <= i < len(lista)]
+    except (ValueError, IndexError):
+        print("  [!] Opcao invalida, usando TODOS")
+        return None
+
+
 def main():
     if sys.platform == "win32":
         try:
@@ -319,18 +339,41 @@ def main():
         return
 
     # Carregar dados
-    print("\n[1/4] Carregando leads...")
+    print("\n[1/5] Carregando leads...")
     leads = carregar_leads()
-    print(f"  -> {len(leads)} leads com email")
+    print(f"  -> {len(leads)} leads sem site com email")
+
+    # Filtros interativos
+    cidades_disponiveis = sorted(set(l["cidade"] for l in leads))
+    categorias_disponiveis = sorted(set(l["categoria"] for l in leads))
+
+    print("\n[2/5] Filtros:")
+    cidades_escolhidas = escolher_opcoes(cidades_disponiveis, "Cidades")
+    categorias_escolhidas = escolher_opcoes(categorias_disponiveis, "Categorias")
+
+    # Aplicar filtros
+    if cidades_escolhidas:
+        leads = [l for l in leads if l["cidade"] in cidades_escolhidas]
+        print(f"\n  Cidades: {len(cidades_escolhidas)} selecionadas")
+    else:
+        print(f"\n  Cidades: TODAS ({len(cidades_disponiveis)})")
+
+    if categorias_escolhidas:
+        leads = [l for l in leads if l["categoria"] in categorias_escolhidas]
+        print(f"  Categorias: {len(categorias_escolhidas)} selecionadas")
+    else:
+        print(f"  Categorias: TODAS ({len(categorias_disponiveis)})")
+
+    print(f"  -> {len(leads)} leads apos filtros")
 
     # Carregar progresso
-    print("\n[2/4] Carregando progresso...")
+    print("\n[3/5] Carregando progresso...")
     progresso = carregar_progresso()
     ja_enviados = {e["email"] for e in progresso["enviados"]}
     print(f"  -> {len(ja_enviados)} emails ja enviados")
 
     # Filtrar pendentes
-    print("\n[3/4] Filtrando pendentes...")
+    print("\n[4/5] Filtrando pendentes...")
     pendentes = []
     for lead in leads:
         emails_lead = []
@@ -355,7 +398,7 @@ def main():
 
     # Limitar por dia
     enviar_agora = pendentes[:LIMITE_DIA]
-    print(f"\n[4/4] Enviando {len(enviar_agora)} emails...\n")
+    print(f"\n[5/5] Enviando {len(enviar_agora)} emails...\n")
 
     enviados = 0
     for i, lead in enumerate(enviar_agora):

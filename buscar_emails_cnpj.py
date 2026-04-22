@@ -25,8 +25,8 @@ if sys.platform == "win32":
 from playwright.sync_api import sync_playwright
 
 OUTPUT_DIR = Path(__file__).parent / "output"
-CSV_FILE = OUTPUT_DIR / "leads_baixada_20260421_193841.csv"
-PROGRESS_FILE = OUTPUT_DIR / "progresso_emails_cnpj.json"
+CSV_FILE = OUTPUT_DIR / "apify" / "leads_apify.csv"
+PROGRESS_FILE = OUTPUT_DIR / "apify" / "progresso_emails_cnpj.json"
 
 BLACKLIST = {
     "test@test.com", "email@email.com", "example@example.com",
@@ -85,8 +85,8 @@ def validar_email(email):
     fakes = ["segmenter", "loader", "module", "webpack", "require", "exports"]
     if any(f in email for f in fakes):
         return ""
-    # Dominio deve ter pelo menos 2 chars depois do ponto
-    if not re.match(r"^[\w.+-]+@[\w-]+\.[\w-]{2,}$", email):
+    # Validar formato basico de email (aceita .com.br, .co.uk, etc)
+    if not re.match(r"^[\w.+-]+@[\w.-]+\.[\w]{2,}$", email):
         return ""
     return email
 
@@ -177,6 +177,85 @@ def email_via_cnpj_ws(cnpj):
                 valid = validar_email(email.strip().lower())
                 if valid:
                     return valid
+    except Exception:
+        pass
+    return ""
+
+
+# === ESTRATEGIA 4: MinhaReceita ===
+def email_via_minhareceita(cnpj):
+    """Busca email via API minhareceita.org."""
+    try:
+        url = f"https://minhareceita.org/{cnpj}"
+        resp = req_lib.get(url, timeout=10, headers={"Accept": "application/json"})
+        if resp.status_code == 200:
+            data = resp.json()
+            email = data.get("email", "")
+            if email:
+                valid = validar_email(email.strip().lower())
+                if valid:
+                    return valid
+    except Exception:
+        pass
+    return ""
+
+
+# === ESTRATEGIA 5: Bing busca de email ===
+def email_via_bing(page, nome, cidade):
+    """Busca email direto no Bing."""
+    try:
+        query = f'"{nome}" {cidade} email contato'
+        page.goto(
+            f"https://www.bing.com/search?q={query.replace(' ', '+')}",
+            wait_until="domcontentloaded",
+            timeout=15000,
+        )
+        time.sleep(2)
+        body = page.inner_text("body")
+        emails = extract_emails(body)
+        for e in emails:
+            valid = validar_email(e)
+            if valid:
+                return valid
+    except Exception:
+        pass
+    return ""
+
+
+# === ESTRATEGIA 6: Scrape do Google Maps do lead ===
+def email_via_gmaps(page, nome, cidade):
+    """Busca pagina do Google Maps e extrai email."""
+    try:
+        query = f"{nome} {cidade}"
+        page.goto(
+            f"https://www.google.com/search?q={query.replace(' ', '+')}",
+            wait_until="domcontentloaded",
+            timeout=15000,
+        )
+        time.sleep(2)
+
+        # Clicar no primeiro resultado de maps
+        try:
+            link = page.locator('a[href*="maps.google"], a[href*="google.com/maps"]').first
+            if link.is_visible(timeout=3000):
+                link.click()
+                time.sleep(3)
+                body = page.inner_text("body")
+                emails = extract_emails(body)
+                for e in emails:
+                    valid = validar_email(e)
+                    if valid:
+                        return valid
+        except Exception:
+            pass
+
+        # Se nao clicou, pegar do resultado da busca
+        body = page.inner_text("body")
+        emails = extract_emails(body)
+        for e in emails:
+            valid = validar_email(e)
+            if valid:
+                return valid
     except Exception:
         pass
     return ""
@@ -316,18 +395,18 @@ def main():
                     cnpj_fmt = f"{cnpj[:2]}.{cnpj[2:5]}.{cnpj[5:8]}/{cnpj[8:12]}-{cnpj[12:]}"
                     print(f"  [CNPJ] {cnpj_fmt}")
 
-                    # API ReceitaWS
+                    # ReceitaWS
                     print(f"  [3a] ReceitaWS...")
                     email_final = email_via_receitaws(cnpj)
                     if email_final:
-                        print(f"  [OK] Email: {email_final}")
+                        print(f"  [OK] ReceitaWS: {email_final}")
 
-                    # API cnpj.ws
+                    # CNPJ.ws
                     if not email_final:
                         print(f"  [3b] CNPJ.ws...")
                         email_final = email_via_cnpj_ws(cnpj)
                         if email_final:
-                            print(f"  [OK] Email: {email_final}")
+                            print(f"  [OK] CNPJ.ws: {email_final}")
 
                     # BrasilAPI
                     if not email_final:
@@ -344,156 +423,99 @@ def main():
                         except Exception:
                             pass
 
-                    # cnpj.biz via Playwright
+                    # MinhaReceita
                     if not email_final:
-                        print(f"  [3d] cnpj.biz...")
-                        try:
-                            cnpj_page = context.new_page()
-                            cnpj_page.goto(f"https://cnpj.biz/{cnpj}", wait_until="domcontentloaded", timeout=20000)
-                            time.sleep(4)
-                            cnpj_page.keyboard.press("Escape")
-                            time.sleep(0.5)
+                        print(f"  [3d] MinhaReceita...")
+                        email_final = email_via_minhareceita(cnpj)
+                        if email_final:
+                            print(f"  [OK] MinhaReceita: {email_final}")
 
-                            # Remover overlays
+                    # cnpj.info
+                    if not email_final:
+                        print(f"  [3e] cnpj.info...")
+                        try:
+                            info_page = context.new_page()
+                            info_page.goto(f"http://cnpj.info/{cnpj}", timeout=20000)
+                            time.sleep(6)
+                            if "code.html" in info_page.url:
+                                print(f"  [!] cnpj.info bloqueou, pulando...")
+                                info_page.close()
+                            else:
+                                body = info_page.inner_text("body")
+                                emails_found = extract_emails(body)
+                                for e in emails_found:
+                                    valid = validar_email(e)
+                                    if valid:
+                                        email_final = valid
+                                        print(f"  [OK] cnpj.info: {email_final}")
+                                        break
+                                if not email_final:
+                                    print(f"  [-] cnpj.info: sem email")
+                                info_page.close()
+                                time.sleep(random.uniform(3, 6))
+                        except Exception as e:
+                            print(f"  [!] cnpj.info: {str(e)[:40]}")
                             try:
-                                cnpj_page.evaluate("""() => {
-                                    document.querySelectorAll('[class*="modal"], [class*="popup"], [class*="overlay"]').forEach(el => el.remove());
-                                }""")
+                                info_page.close()
                             except Exception:
                                 pass
 
-                            # Verificar email direto no HTML
-                            html = cnpj_page.content()
-                            emails = extract_emails(html)
-                            for e in emails:
+                    # cnpj.biz via Playwright
+                    if not email_final:
+                        print(f"  [3f] cnpj.biz...")
+                        try:
+                            biz_page = context.new_page()
+                            biz_page.goto(f"https://cnpj.biz/{cnpj}", wait_until="domcontentloaded", timeout=15000)
+                            time.sleep(4)
+                            biz_page.keyboard.press("Escape")
+                            time.sleep(1)
+
+                            # Email direto no HTML
+                            html = biz_page.content()
+                            emails_found = extract_emails(html)
+                            for e in emails_found:
                                 valid = validar_email(e)
                                 if valid:
                                     email_final = valid
                                     break
 
-                            # Se nao achou, procurar "(Ver E-mail)" e clicar
+                            # Scroll ate email e clicar Ver E-mail
                             if not email_final:
                                 try:
-                                    # Interceptar requisicoes de rede
-                                    email_capturado = []
-                                    def capturar_response(response):
-                                        try:
-                                            body = response.text()
-                                            encontrados = extract_emails(body)
-                                            for e in encontrados:
-                                                valid = validar_email(e)
-                                                if valid:
-                                                    email_capturado.append(valid)
-                                        except Exception:
-                                            pass
-
-                                    cnpj_page.on("response", capturar_response)
-
-                                    # Scroll ate a secao de contatos com JavaScript
-                                    cnpj_page.evaluate("""() => {
+                                    biz_page.evaluate("""() => {
                                         const all = document.querySelectorAll('*');
                                         for (const el of all) {
-                                            if (el.textContent && el.textContent.includes('E-mail:') && el.children.length < 5) {
+                                            if (el.textContent && (el.textContent.includes('E-mail:') || el.textContent.includes('Ver E-mail')) && el.children.length < 5) {
                                                 el.scrollIntoView({behavior: 'smooth', block: 'center'});
                                                 return;
                                             }
                                         }
                                     }""")
                                     time.sleep(2)
-
-                                    # Agora clicar com Playwright (clique real, nao JS)
-                                    clicou = False
-                                    try:
-                                        # Tentar texto exato "(Ver E-mail)"
-                                        el = cnpj_page.locator('text=(Ver E-mail)').first
-                                        if el.is_visible(timeout=3000):
-                                            el.click(timeout=5000)
-                                            clicou = True
-                                            print(f"    Clicou com Playwright em (Ver E-mail)")
-                                    except Exception:
-                                        pass
-
-                                    if not clicou:
-                                        try:
-                                            el = cnpj_page.locator('text=Ver E-mail').first
-                                            if el.is_visible(timeout=3000):
-                                                el.click(timeout=5000)
-                                                clicou = True
-                                                print(f"    Clicou com Playwright em Ver E-mail")
-                                        except Exception:
-                                            pass
-
-                                    if not clicou:
-                                        # Ultima tentativa: clicar em qualquer lugar que tenha o email mascarado
-                                        try:
-                                            el = cnpj_page.locator('text=Ver').first
-                                            if el.is_visible(timeout=2000):
-                                                el.click(timeout=3000)
-                                                clicou = True
-                                                print(f"    Clicou em Ver")
-                                        except Exception:
-                                            pass
-
-                                    if clicou:
-                                        time.sleep(8)
-
-                                        # Capturar via rede
-                                        if email_capturado:
-                                            email_final = email_capturado[0]
-                                            print(f"    [OK] Capturado via rede: {email_final}")
-                                        else:
-                                            # Capturar do HTML
-                                            html = cnpj_page.content()
-                                            emails = extract_emails(html)
-                                            for e in emails:
-                                                valid = validar_email(e)
-                                                if valid:
-                                                    email_final = valid
-                                                    break
-                                            if not email_final:
-                                                body_text = cnpj_page.inner_text("body")
-                                                emails_text = extract_emails(body_text)
-                                                for e in emails_text:
-                                                    valid = validar_email(e)
-                                                    if valid:
-                                                        email_final = valid
-                                                        break
-                                            if email_final:
-                                                print(f"    [OK] Capturado: {email_final}")
-                                            else:
-                                                print(f"    Email nao apareceu apos clique")
-                                    else:
-                                        print(f"    Botao Ver E-mail nao encontrado")
-
-                                except Exception as e:
-                                    print(f"    Erro: {str(e)[:60]}")
+                                    el = biz_page.locator('text=Ver E-mail').first
+                                    if el.is_visible(timeout=3000):
+                                        el.click(timeout=3000)
+                                        time.sleep(5)
+                                        body2 = biz_page.inner_text("body")
+                                        for e in extract_emails(body2):
+                                            valid = validar_email(e)
+                                            if valid:
+                                                email_final = valid
+                                                break
+                                except Exception:
+                                    pass
 
                             if email_final:
                                 print(f"  [OK] cnpj.biz: {email_final}")
-                            cnpj_page.close()
+                            else:
+                                print(f"  [-] cnpj.biz: sem email")
+                            biz_page.close()
                         except Exception as e:
-                            print(f"  [!] cnpj.biz erro: {str(e)[:50]}")
-
-                    # Buscar email direto no Google
-                    if not email_final:
-                        print(f"  [3e] Buscando email no Google...")
-                        try:
-                            busca_page.goto(
-                                f"https://www.google.com/search?q={nome_limpo}+{cidade}+RJ+email+contato",
-                                wait_until="domcontentloaded",
-                                timeout=15000,
-                            )
-                            time.sleep(3)
-                            body = busca_page.inner_text("body")
-                            emails = extract_emails(body)
-                            for e in emails:
-                                valid = validar_email(e)
-                                if valid:
-                                    email_final = valid
-                                    print(f"  [OK] Google email: {email_final}")
-                                    break
-                        except Exception:
-                            pass
+                            print(f"  [!] cnpj.biz: {str(e)[:40]}")
+                            try:
+                                biz_page.close()
+                            except Exception:
+                                pass
 
                 else:
                     print(f"  [-] CNPJ nao encontrado")

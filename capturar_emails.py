@@ -19,7 +19,7 @@ import sys
 import urllib.parse
 from pathlib import Path
 
-OUTPUT_DIR = Path(__file__).parent / "output"
+OUTPUT_DIR = Path(__file__).parent / "output" / "playwright"
 CSV_FILE = OUTPUT_DIR / "todos_comercios.csv"
 PROGRESS_FILE = OUTPUT_DIR / "progresso_emails.json"
 
