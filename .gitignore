@@ -15,3 +15,4 @@ output/*.xlsx
 .vscode/
 .idea/
 *.swp
+.env

@@ -10,14 +10,31 @@ Uso: python envio_emails_zoho.py
 
 import csv
 import json
+import os
 import smtplib
 import random
 import sys
 import time
+import uuid
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
 from datetime import datetime
+
+# Carrega variaveis de ambiente do .env
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # dotenv eh opcional
+
+# Supabase
+try:
+    from supabase import create_client, Client
+    HAS_SUPABASE = True
+except ImportError:
+    HAS_SUPABASE = False
+    print("  [!] Supabase client nao instalado. Instale: pip install supabase")
 
 # Diretorios
 OUTPUT_DIR = Path(__file__).parent / "output"
@@ -27,9 +44,13 @@ LEADS_FILE = OUTPUT_DIR / "todos_comercios.csv"
 EMAILS_FILE = OUTPUT_DIR / "progresso_emails.json"
 
 # Zoho Mail SMTP
-SMTP_HOST = "smtppro.zoho.com"
-SMTP_PORT = 465
-SMTP_USER = "contato@vandersonavellar.com"
+SMTP_HOST = os.getenv("ZOHO_SMTP_HOST", "smtppro.zoho.com")
+SMTP_PORT = int(os.getenv("ZOHO_SMTP_PORT", "465"))
+SMTP_USER = os.getenv("ZOHO_SMTP_USER", "contato@vandersonavellar.com")
+
+# Supabase
+SUPABASE_URL = os.getenv("SUPABASE_URL", "https://ivqaccppqcchqshaplao.supabase.co")
+SUPABASE_KEY = os.getenv("SUPABASE_ANON_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml2cWFjY3BwcWNjaHFzaGFwbGFvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY3Mjg4MDMsImV4cCI6MjA5MjMwNDgwM30.jXVgYGRCH5MFXtKvqQ2Y_dcUfoY0DY-CBBTu_iKMt60")
 
 # Limites
 DELAY_MIN = 120   # 2 minutos
@@ -185,7 +206,33 @@ def salvar_progresso(progresso):
         json.dump(progresso, f, ensure_ascii=False, indent=2)
 
 
-def personalizar_template(html, lead):
+def salvar_no_supabase(lead, tracking_id):
+    """Salva registro de envio no Supabase."""
+    if not HAS_SUPABASE:
+        return False
+    try:
+        supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+        data = {
+            "nome": lead["nome"],
+            "email": lead["email_destino"],
+            "categoria": lead["categoria"],
+            "cidade": lead["cidade"],
+            "telefone": lead.get("telefone", ""),
+            "tipo_email": lead["tipo_email"],
+            "template": get_template_file(lead["categoria"]).name,
+            "data_envio": datetime.now().isoformat(),
+            "email_aberto": False,
+            "qtd_aberturas": 0,
+            "tracking_id": tracking_id,
+        }
+        result = supabase.table("emails_enviados").insert(data).execute()
+        return True
+    except Exception as e:
+        print(f"    [!] Erro ao salvar no Supabase: {e}")
+        return False
+
+
+def personalizar_template(html, lead, tracking_id=None):
     """Substitui placeholders no template."""
     cidade_clean = lead["cidade"].replace(", RJ", "").replace(",RJ", "").strip()
     telefone_limpo = lead["telefone"]
@@ -194,6 +241,8 @@ def personalizar_template(html, lead):
     html = html.replace("{categoria}", lead["categoria"])
     html = html.replace("{cidade}", lead["cidade"])
     html = html.replace("{telefone}", telefone_limpo)
+    if tracking_id:
+        html = html.replace("{TRACKING_ID}", tracking_id)
 
     return html
 
@@ -262,7 +311,9 @@ def main():
     print(f"  Limite: {LIMITE_DIA}/dia | Horario: 9h-18h (seg-sex)")
     print("=" * 60)
 
-    smtp_pass = input(f"\nApp Password do Zoho ({SMTP_USER}): ").strip()
+    smtp_pass = os.getenv("ZOHO_SMTP_APP_PASSWORD", "")
+    if not smtp_pass:
+        smtp_pass = input(f"\nApp Password do Zoho ({SMTP_USER}): ").strip()
     if not smtp_pass:
         print("  [X] Senha nao informada. Saindo.")
         return
@@ -312,7 +363,11 @@ def main():
         if not template:
             continue
 
-        html = personalizar_template(template, lead)
+        print(f"  [{i+1}/{len(enviar_agora)}] {lead['nome'][:35]} -> {lead['email_destino'][:35]} ({lead['categoria']})")
+
+        # Gerar tracking ID unico
+        tracking_id = str(uuid.uuid4())
+        html = personalizar_template(template, lead, tracking_id)
         msg = criar_email(
             lead["email_destino"],
             lead["nome"],
@@ -321,10 +376,11 @@ def main():
             html
         )
 
-        print(f"  [{i+1}/{len(enviar_agora)}] {lead['nome'][:35]} -> {lead['email_destino'][:35]} ({lead['categoria']})")
-
         if enviar_email(smtp_pass, lead["email_destino"], msg):
             enviados += 1
+            # Salvar no Supabase
+            salvar_no_supabase(lead, tracking_id)
+            # Salvar no progresso local
             progresso["enviados"].append({
                 "email": lead["email_destino"],
                 "nome": lead["nome"],
