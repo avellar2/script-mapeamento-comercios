@@ -15,3 +15,4 @@ output/
 .idea/
 *.swp
 .env
+.gstack/

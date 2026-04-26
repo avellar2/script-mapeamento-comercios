@@ -17,8 +17,8 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-OUTPUT_DIR = Path(__file__).parent / "output"
-OUTPUT_DIR.mkdir(exist_ok=True)
+OUTPUT_DIR = Path(__file__).parent / "output" / "playwright"
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # Lista de cidades da Baixada Fluminense
 CIDADES = [
@@ -82,9 +82,22 @@ CATEGORIAS = [
 ]
 
 PROGRESS_FILE = OUTPUT_DIR / "progresso.json"
+EXISTING_CSV = OUTPUT_DIR / "todos_comercios.csv"
 
 
 # ── Progress / Resume ──────────────────────────────────────────────
+
+def load_nomes_existentes():
+    """Carrega nomes+cidade do CSV existente para evitar duplicatas."""
+    existentes = set()
+    if EXISTING_CSV.exists():
+        with open(EXISTING_CSV, encoding="utf-8-sig") as f:
+            for row in csv.DictReader(f):
+                nome = row.get("nome", "").strip().lower()
+                cidade = row.get("cidade", "").strip().lower()
+                if nome and cidade:
+                    existentes.add(f"{nome}|{cidade}")
+    return existentes
 
 def load_progress():
     if PROGRESS_FILE.exists():
@@ -311,7 +324,7 @@ async def extrair_detalhes(page, categoria, cidade=""):
     return dados
 
 
-async def buscar_categoria(page, categoria, cidade, start_index=0, progress=None):
+async def buscar_categoria(page, categoria, cidade, start_index=0, progress=None, nomes_existentes=None):
     """Busca uma categoria no Google Maps e retorna lista de comércios."""
     query = f"{categoria} em {cidade}"
     url = f"https://www.google.com/maps/search/{query.replace(' ', '+')}/"
@@ -340,6 +353,12 @@ async def buscar_categoria(page, categoria, cidade, start_index=0, progress=None
 
     comercios = []
     vistos = set()  # Controle de duplicatas nesta sessão
+
+    # Carregar nomes já existentes no CSV para pular
+    if nomes_existentes:
+        for chave in nomes_existentes:
+            if cidade.lower() in chave:
+                vistos.add(chave)
     limite = min(total, MAX_RESULTS_PER_CATEGORY * 3)  # Tentar até 3x mais que o limite
 
     # Se está continuando de onde parou, carrega já vistos do progresso
@@ -354,15 +373,16 @@ async def buscar_categoria(page, categoria, cidade, start_index=0, progress=None
 
     # Loop até encontrar MAX_RESULTS únicos ou atingir limite
     i = start_index
-    resultados_encontrados = len(vistos)
+    novos_encontrados = 0  # Conta só os novos (não os que já existiam no CSV)
+    ja_existentes = len(vistos)
 
-    while i < limite and resultados_encontrados < MAX_RESULTS_PER_CATEGORY:
+    while i < limite and novos_encontrados < MAX_RESULTS_PER_CATEGORY:
         # Recarrega os itens a cada iteração (o DOM pode mudar)
         items = page.locator('div[role="feed"] > div > div[jsaction], div[role="feed"] > div > a[jsaction]')
         total_itens = await items.count()
 
         if total_itens <= i:
-            print(f"    [{resultados_encontrados}/{MAX_RESULTS_PER_CATEGORY}] Itens reduzidos, recarregando pagina...")
+            print(f"    [{novos_encontrados}/{MAX_RESULTS_PER_CATEGORY}] Itens reduzidos, recarregando pagina...")
             await scroll_panel(page)
             await asyncio.sleep(1)
             items = page.locator('div[role="feed"] > div > div[jsaction], div[role="feed"] > div > a[jsaction]')
@@ -371,16 +391,16 @@ async def buscar_categoria(page, categoria, cidade, start_index=0, progress=None
                 # Verifica se chegou ao fim da lista
                 fim_lista = page.locator('span:has-text("fim da lista"), span:has-text("end of the list")')
                 if await fim_lista.count() > 0:
-                    print(f"    [{resultados_encontrados}/{MAX_RESULTS_PER_CATEGORY}] Fim da lista - Sem mais resultados")
+                    print(f"    [{novos_encontrados}/{MAX_RESULTS_PER_CATEGORY}] Fim da lista - Sem mais resultados")
                     break
                 else:
-                    print(f"    [{resultados_encontrados}/{MAX_RESULTS_PER_CATEGORY}] Nao ha mais itens disponiveis")
+                    print(f"    [{novos_encontrados}/{MAX_RESULTS_PER_CATEGORY}] Nao ha mais itens disponiveis")
                     break
 
         # Verifica se chegou ao fim da lista antes de processar
         fim_lista = page.locator('span:has-text("fim da lista"), span:has-text("end of the list")')
         if await fim_lista.count() > 0 and i >= total_itens - 1:
-            print(f"    [{resultados_encontrados}/{MAX_RESULTS_PER_CATEGORY}] Fim da lista atingido")
+            print(f"    [{novos_encontrados}/{MAX_RESULTS_PER_CATEGORY}] Fim da lista atingido")
             break
 
         item = items.nth(i)
@@ -388,7 +408,7 @@ async def buscar_categoria(page, categoria, cidade, start_index=0, progress=None
         # Verifica se o elemento está visível antes de tentar clicar
         try:
             if not await item.is_visible():
-                print(f"    [{resultados_encontrados+1}/{MAX_RESULTS_PER_CATEGORY}] Elemento não visível, pulando...")
+                print(f"    [{novos_encontrados+1}/{MAX_RESULTS_PER_CATEGORY}] Elemento não visível, pulando...")
                 i += 1
                 continue
         except:
@@ -406,10 +426,10 @@ async def buscar_categoria(page, categoria, cidade, start_index=0, progress=None
                 erro_str = str(e).lower()
                 # Se o erro for "not visible", pula este elemento
                 if 'not visible' in erro_str or 'element is not visible' in erro_str:
-                    print(f"    [{resultados_encontrados+1}/{MAX_RESULTS_PER_CATEGORY}] Elemento invisível, pulando...")
+                    print(f"    [{novos_encontrados+1}/{MAX_RESULTS_PER_CATEGORY}] Elemento invisível, pulando...")
                     break
                 elif tentativa < 2:
-                    print(f"    [{resultados_encontrados+1}/{MAX_RESULTS_PER_CATEGORY}] Retry clique {tentativa + 1}/3...")
+                    print(f"    [{novos_encontrados+1}/{MAX_RESULTS_PER_CATEGORY}] Retry clique {tentativa + 1}/3...")
                     await asyncio.sleep(1)
                     # Tenta scroll com menor timeout
                     try:
@@ -418,7 +438,7 @@ async def buscar_categoria(page, categoria, cidade, start_index=0, progress=None
                         pass
                     await asyncio.sleep(0.5)
                 else:
-                    print(f"    [{resultados_encontrados+1}/{MAX_RESULTS_PER_CATEGORY}] Erro ao clicar: {str(e)[:60]}")
+                    print(f"    [{novos_encontrados+1}/{MAX_RESULTS_PER_CATEGORY}] Erro ao clicar: {str(e)[:60]}")
                     break
 
         if not clicou:
@@ -430,16 +450,16 @@ async def buscar_categoria(page, categoria, cidade, start_index=0, progress=None
         dados = await extrair_detalhes(page, categoria, cidade)
         if dados:
             # Verifica duplicata por nome + cidade
-            chave = f"{dados['nome'].lower()}|{cidade}"
+            chave = f"{dados['nome'].lower()}|{cidade.lower()}"
             if chave in vistos:
-                print(f"    [{resultados_encontrados+1}/{MAX_RESULTS_PER_CATEGORY}] DUPLICATA - {dados['nome'][:40]}")
+                print(f"    [{novos_encontrados}/{MAX_RESULTS_PER_CATEGORY}] DUPLICATA - {dados['nome'][:40]}")
             else:
                 vistos.add(chave)
                 comercios.append(dados)
-                resultados_encontrados = len(vistos)
+                novos_encontrados += 1
                 tag = "COM site" if dados["tem_site"] else "SEM site"
                 email_info = f" | Email: {dados['email']}" if dados['email'] else ""
-                print(f"    [{resultados_encontrados}/{MAX_RESULTS_PER_CATEGORY}] {tag} - {dados['nome'][:40]}{email_info}")
+                print(f"    [{novos_encontrados}/{MAX_RESULTS_PER_CATEGORY}] {tag} - {dados['nome'][:40]}{email_info}")
 
                 # Salva progresso incrementalmente
                 if progress:
@@ -473,7 +493,7 @@ async def buscar_categoria(page, categoria, cidade, start_index=0, progress=None
 
         if not voltou:
             # TENTATIVA 3: recarrega a URL de busca
-            print(f"    [{resultados_encontrados}/{MAX_RESULTS_PER_CATEGORY}] Navegacao travada, recarregando...")
+            print(f"    [{novos_encontrados}/{MAX_RESULTS_PER_CATEGORY}] Navegacao travada, recarregando...")
             await page.goto(url, wait_until="domcontentloaded", timeout=30000)
             await asyncio.sleep(2)
             await scroll_panel(page, max_scrolls=5)
@@ -483,10 +503,10 @@ async def buscar_categoria(page, categoria, cidade, start_index=0, progress=None
         i += 1
 
     # Mensagem final sobre a categoria
-    if resultados_encontrados >= MAX_RESULTS_PER_CATEGORY:
-        print(f"  > Categoria completa: {resultados_encontrados} resultados únicos encontrados")
+    if novos_encontrados >= MAX_RESULTS_PER_CATEGORY:
+        print(f"  > Categoria completa: {novos_encontrados} novos resultados encontrados")
     else:
-        print(f"  > Fim dos resultados: {resultados_encontrados}/20 (não há mais comércios no Google Maps)")
+        print(f"  > Fim dos resultados: {novos_encontrados}/{MAX_RESULTS_PER_CATEGORY} novos ({ja_existentes} já existiam)")
 
     return comercios
 
@@ -522,6 +542,11 @@ async def main():
     em_andamento = progress.get("categorias_em_andamento", {})
     todos = progress.get("comercios", [])
 
+    # Carregar nomes já existentes no CSV para evitar duplicatas
+    nomes_existentes = load_nomes_existentes()
+    if nomes_existentes:
+        print(f"\n  {len(nomes_existentes)} comércios já existem no CSV (serão pulados)")
+
     # Formato antigo de progresso (cidade única) - migra para novo formato
     if not feitas and not em_andamento and not todos:
         print("\n[!] Progresso antigo detectado. Resetando para nova estrutura multi-cidade.")
@@ -537,7 +562,7 @@ async def main():
 
     if not restantes and not em_andamento:
         print("Todas as categorias já foram buscadas!")
-        print("Delete output/progresso.json para recomeçar.\n")
+        print("Delete output/playwright/progresso.json para recomeçar.\n")
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(
@@ -591,7 +616,7 @@ async def main():
                     print(f"  > Continuando do índice {start_idx}")
 
                 try:
-                    resultados = await buscar_categoria(page, cat, cidade, start_index=start_idx, progress=progress)
+                    resultados = await buscar_categoria(page, cat, cidade, start_index=start_idx, progress=progress, nomes_existentes=nomes_existentes)
 
                     # Marca categoria como completa
                     if chave_progresso in em_andamento:
@@ -627,29 +652,47 @@ async def main():
     todos = progress.get("comercios", [])
 
     if not todos:
-        print("\nNenhum comércio encontrado.")
+        print("\nNenhum comércio novo encontrado.")
         return
 
+    # Mesclar com comércios já existentes no CSV
+    existentes_csv = []
+    if EXISTING_CSV.exists():
+        with open(EXISTING_CSV, encoding="utf-8-sig") as f:
+            existentes_csv = list(csv.DictReader(f))
+
+    # Criar set de chaves dos novos para evitar duplicatas na mesclagem
+    novos_nomes = set()
+    for c in todos:
+        novos_nomes.add(f"{c['nome'].lower().strip()}|{c.get('cidade', '').lower().strip()}")
+
+    # Filtrar existentes que não estão nos novos
+    mantidos = [c for c in existentes_csv
+                if f"{c['nome'].lower().strip()}|{c.get('cidade', '').lower().strip()}" not in novos_nomes]
+
+    todos_final = mantidos + todos
+    print(f"\n  Mesclando: {len(mantidos)} existentes + {len(todos)} novos = {len(todos_final)} total")
+
     # Todos os comércios
-    export_csv(todos, "todos_comercios.csv")
-    print(f"\n✓ CSV completo: output/todos_comercios.csv")
+    export_csv(todos_final, "todos_comercios.csv")
+    print(f"\n✓ CSV completo: output/playwright/todos_comercios.csv")
 
     # Leads sem site
-    sem_site = [c for c in todos if not c["tem_site"]]
+    sem_site = [c for c in todos_final if not c["tem_site"]]
     if sem_site:
         export_csv(sem_site, "leads_sem_site.csv")
-        print(f"✓ CSV leads:    output/leads_sem_site.csv")
+        print(f"✓ CSV leads:    output/playwright/leads_sem_site.csv")
 
         xlsx = export_excel(sem_site, "leads_sem_site.xlsx")
         if xlsx:
             print(f"✓ Excel leads:  {xlsx}")
 
     # Resumo
-    com_site = len(todos) - len(sem_site)
-    taxa = (len(sem_site) / len(todos) * 100) if todos else 0
+    com_site = len(todos_final) - len(sem_site)
+    taxa = (len(sem_site) / len(todos_final) * 100) if todos_final else 0
     print(f"\n{'='*50}")
     print(f"  RESUMO FINAL - BAIXADA FLUMINENSE")
-    print(f"  Total mapeados:     {len(todos)}")
+    print(f"  Total mapeados:     {len(todos_final)}")
     print(f"  COM site:           {com_site}")
     print(f"  SEM site (leads):   {len(sem_site)}")
     print(f"  Taxa de prospecção: {taxa:.1f}%")
@@ -659,7 +702,7 @@ async def main():
     print(f"\n  ESTATÍSTICAS POR CIDADE:")
     print(f"  {'-'*50}")
     for cidade in CIDADES:
-        da_cidade = [c for c in todos if c.get("cidade") == cidade]
+        da_cidade = [c for c in todos_final if c.get("cidade") == cidade]
         sem_site_cidade = [c for c in da_cidade if not c["tem_site"]]
         if da_cidade:
             print(f"  {cidade.split(',')[0]:20s}: {len(da_cidade):4d} total | {len(sem_site_cidade):4d} sem site")

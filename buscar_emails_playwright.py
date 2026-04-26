@@ -169,17 +169,35 @@ def main():
     if prog_file.exists():
         with open(prog_file, encoding="utf-8") as f:
             data = json.load(f)
-            for r in data.get("resultados", []):
-                key = f"{r['nome'].lower().strip()}|{r.get('cidade','').lower().strip()}"
-                email = r.get("email_cnpj", "") or r.get("email_comercial", "")
-                if email:
-                    prog_antigo[key] = email
+            # Tentar formato antigo (com resultados) ou novo (dicionario direto)
+            resultados = data.get("resultados", [])
+            if not resultados and isinstance(data, dict):
+                # Formato novo: dicionario direto
+                for key, val in data.items():
+                    if isinstance(val, dict) and val.get("email"):
+                        prog_antigo[key.lower()] = val["email"]
+            else:
+                # Formato antigo: lista de resultados
+                for r in resultados:
+                    key = f"{r['nome'].lower().strip()}|{r.get('cidade','').lower().strip()}"
+                    email = r.get("email_cnpj", "") or r.get("email_comercial", "")
+                    if email:
+                        prog_antigo[key] = email
 
     # Atualizar CSV com emails do progresso antigo
     for row in rows:
-        key = f"{row['nome'].lower().strip()}|{row.get('cidade','').lower().strip()}"
-        if not row.get("email") and key in prog_antigo:
-            row["email"] = prog_antigo[key]
+        # Normalizar chave: remover ', RJ' e ',RJ' para comparacao
+        cidade = row.get('cidade', '').lower().strip().replace(', rj', '').replace(',rj', '').strip()
+        nome = row['nome'].lower().strip()
+        key = f"{nome}|{cidade}"
+        key_rj = f"{nome}|{cidade}, rj"  # tentar tambem com ', rj'
+
+        if not row.get("email"):
+            # Tentar encontrar com ou sem ', RJ'
+            if key in prog_antigo:
+                row["email"] = prog_antigo[key]
+            elif key_rj in prog_antigo:
+                row["email"] = prog_antigo[key_rj]
 
     # Filtrar sem site e sem email
     pendentes = []
