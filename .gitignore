@@ -7,9 +7,6 @@ __pycache__/
 # Playwright
 .ms-playwright/
 
-# Output (dados de leads, emails, progresso)
-output/
-
 # IDE
 .vscode/
 .idea/
