@@ -1,0 +1,905 @@
+{
+  "enviados": [
+    {
+      "email": "reservas@reidobacalhaurp.com.br",
+      "nome": "Restaurante Rei do Bacalhau Rio Petropolis",
+      "categoria": "restaurante",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "comercial",
+      "template": "restaurante.html",
+      "data": "2026-04-22T10:02:56.603661"
+    },
+    {
+      "email": "dantasoliveira12@yahoo.com",
+      "nome": "Auto Escola Dantas Oliveira",
+      "categoria": "auto escola",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "comercial",
+      "template": "oficina.html",
+      "data": "2026-04-22T10:07:05.317513"
+    },
+    {
+      "email": "adv.associados.teixeira@gmail.com",
+      "nome": "Teixeira Advocacia Especializada",
+      "categoria": "advogado",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "cnpj",
+      "template": "advogado.html",
+      "data": "2026-04-22T10:12:08.756833"
+    },
+    {
+      "email": "web@bfw.group",
+      "nome": "Bar do Zeca",
+      "categoria": "restaurante",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "comercial",
+      "template": "restaurante.html",
+      "data": "2026-04-22T10:16:39.566174"
+    },
+    {
+      "email": "popmed439@gmail.com",
+      "nome": "PopMed (Clínica Médica)",
+      "categoria": "clínica médica",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "cnpj",
+      "template": "base.html",
+      "data": "2026-04-22T10:18:57.428743"
+    },
+    {
+      "email": "popmed439@gmail.com",
+      "nome": "PopMed (Clínica Médica)",
+      "categoria": "clínica médica",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "cnpj",
+      "template": "base.html",
+      "data": "2026-04-22T10:21:36.011327"
+    },
+    {
+      "email": "lauraaraujo.mkt@gmail.com",
+      "nome": "Pinheiro & Goes Advogados Associados em Duque de Caxias",
+      "categoria": "advogado",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "cnpj",
+      "template": "advogado.html",
+      "data": "2026-04-22T10:25:36.752294"
+    },
+    {
+      "email": "rrodontorisos@hotmail.com",
+      "nome": "Odontorisos",
+      "categoria": "dentista",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "cnpj",
+      "template": "dentista.html",
+      "data": "2026-04-22T10:28:07.391282"
+    },
+    {
+      "email": "eduardobragamoreira@gmail.com",
+      "nome": "Baurú Vila São Luiz",
+      "categoria": "restaurante",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "comercial",
+      "template": "restaurante.html",
+      "data": "2026-04-22T10:32:14.231228"
+    },
+    {
+      "email": "n.caio@hotmail.com",
+      "nome": "BARBEARIA 25",
+      "categoria": "barbearia",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "cnpj",
+      "template": "barbearia.html",
+      "data": "2026-04-22T10:36:11.971141"
+    },
+    {
+      "email": "allansousamelo09071990@gmail.com",
+      "nome": "Lume Odontologia | Dentista | Alinhador Invisível | SouSmile | Implantes | Duque de Caxias",
+      "categoria": "dentista",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "cnpj",
+      "template": "dentista.html",
+      "data": "2026-04-22T10:40:06.804733"
+    },
+    {
+      "email": "anabenincasa@ig.com.br",
+      "nome": "Benincasa Contabilidade",
+      "categoria": "contador",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "cnpj",
+      "template": "base.html",
+      "data": "2026-04-22T10:44:16.519841"
+    },
+    {
+      "email": "lauraaraujo.mkt@gmail.com",
+      "nome": "Léo lanches Centenário",
+      "categoria": "lanchonete",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "cnpj",
+      "template": "restaurante.html",
+      "data": "2026-04-22T10:48:56.334137"
+    },
+    {
+      "email": "palomascarvalho2@outlook.com",
+      "nome": "Barradas Doceria",
+      "categoria": "confeitaria",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "cnpj",
+      "template": "restaurante.html",
+      "data": "2026-04-22T10:51:11.132489"
+    },
+    {
+      "email": "n.caio@hotmail.com",
+      "nome": "BARBEARIA 25",
+      "categoria": "barbearia",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "cnpj",
+      "template": "barbearia.html",
+      "data": "2026-04-22T10:56:08.680841"
+    },
+    {
+      "email": "myllenavictoria494@gmail.com",
+      "nome": "Kiloucura de Pizzas",
+      "categoria": "pizzaria",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "cnpj",
+      "template": "restaurante.html",
+      "data": "2026-04-22T11:00:01.380823"
+    },
+    {
+      "email": "lauraaraujo.mkt@gmail.com",
+      "nome": "Curso Preparandos - Preparatório Militar, Escolas Técnicas, Vestibular e ENEM.",
+      "categoria": "curso pré-vestibular",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "cnpj",
+      "template": "base.html",
+      "data": "2026-04-22T11:03:50.145824"
+    },
+    {
+      "email": "edilanjos@gmail.com",
+      "nome": "Galeto Dourado",
+      "categoria": "restaurante",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "cnpj",
+      "template": "restaurante.html",
+      "data": "2026-04-22T11:07:57.796058"
+    },
+    {
+      "email": "contato@parafa.com.br",
+      "nome": "Pie House",
+      "categoria": "pizzaria",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "comercial",
+      "template": "restaurante.html",
+      "data": "2026-04-22T11:12:58.626640"
+    },
+    {
+      "email": "elcursoshaday@gmail.com",
+      "nome": "Salão de beleza ell shaday",
+      "categoria": "estética",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "comercial",
+      "template": "salao.html",
+      "data": "2026-04-22T11:18:01.484125"
+    },
+    {
+      "email": "belizzi.makeup93@gmail.com",
+      "nome": "Oba Oba Pizzaria Jardim 25 de Agosto: Pizzas, Calzone, Duque de Caxias",
+      "categoria": "pizzaria",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "cnpj",
+      "template": "restaurante.html",
+      "data": "2026-04-22T11:22:02.964395"
+    },
+    {
+      "email": "as081623@gmail.com",
+      "nome": "Barbearia do jack",
+      "categoria": "barbearia",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "comercial",
+      "template": "barbearia.html",
+      "data": "2026-04-22T11:25:46.980579"
+    },
+    {
+      "email": "ciaprofissionalizante@bol.com.br",
+      "nome": "Colégio e Curso Companhia",
+      "categoria": "curso pré-vestibular",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "comercial",
+      "template": "base.html",
+      "data": "2026-04-22T11:29:19.677598"
+    },
+    {
+      "email": "eduardobragamoreira@gmail.com",
+      "nome": "Contador Igor",
+      "categoria": "contador",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "comercial",
+      "template": "base.html",
+      "data": "2026-04-22T11:31:56.431325"
+    },
+    {
+      "email": "adm.vossabrasa@gmail.com",
+      "nome": "Vossa Brasa",
+      "categoria": "restaurante",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "cnpj",
+      "template": "restaurante.html",
+      "data": "2026-04-22T11:36:20.847312"
+    },
+    {
+      "email": "melmonterocha@gmail.com",
+      "nome": "Lanchonete Do Malucão",
+      "categoria": "lanchonete",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "cnpj",
+      "template": "restaurante.html",
+      "data": "2026-04-22T11:41:06.817941"
+    },
+    {
+      "email": "eduardobragamoreira@gmail.com",
+      "nome": "You Move Idiomas - Duque de Caxias II",
+      "categoria": "escola de idiomas",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "comercial",
+      "template": "base.html",
+      "data": "2026-04-22T11:46:04.030203"
+    },
+    {
+      "email": "lannyjoiaserelogios@gmail.com",
+      "nome": "Lanny Jóias e Relógios",
+      "categoria": "joalheria",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "cnpj",
+      "template": "base.html",
+      "data": "2026-04-22T11:50:59.233987"
+    },
+    {
+      "email": "llscont@hotmail.com",
+      "nome": "Caleb's Pizza - Burger",
+      "categoria": "pizzaria",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "cnpj",
+      "template": "restaurante.html",
+      "data": "2026-04-22T11:55:02.181100"
+    },
+    {
+      "email": "daniallacoqueoliveira25@gmail.com",
+      "nome": "Clínica médica Doutor 10 -Ressonancia magnética - Consultas e exames",
+      "categoria": "clínica médica",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "cnpj",
+      "template": "base.html",
+      "data": "2026-04-22T11:59:03.128297"
+    },
+    {
+      "email": "amineiracaxias@ig.com.br",
+      "nome": "Restaurante À Mineira - Duque de Caxias",
+      "categoria": "restaurante",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "comercial",
+      "template": "restaurante.html",
+      "data": "2026-04-22T12:02:06.001868"
+    },
+    {
+      "email": "lauraaraujo.mkt@gmail.com",
+      "nome": "Belíssima Bijuterias e Acessórios",
+      "categoria": "joalheria",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "cnpj",
+      "template": "base.html",
+      "data": "2026-04-22T12:06:04.817417"
+    },
+    {
+      "email": "legaliza@ntcomercial.com",
+      "nome": "Padaria e Confeitaria Aliança",
+      "categoria": "confeitaria",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "cnpj",
+      "template": "restaurante.html",
+      "data": "2026-04-22T12:08:28.334488"
+    },
+    {
+      "email": "rjsouzacontabilidade@gmail.com",
+      "nome": "Autoescola Maranata",
+      "categoria": "auto escola",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "cnpj",
+      "template": "oficina.html",
+      "data": "2026-04-22T12:11:51.099156"
+    },
+    {
+      "email": "melmonterocha@gmail.com",
+      "nome": "Contador Igor",
+      "categoria": "contador",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "cnpj",
+      "template": "base.html",
+      "data": "2026-04-22T12:15:46.193609"
+    },
+    {
+      "email": "belizzi.makeup93@gmail.com",
+      "nome": "Service Odonto Duque de Caxias 2",
+      "categoria": "dentista",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "cnpj",
+      "template": "dentista.html",
+      "data": "2026-04-22T12:20:48.069274"
+    },
+    {
+      "email": "lauraaraujo.mkt@gmail.com",
+      "nome": "Padaria Felicitá",
+      "categoria": "confeitaria",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "cnpj",
+      "template": "restaurante.html",
+      "data": "2026-04-22T12:24:08.286458"
+    },
+    {
+      "email": "contato.doutor10rj@gmail.com",
+      "nome": "Clínica médica Doutor 10 -Ressonancia magnética - Consultas e exames",
+      "categoria": "clínica médica",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "comercial",
+      "template": "base.html",
+      "data": "2026-04-22T12:28:05.895452"
+    },
+    {
+      "email": "orlycavalcanti@gmail.com",
+      "nome": "Curso UM",
+      "categoria": "curso pré-vestibular",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "cnpj",
+      "template": "base.html",
+      "data": "2026-04-22T12:33:07.180452"
+    },
+    {
+      "email": "galetodosertaomkt@gmail.com",
+      "nome": "Galeto do Sertão",
+      "categoria": "restaurante",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "comercial",
+      "template": "restaurante.html",
+      "data": "2026-04-22T12:36:14.134351"
+    },
+    {
+      "email": "melmonterocha@gmail.com",
+      "nome": "Rafa lanches & Pizzaria Delivery",
+      "categoria": "pizzaria",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "cnpj",
+      "template": "restaurante.html",
+      "data": "2026-04-22T12:38:31.804193"
+    },
+    {
+      "email": "dhheany6@gmail.com",
+      "nome": "BARBEARIA PAI E FILHO",
+      "categoria": "barbearia",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "cnpj",
+      "template": "barbearia.html",
+      "data": "2026-04-22T12:41:59.495677"
+    },
+    {
+      "email": "linne.kleytyn2015@gmail.com",
+      "nome": "Mylla Doces",
+      "categoria": "confeitaria",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "cnpj",
+      "template": "restaurante.html",
+      "data": "2026-04-22T12:47:12.537576"
+    },
+    {
+      "email": "jullyjoias263@gmail.com",
+      "nome": "Jully Joias",
+      "categoria": "joalheria",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "cnpj",
+      "template": "base.html",
+      "data": "2026-04-22T12:51:44.928647"
+    },
+    {
+      "email": "russo@cachorroquentedorusso.com.br",
+      "nome": "Cachorro Quente do Russo - Duque de Caxias, Rio de Janeiro",
+      "categoria": "lanchonete",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "comercial",
+      "template": "restaurante.html",
+      "data": "2026-04-22T12:56:09.687047"
+    },
+    {
+      "email": "eduardobragamoreira@gmail.com",
+      "nome": "Service Odonto Duque de Caxias 2",
+      "categoria": "dentista",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "comercial",
+      "template": "dentista.html",
+      "data": "2026-04-22T13:01:05.337470"
+    },
+    {
+      "email": "x@x.com.br",
+      "nome": "Lanchonete Flip Top",
+      "categoria": "lanchonete",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "cnpj",
+      "template": "restaurante.html",
+      "data": "2026-04-22T13:06:00.150559"
+    },
+    {
+      "email": "allansousamelo09071990@gmail.com",
+      "nome": "Atacadão Lanches",
+      "categoria": "lanchonete",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "cnpj",
+      "template": "restaurante.html",
+      "data": "2026-04-22T13:08:42.167756"
+    },
+    {
+      "email": "contato@portaljpa.com.br",
+      "nome": "Pinheiro & Goes Advogados Associados em Duque de Caxias",
+      "categoria": "advogado",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "comercial",
+      "template": "advogado.html",
+      "data": "2026-04-22T13:13:25.480650"
+    },
+    {
+      "email": "contato@parafa.com.br",
+      "nome": "Pie House",
+      "categoria": "lanchonete",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "comercial",
+      "template": "restaurante.html",
+      "data": "2026-04-22T13:18:28.442312"
+    },
+    {
+      "email": "pcshekinahas@gmail.com",
+      "nome": "Ia Shekinah Padaria",
+      "categoria": "padaria",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "comercial",
+      "template": "padaria.html",
+      "data": "2026-04-27T09:05:17.671633"
+    },
+    {
+      "email": "clinica.pedraguaratiba@gmail.com",
+      "nome": "L.S.Farma",
+      "categoria": "farmácia",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "cnpj",
+      "template": "farmacia.html",
+      "data": "2026-04-27T09:06:02.047847"
+    },
+    {
+      "email": "contato@alfacolegio.com.br",
+      "nome": "Colégio Alfa",
+      "categoria": "curso pré-vestibular",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "comercial",
+      "template": "base.html",
+      "data": "2026-04-27T09:06:53.741528"
+    },
+    {
+      "email": "lavanderialaclair@gmail.com",
+      "nome": "Lavanderia Laclair",
+      "categoria": "lavanderia",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "comercial",
+      "template": "lavanderia.html",
+      "data": "2026-04-27T09:07:50.654075"
+    },
+    {
+      "email": "barbearia25@yahoo.com.br",
+      "nome": "BARBEARIA 25",
+      "categoria": "barbearia",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "comercial",
+      "template": "barbearia.html",
+      "data": "2026-04-27T09:08:56.473682"
+    },
+    {
+      "email": "contaudefelicio@oi.com.br",
+      "nome": "AV Studio Pilates Duque de Caxias",
+      "categoria": "estúdio de pilates",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "cnpj",
+      "template": "estudio_de_pilates.html",
+      "data": "2026-04-27T09:09:48.847191"
+    },
+    {
+      "email": "smithvet27@gmail.com",
+      "nome": "Centro Veterinário Doutor Joaquim",
+      "categoria": "clínica veterinária",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "cnpj",
+      "template": "clinica_veterinaria.html",
+      "data": "2026-04-27T09:10:30.282039"
+    },
+    {
+      "email": "oticasartedever@hotmail.com",
+      "nome": "Ótica Visual",
+      "categoria": "ótica",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "comercial",
+      "template": "otica.html",
+      "data": "2026-04-27T09:11:31.752386"
+    },
+    {
+      "email": "henrique13092022@gmail.com",
+      "nome": "Pet Mais Caxias",
+      "categoria": "clínica veterinária",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "cnpj",
+      "template": "clinica_veterinaria.html",
+      "data": "2026-04-27T09:12:30.159349"
+    },
+    {
+      "email": "contato@cirprocsaude.com",
+      "nome": "Cirproc Saúde - Clínica Médica Duque de Caxias",
+      "categoria": "clínica médica",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "cnpj",
+      "template": "clinica_medica.html",
+      "data": "2026-04-27T09:13:14.723698"
+    },
+    {
+      "email": "gramfarmapopular@gmail.com",
+      "nome": "Grupo X Farma",
+      "categoria": "farmácia",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "comercial",
+      "template": "farmacia.html",
+      "data": "2026-04-27T09:14:16.064463"
+    },
+    {
+      "email": "contato@cursoum.com.br",
+      "nome": "Curso UM",
+      "categoria": "curso pré-vestibular",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "comercial",
+      "template": "base.html",
+      "data": "2026-04-27T09:15:27.118298"
+    },
+    {
+      "email": "henriquerodriguesrelojoaria@gmail.com",
+      "nome": "Joalheria Caxiense",
+      "categoria": "joalheria",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "cnpj",
+      "template": "joalheria.html",
+      "data": "2026-04-27T09:16:11.476624"
+    },
+    {
+      "email": "marketing@santoseabreu.com.br",
+      "nome": "Drogarias Legítima - Pantanal",
+      "categoria": "farmácia",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "comercial",
+      "template": "farmacia.html",
+      "data": "2026-04-27T09:17:05.885525"
+    },
+    {
+      "email": "panificacao.bocafolle@gmail.com",
+      "nome": "Panificação bocafolle",
+      "categoria": "padaria",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "cnpj",
+      "template": "padaria.html",
+      "data": "2026-04-27T09:18:10.315339"
+    },
+    {
+      "email": "nanda198900@gmail.com",
+      "nome": "AKNOSLAV",
+      "categoria": "lavanderia",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "cnpj",
+      "template": "lavanderia.html",
+      "data": "2026-04-27T09:19:04.785576"
+    },
+    {
+      "email": "estudiorcmetodopilates@gmail.com",
+      "nome": "RC Performance Quality",
+      "categoria": "estúdio de pilates",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "comercial",
+      "template": "estudio_de_pilates.html",
+      "data": "2026-04-27T09:20:08.151652"
+    },
+    {
+      "email": "prefeito.duquedecaxias@gmail.com",
+      "nome": "Patricia Koppe Materiais de Construçoes",
+      "categoria": "material de construção",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "comercial",
+      "template": "material_de_construcao.html",
+      "data": "2026-04-27T09:20:50.763547"
+    },
+    {
+      "email": "sandymorais1@gmail.com",
+      "nome": "Sandy Modas De Caxias",
+      "categoria": "loja de roupas",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "cnpj",
+      "template": "loja_de_roupas.html",
+      "data": "2026-04-27T09:21:55.517260"
+    },
+    {
+      "email": "lincoln.redelav@gmail.com",
+      "nome": "Lavanderia",
+      "categoria": "lavanderia",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "cnpj",
+      "template": "lavanderia.html",
+      "data": "2026-04-27T09:22:55.810244"
+    },
+    {
+      "email": "geniuscaxias@gmail.com",
+      "nome": "Genius Vestibulares",
+      "categoria": "curso pré-vestibular",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "comercial",
+      "template": "base.html",
+      "data": "2026-04-27T09:24:04.536212"
+    },
+    {
+      "email": "alfa@alfacontadvogados.com.br",
+      "nome": "Império das Flores",
+      "categoria": "floricultura",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "cnpj",
+      "template": "floricultura.html",
+      "data": "2026-04-27T09:25:11.159408"
+    },
+    {
+      "email": "contato.expertisecontabil@gmail.com",
+      "nome": "Óticas Silvio",
+      "categoria": "ótica",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "cnpj",
+      "template": "otica.html",
+      "data": "2026-04-27T09:26:07.921662"
+    },
+    {
+      "email": "segov@duquedecaxias.rj.go",
+      "nome": "Rede Única",
+      "categoria": "loja de móveis",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "comercial",
+      "template": "loja_de_moveis.html",
+      "data": "2026-04-27T09:27:11.330875"
+    },
+    {
+      "email": "abrinco.contabilidade@gmail.com",
+      "nome": "Premium Lavanderia",
+      "categoria": "lavanderia",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "cnpj",
+      "template": "lavanderia.html",
+      "data": "2026-04-27T09:28:11.991176"
+    },
+    {
+      "email": "dp.financeiro2021@gmail.com",
+      "nome": "Drogarias Vita Farma",
+      "categoria": "farmácia",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "cnpj",
+      "template": "farmacia.html",
+      "data": "2026-04-27T09:28:51.853113"
+    },
+    {
+      "email": "andersobotafogo@gmail.com",
+      "nome": "Resto bar no grau",
+      "categoria": "bar",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "cnpj",
+      "template": "bar.html",
+      "data": "2026-04-27T09:29:47.764214"
+    },
+    {
+      "email": "wanderley123.wj@gmail.com",
+      "nome": "Serralheria E Vidraçaria WJ Israel",
+      "categoria": "vidraçaria",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "cnpj",
+      "template": "vidracaria.html",
+      "data": "2026-04-27T09:30:33.880390"
+    },
+    {
+      "email": "intactaotica@gmail.com",
+      "nome": "Brum Ótica",
+      "categoria": "ótica",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "cnpj",
+      "template": "otica.html",
+      "data": "2026-04-27T09:31:24.427761"
+    },
+    {
+      "email": "sergioadrianolopess27@gmail.com",
+      "nome": "Lopes Cell",
+      "categoria": "loja de celulares",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "cnpj",
+      "template": "loja_de_celulares.html",
+      "data": "2026-04-27T09:32:26.512662"
+    },
+    {
+      "email": "contato@guiadocnpj.com.br",
+      "nome": "Fonte da Beleza",
+      "categoria": "salão de beleza",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "comercial",
+      "template": "salao.html",
+      "data": "2026-04-27T09:33:35.586328"
+    },
+    {
+      "email": "akitemconstrucao4@gmail.com",
+      "nome": "aKitem Materiais de construção - RJ",
+      "categoria": "material de construção",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "comercial",
+      "template": "material_de_construcao.html",
+      "data": "2026-04-27T09:34:23.955720"
+    },
+    {
+      "email": "cortexvidracaria86@gmail.com",
+      "nome": "Cortex Vidraçaria",
+      "categoria": "vidraçaria",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "comercial",
+      "template": "vidracaria.html",
+      "data": "2026-04-27T09:35:20.343720"
+    },
+    {
+      "email": "navalhacarioca@gmail.com",
+      "nome": "Navalha Carioca Barbearia e Pub",
+      "categoria": "barbearia",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "cnpj",
+      "template": "barbearia.html",
+      "data": "2026-04-27T09:36:05.669150"
+    },
+    {
+      "email": "boxg427@gmail.com",
+      "nome": "BOX G427 CROSS TRAINING",
+      "categoria": "academia",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "comercial",
+      "template": "academia.html",
+      "data": "2026-04-27T09:37:00.894028"
+    },
+    {
+      "email": "imperiodasfloresrj@gmail.com",
+      "nome": "Império das Flores",
+      "categoria": "floricultura",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "comercial",
+      "template": "floricultura.html",
+      "data": "2026-04-27T09:37:53.236566"
+    },
+    {
+      "email": "contato@guiadocnpj.com.br",
+      "nome": "Fonte da Beleza",
+      "categoria": "salão de beleza",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "comercial",
+      "template": "salao.html",
+      "data": "2026-04-27T09:38:48.635198"
+    },
+    {
+      "email": "financeiro@alfacolegio.com.br",
+      "nome": "Colégio Alfa",
+      "categoria": "curso pré-vestibular",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "cnpj",
+      "template": "base.html",
+      "data": "2026-04-27T09:39:38.721342"
+    },
+    {
+      "email": "ngnogueiraofficiall@gmail.com",
+      "nome": "Cortex Vidraçaria",
+      "categoria": "vidraçaria",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "cnpj",
+      "template": "vidracaria.html",
+      "data": "2026-04-27T09:40:35.791479"
+    },
+    {
+      "email": "barbearia25@yahoo.com.br",
+      "nome": "BARBEARIA 25",
+      "categoria": "barbearia",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "comercial",
+      "template": "barbearia.html",
+      "data": "2026-04-27T09:41:20.563596"
+    },
+    {
+      "email": "apaixonadosvargemgrande@gmail.com",
+      "nome": "Veterinária Gramacho",
+      "categoria": "clínica veterinária",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "cnpj",
+      "template": "clinica_veterinaria.html",
+      "data": "2026-04-27T09:42:08.772017"
+    },
+    {
+      "email": "karinaoliveiraaa@yahoo.com",
+      "nome": "Brisa Estética Holística por Karina Gazetta - Doutor Laureano",
+      "categoria": "estética",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "cnpj",
+      "template": "estetica.html",
+      "data": "2026-04-27T09:43:07.507948"
+    },
+    {
+      "email": "ouvidoria@cmdc.rj.gov.br",
+      "nome": "Hanna encanadora",
+      "categoria": "encanador",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "comercial",
+      "template": "encanador.html",
+      "data": "2026-04-27T09:43:54.967107"
+    },
+    {
+      "email": "lmluizmarceneiro@gmail.com",
+      "nome": "Marceneiro Luiz Carlos - RJ",
+      "categoria": "marcenaria",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "cnpj",
+      "template": "marcenaria.html",
+      "data": "2026-04-27T09:44:55.580745"
+    },
+    {
+      "email": "dhavalchadha@gmail.com",
+      "nome": "Pintura automotiva falcão",
+      "categoria": "pintor",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "cnpj",
+      "template": "pintor.html",
+      "data": "2026-04-27T09:46:01.401119"
+    },
+    {
+      "email": "gabriel.silvaoficial26@gmail.com",
+      "nome": "Barbearia Corte das Estrelas",
+      "categoria": "barbearia",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "cnpj",
+      "template": "barbearia.html",
+      "data": "2026-04-27T09:46:48.880050"
+    },
+    {
+      "email": "segov@duquedecaxias.rj.gov.br",
+      "nome": "Marquesa city",
+      "categoria": "ótica",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "comercial",
+      "template": "otica.html",
+      "data": "2026-04-27T09:47:39.176670"
+    },
+    {
+      "email": "plan@wanderboat.ai",
+      "nome": "Yell Mobile - Caxias Shopping",
+      "categoria": "loja de celulares",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "comercial",
+      "template": "loja_de_celulares.html",
+      "data": "2026-04-27T09:48:48.812935"
+    },
+    {
+      "email": "goespk33@gmail.com",
+      "nome": "Pinheiro & Goes Advogados Associados Jardim Leal | Duque de Caxias",
+      "categoria": "advogado",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "cnpj",
+      "template": "advogado.html",
+      "data": "2026-04-27T09:49:45.433315"
+    },
+    {
+      "email": "belissimaxerem@gmail.com",
+      "nome": "Belíssima Bijuterias e Acessórios",
+      "categoria": "joalheria",
+      "cidade": "Duque de Caxias, RJ",
+      "tipo": "comercial",
+      "template": "joalheria.html",
+      "data": "2026-04-27T09:50:57.004915"
+    }
+  ],
+  "data_ultimo": "2026-04-22T13:18:28.462183"
+}

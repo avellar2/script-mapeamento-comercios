@@ -11,10 +11,12 @@ Uso: python envio_emails_zoho.py
 import csv
 import json
 import os
+import re
 import smtplib
 import random
 import sys
 import time
+import unicodedata
 import uuid
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -40,8 +42,9 @@ except ImportError:
 OUTPUT_DIR = Path(__file__).parent / "output"
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 PROGRESS_FILE = OUTPUT_DIR / "envios" / "progresso_envio.json"
-LEADS_FILE = OUTPUT_DIR / "playwright" / "todos_comercios.csv"
+LEADS_FILE = OUTPUT_DIR / "playwright" / "leads_sem_site.csv"
 EMAILS_FILE = OUTPUT_DIR / "playwright" / "progresso_emails.json"
+PREVIEW_FILE = OUTPUT_DIR / "envios" / "ultima_previa_envio.csv"
 
 # Zoho Mail SMTP
 SMTP_HOST = os.getenv("ZOHO_SMTP_HOST", "smtppro.zoho.com")
@@ -53,30 +56,80 @@ SUPABASE_URL = os.getenv("SUPABASE_URL", "https://ivqaccppqcchqshaplao.supabase.
 SUPABASE_KEY = os.getenv("SUPABASE_ANON_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml2cWFjY3BwcWNjaHFzaGFwbGFvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY3Mjg4MDMsImV4cCI6MjA5MjMwNDgwM30.jXVgYGRCH5MFXtKvqQ2Y_dcUfoY0DY-CBBTu_iKMt60")
 
 # Limites
-DELAY_MIN = 30    # 30 segundos
-DELAY_MAX = 60    # 60 segundos
-LIMITE_DIA = 250  # emails por dia (Zoho Mail Lite)
+# Defaults mais conservadores para reduzir bloqueio por reputacao.
+DELAY_MIN = int(os.getenv("EMAIL_DELAY_MIN", "90"))
+DELAY_MAX = int(os.getenv("EMAIL_DELAY_MAX", "180"))
+LIMITE_DIA = int(os.getenv("EMAIL_LIMITE_DIA", "40"))
+SMTP_TIMEOUT = int(os.getenv("ZOHO_SMTP_TIMEOUT", "30"))
+
+EMAIL_REGEX = re.compile(r"^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$", re.IGNORECASE)
+INVALID_EMAILS = {
+    "x@x.com.br",
+    "teste@teste.com",
+    "test@test.com",
+    "nao@informado.com",
+}
+INVALID_DOMAIN_SUFFIXES = (
+    ".gov.br",
+    ".jus.br",
+    ".leg.br",
+)
+
+MODO_ENVIO = os.getenv("EMAIL_MODO", "seguro").strip().lower()
+SAFE_MODE_LIMIT = int(os.getenv("EMAIL_SAFE_MODE_LIMIT", "5"))
+TEST_MODE_LIMIT = int(os.getenv("EMAIL_TEST_MODE_LIMIT", "3"))
 
 # Mapeamento de categoria -> template
 # Chave = categoria normalizada (lowercase, sem acento)
 CATEGORIA_TEMPLATE = {
+    # Food
     "restaurante": "restaurante.html",
-    "pizzaria": "restaurante.html",
-    "lanchonete": "restaurante.html",
-    "confeitaria": "restaurante.html",
+    "pizzaria": "pizzaria.html",
+    "lanchonete": "lanchonete.html",
+    "confeitaria": "confeitaria.html",
     "churrascaria": "restaurante.html",
-    "bar": "restaurante.html",
+    "bar": "bar.html",
+    "padaria": "padaria.html",
+    # Saude
     "academia": "academia.html",
-    "estudio de pilates": "academia.html",
+    "estudio de pilates": "estudio_de_pilates.html",
+    "dentista": "dentista.html",
+    "clinica medica": "clinica_medica.html",
+    "clinica veterinaria": "clinica_veterinaria.html",
+    "estetica": "estetica.html",
+    "farmacia": "farmacia.html",
+    "otica": "otica.html",
+    # Beleza
     "barbearia": "barbearia.html",
     "salao de beleza": "salao.html",
-    "estetica": "salao.html",
-    "dentista": "dentista.html",
-    "pet shop": "petshop.html",
+    # Servicos
     "advogado": "advogado.html",
     "contador": "contador.html",
     "oficina mecanica": "oficina.html",
     "auto escola": "auto_escola.html",
+    "pet shop": "petshop.html",
+    "eletricista": "eletricista.html",
+    "encanador": "encanador.html",
+    "pintor": "pintor.html",
+    "marcenaria": "marcenaria.html",
+    "serralheria": "serralheria.html",
+    "vidracaria": "vidracaria.html",
+    # Lojas
+    "loja de roupas": "loja_de_roupas.html",
+    "loja de moveis": "loja_de_moveis.html",
+    "loja de celulares": "loja_de_celulares.html",
+    "loja de bicicleta": "loja_de_bicicleta.html",
+    "joalheria": "joalheria.html",
+    "floricultura": "floricultura.html",
+    "papelaria": "papelaria.html",
+    "material de construcao": "material_de_construcao.html",
+    "supermercado": "supermercado.html",
+    "lavanderia": "lavanderia.html",
+    # Educacao
+    "escola de idiomas": "escola_de_idiomas.html",
+    "curso pre vestibular": "curso_pre_vestibular.html",
+    # Imoveis
+    "imobiliaria": "imobiliaria.html",
 }
 
 
@@ -84,17 +137,120 @@ def normalize_categoria(cat):
     """Normaliza categoria para mapear ao template."""
     if not cat:
         return ""
-    return (
-        cat.lower()
-        .replace("á", "a").replace("ã", "a").replace("â", "a")
-        .replace("é", "e").replace("ê", "e")
-        .replace("í", "i")
-        .replace("ó", "o").replace("õ", "o").replace("ô", "o")
-        .replace("ú", "u")
-        .replace("ç", "c")
-        .strip()
-    )
+    cat = unicodedata.normalize("NFKD", cat)
+    cat = "".join(ch for ch in cat if not unicodedata.combining(ch))
+    return cat.lower().strip()
 
+
+def normalize_email(email):
+    """Normaliza email para deduplicacao e validacao."""
+    return (email or "").strip().lower()
+
+
+def validar_email_destino(email):
+    """Valida se o email parece seguro para outreach comercial."""
+    email = normalize_email(email)
+    if not email:
+        return False, "vazio"
+    if email in INVALID_EMAILS:
+        return False, "placeholder"
+    if not EMAIL_REGEX.match(email):
+        return False, "formato-invalido"
+
+    domain = email.split("@", 1)[1]
+    if domain.endswith(INVALID_DOMAIN_SUFFIXES):
+        return False, "dominio-publico"
+
+    return True, "ok"
+
+
+
+
+def obter_dominio_email(email):
+    """Extrai dominio do email para limitar repeticao por empresa."""
+    email = normalize_email(email)
+    return email.split("@", 1)[1] if "@" in email else ""
+
+
+def obter_modo_envio():
+    """Normaliza o modo de envio suportado."""
+    if MODO_ENVIO in {"teste", "seguro", "normal"}:
+        return MODO_ENVIO
+    return "seguro"
+
+
+def aplicar_modo_envio(pendentes, modo):
+    """Aplica regras do modo de envio antes de disparar."""
+    if modo == "normal":
+        return pendentes, {}
+
+    if modo == "teste":
+        destino_teste = normalize_email(os.getenv("EMAIL_TEST_DESTINO", SMTP_USER))
+        ajustados = []
+        for lead in pendentes[:TEST_MODE_LIMIT]:
+            copia = dict(lead)
+            copia["email_real_destino"] = lead["email_destino"]
+            copia["email_destino"] = destino_teste
+            ajustados.append(copia)
+        return ajustados, {"destino_teste": destino_teste, "limite": TEST_MODE_LIMIT}
+
+    dominios_vistos = set()
+    ajustados = []
+    descartados_dominio = 0
+    for lead in pendentes:
+        dominio = obter_dominio_email(lead["email_destino"])
+        if dominio in dominios_vistos:
+            descartados_dominio += 1
+            continue
+        dominios_vistos.add(dominio)
+        ajustados.append(lead)
+        if len(ajustados) >= SAFE_MODE_LIMIT:
+            break
+
+    return ajustados, {"descartados_dominio": descartados_dominio, "limite": SAFE_MODE_LIMIT}
+
+
+def salvar_previa_envio(modo, pendentes):
+    """Salva uma previa do lote para revisao manual."""
+    PREVIEW_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with open(PREVIEW_FILE, 'w', newline='', encoding='utf-8') as f:
+        writer = csv.DictWriter(f, fieldnames=[
+            'modo', 'nome', 'categoria', 'cidade', 'email_destino', 'email_real_destino', 'tipo_email'
+        ])
+        writer.writeheader()
+        for lead in pendentes:
+            writer.writerow({
+                'modo': modo,
+                'nome': lead.get('nome', ''),
+                'categoria': lead.get('categoria', ''),
+                'cidade': lead.get('cidade', ''),
+                'email_destino': lead.get('email_destino', ''),
+                'email_real_destino': lead.get('email_real_destino', ''),
+                'tipo_email': lead.get('tipo_email', ''),
+            })
+
+
+def confirmar_envio(modo, pendentes, info_modo):
+    """Mostra previa e pede confirmacao explicita."""
+    salvar_previa_envio(modo, pendentes)
+
+    print(f"\n  Modo ativo: {modo.upper()}")
+    if modo == "teste":
+        print(f"  Destino de teste: {info_modo.get('destino_teste', SMTP_USER)}")
+        print("  Os leads reais NAO serao marcados como enviados.")
+    elif modo == "seguro":
+        print(f"  Limite seguro deste lote: {info_modo.get('limite', SAFE_MODE_LIMIT)}")
+        if info_modo.get('descartados_dominio'):
+            print(f"  Dominios repetidos descartados: {info_modo['descartados_dominio']}")
+
+    print(f"  Previa salva em: {PREVIEW_FILE}")
+    print("  Primeiros destinos:")
+    for lead in pendentes[:5]:
+        extra = f" | original={lead['email_real_destino']}" if lead.get('email_real_destino') else ""
+        print(f"    - {lead['nome'][:28]} -> {lead['email_destino']}{extra}")
+
+    confirmar = input("\n  Confirmar envio? (digite SIM para continuar): ").strip()
+    return confirmar.upper() == "SIM"
 
 def get_template_file(categoria):
     """Retorna o arquivo de template para a categoria."""
@@ -283,13 +439,17 @@ CNPJ: 65.999.597/0001-75
 def enviar_email(smtp_pass, to_email, msg):
     """Envia email via Zoho SMTP."""
     try:
-        server = smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT)
+        server = smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=SMTP_TIMEOUT)
         server.login(SMTP_USER, smtp_pass)
         server.send_message(msg)
         server.quit()
         return True
+    except smtplib.SMTPResponseException as e:
+        detalhe = e.smtp_error.decode(errors="ignore") if isinstance(e.smtp_error, bytes) else str(e.smtp_error)
+        print(f"    [X] SMTP {e.smtp_code}: {detalhe[:120]}")
+        return False
     except Exception as e:
-        print(f"    [X] Erro: {str(e)[:60]}")
+        print(f"    [X] {type(e).__name__}: {str(e)[:120]}")
         return False
 
 
@@ -327,8 +487,10 @@ def main():
     print("=" * 60)
     print("  ENVIO DE EMAILS POR CATEGORIA - ZOHO MAIL")
     print("=" * 60)
+    modo = obter_modo_envio()
+
     print(f"  SMTP: {SMTP_HOST}:{SMTP_PORT}")
-    print(f"  Limite: {LIMITE_DIA}/dia | Horario: 9h-18h (seg-sex)")
+    print(f"  Modo: {modo} | Limite base: {LIMITE_DIA}/dia | Horario: 9h-18h (seg-sex)")
     print("=" * 60)
 
     smtp_pass = os.getenv("ZOHO_SMTP_APP_PASSWORD", "")
@@ -369,27 +531,53 @@ def main():
     # Carregar progresso
     print("\n[3/5] Carregando progresso...")
     progresso = carregar_progresso()
-    ja_enviados = {e["email"] for e in progresso["enviados"]}
+    ja_enviados = {normalize_email(e["email"]) for e in progresso["enviados"]}
     print(f"  -> {len(ja_enviados)} emails ja enviados")
 
     # Filtrar pendentes
     print("\n[4/5] Filtrando pendentes...")
     pendentes = []
+    emails_desta_execucao = set()
+    motivos_skip = {}
     for lead in leads:
         emails_lead = []
-        if lead["email_cnpj"] and lead["email_cnpj"] not in ja_enviados:
+        if lead["email_cnpj"]:
             emails_lead.append(("cnpj", lead["email_cnpj"]))
-        if lead["email_comercial"] and lead["email_comercial"] not in ja_enviados:
+        if lead["email_comercial"]:
             emails_lead.append(("comercial", lead["email_comercial"]))
 
         for tipo, email in emails_lead:
-            pendentes.append({**lead, "email_destino": email, "tipo_email": tipo})
+            email_norm = normalize_email(email)
+            valido, motivo = validar_email_destino(email_norm)
+            if not valido:
+                motivos_skip[motivo] = motivos_skip.get(motivo, 0) + 1
+                continue
+            if email_norm in ja_enviados or email_norm in emails_desta_execucao:
+                motivos_skip["duplicado"] = motivos_skip.get("duplicado", 0) + 1
+                continue
+
+            pendentes.append({**lead, "email_destino": email_norm, "tipo_email": tipo})
+            emails_desta_execucao.add(email_norm)
 
     random.shuffle(pendentes)
     print(f"  -> {len(pendentes)} emails pendentes")
+    if motivos_skip:
+        resumo_skip = ", ".join(f"{k}={v}" for k, v in sorted(motivos_skip.items()))
+        print(f"  -> descartados: {resumo_skip}")
 
     if not pendentes:
         print("\n  Todos os emails ja foram enviados!")
+        return
+
+    pendentes, info_modo = aplicar_modo_envio(pendentes, modo)
+    print(f"  -> lote preparado: {len(pendentes)} emails")
+
+    if not pendentes:
+        print("\n  Nenhum email sobrou apos aplicar o modo de envio.")
+        return
+
+    if not confirmar_envio(modo, pendentes, info_modo):
+        print("\n  Envio cancelado. Ajuste os filtros e tente novamente.")
         return
 
     if not pode_enviar():
@@ -406,7 +594,8 @@ def main():
         if not template:
             continue
 
-        print(f"  [{i+1}/{len(enviar_agora)}] {lead['nome'][:35]} -> {lead['email_destino'][:35]} ({lead['categoria']})")
+        extra = f" | original={lead['email_real_destino'][:35]}" if lead.get('email_real_destino') else ""
+        print(f"  [{i+1}/{len(enviar_agora)}] {lead['nome'][:35]} -> {lead['email_destino'][:35]} ({lead['categoria']}){extra}")
 
         # Gerar tracking ID unico
         tracking_id = str(uuid.uuid4())
@@ -418,26 +607,33 @@ def main():
             lead["cidade"],
             html
         )
+        if modo == "teste" and lead.get("email_real_destino"):
+            msg.replace_header('Subject', f"[TESTE] {msg['Subject']}")
+            msg['X-Original-Destino'] = lead['email_real_destino']
 
         if enviar_email(smtp_pass, lead["email_destino"], msg):
             enviados += 1
-            # Salvar no Supabase
-            salvar_no_supabase(lead, tracking_id)
-            # Salvar no progresso local
-            progresso["enviados"].append({
-                "email": lead["email_destino"],
-                "nome": lead["nome"],
-                "categoria": lead["categoria"],
-                "cidade": lead["cidade"],
-                "tipo": lead["tipo_email"],
-                "template": get_template_file(lead["categoria"]).name,
-                "data": datetime.now().isoformat(),
-            })
+            if modo != "teste":
+                ja_enviados.add(lead["email_destino"])
+                # Salvar no Supabase
+                salvar_no_supabase(lead, tracking_id)
+                # Salvar no progresso local
+                progresso["enviados"].append({
+                    "email": lead["email_destino"],
+                    "nome": lead["nome"],
+                    "categoria": lead["categoria"],
+                    "cidade": lead["cidade"],
+                    "tipo": lead["tipo_email"],
+                    "template": get_template_file(lead["categoria"]).name,
+                    "data": datetime.now().isoformat(),
+                })
 
-            # Salvar progresso a cada 5
-            if enviados % 5 == 0:
-                salvar_progresso(progresso)
-                print(f"  [progresso salvo] {enviados} enviados")
+                # Salvar progresso a cada 5
+                if enviados % 5 == 0:
+                    salvar_progresso(progresso)
+                    print(f"  [progresso salvo] {enviados} enviados")
+            else:
+                print("    [teste] enviado sem gravar progresso real")
         else:
             print(f"    falhou - pulando")
 
@@ -448,8 +644,9 @@ def main():
             time.sleep(delay)
 
     # Salvar progresso final
-    progresso["data_ultimo"] = datetime.now().isoformat()
-    salvar_progresso(progresso)
+    if modo != "teste":
+        progresso["data_ultimo"] = datetime.now().isoformat()
+        salvar_progresso(progresso)
 
     print(f"\n{'=' * 60}")
     print(f"  RESUMO")

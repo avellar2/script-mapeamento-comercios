@@ -1,0 +1,4 @@
+modo,nome,categoria,cidade,email_destino,email_real_destino,tipo_email
+teste,Mercadinho Beira Rio,supermercado,"Japeri, RJ",vandersonavellar1997@gmail.com,realdatacontabilidade@hotmail.com,cnpj
+teste,Shaiane Mattos Advocacia e Consultoria,advogado,"Nilópolis, RJ",vandersonavellar1997@gmail.com,tatiane.fleal@gmail.com,cnpj
+teste,Point das Pizzas,pizzaria,"Itaguaí, RJ",vandersonavellar1997@gmail.com,rh@contaj.net.br,cnpj
