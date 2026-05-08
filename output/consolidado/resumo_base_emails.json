@@ -1,0 +1,17 @@
+{
+  "total_linhas_consolidadas": 6213,
+  "total_leads_com_melhor_email": 4570,
+  "classificacao_contagem": {
+    "negocio_direto": 1173,
+    "caixa_generica_negocio": 606,
+    "pessoal_relacionado": 3539,
+    "caixa_generica_publica": 10,
+    "terceiro_contabil": 600,
+    "institucional_publico": 237,
+    "suspeito": 48
+  },
+  "arquivos": {
+    "consolidada": "C:\\Users\\Vanderson\\Documents\\script-mapeamento-comercios\\output\\consolidado\\base_emails_consolidada.csv",
+    "priorizada": "C:\\Users\\Vanderson\\Documents\\script-mapeamento-comercios\\output\\consolidado\\base_emails_priorizada.csv"
+  }
+}

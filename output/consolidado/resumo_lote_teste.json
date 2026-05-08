@@ -1,0 +1,42 @@
+{
+  "base_pronta_contato": 797,
+  "lote_teste_seguro": 40,
+  "cidades_lote": [
+    "Duque de Caxias, RJ"
+  ],
+  "categorias_lote": [
+    "academia",
+    "advogado",
+    "auto escola",
+    "bar",
+    "barbearia",
+    "clínica médica",
+    "clínica veterinária",
+    "confeitaria",
+    "curso pré-vestibular",
+    "dentista",
+    "eletricista",
+    "encanador",
+    "estética",
+    "estúdio de pilates",
+    "farmácia",
+    "floricultura",
+    "imobiliária",
+    "joalheria",
+    "lanchonete",
+    "lavanderia",
+    "loja de celulares",
+    "loja de móveis",
+    "loja de roupas",
+    "marcenaria",
+    "material de construção",
+    "oficina mecânica",
+    "pintor",
+    "pizzaria",
+    "serralheria"
+  ],
+  "arquivos": {
+    "base_pronta_contato": "C:\\Users\\Vanderson\\Documents\\script-mapeamento-comercios\\output\\consolidado\\base_emails_pronta_contato.csv",
+    "lote_teste_seguro": "C:\\Users\\Vanderson\\Documents\\script-mapeamento-comercios\\output\\consolidado\\lote_teste_seguro.csv"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "antes_refino": 797,
+  "apos_refino": 716,
+  "descartados": 81,
+  "lote_ultra_seguro": 25,
+  "motivos_descarte": {
+    "local_bloqueado": 77,
+    "suspeito_mapeado": 3,
+    "caixa_generica_risco": 1
+  },
+  "arquivos": {
+    "refinada": "C:\\Users\\Vanderson\\Documents\\script-mapeamento-comercios\\output\\consolidado\\base_emails_pronta_contato_refinada.csv",
+    "descartados": "C:\\Users\\Vanderson\\Documents\\script-mapeamento-comercios\\output\\consolidado\\base_emails_descartados_filtro_final.csv",
+    "lote_ultra_seguro": "C:\\Users\\Vanderson\\Documents\\script-mapeamento-comercios\\output\\consolidado\\lote_teste_ultra_seguro.csv"
+  }
+}
