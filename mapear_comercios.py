@@ -116,8 +116,9 @@ def save_progress(progress):
 def export_csv(businesses, filename):
     filepath = OUTPUT_DIR / filename
     fieldnames = [
-        "nome", "endereco", "telefone", "email", "categoria",
-        "tem_site", "url_site", "avaliacao", "num_avaliacoes", "cidade",
+        "nome", "endereco", "telefone", "whatsapp", "instagram",
+        "email", "categoria", "tem_site", "url_site",
+        "avaliacao", "num_avaliacoes", "cidade", "bairro", "link_maps",
     ]
     with open(filepath, "w", newline="", encoding="utf-8-sig") as f:
         w = csv.DictWriter(f, fieldnames=fieldnames)
@@ -137,8 +138,9 @@ def export_excel(businesses, filename):
         ws.title = "Leads sem Site"
 
         headers = [
-            "Nome", "Endereço", "Telefone", "Email", "Categoria",
-            "Tem Site?", "URL do Site", "Avaliação", "Nº Avaliações", "Cidade",
+            "Nome", "Endereço", "Telefone", "WhatsApp", "Instagram",
+            "Email", "Categoria", "Tem Site?", "URL do Site",
+            "Avaliação", "Nº Avaliações", "Cidade", "Bairro", "Link Maps",
         ]
         header_font = Font(bold=True, color="FFFFFF")
         header_fill = PatternFill("solid", fgColor="2563EB")
@@ -152,22 +154,26 @@ def export_excel(businesses, filename):
             ws.cell(row=row_idx, column=1, value=b["nome"])
             ws.cell(row=row_idx, column=2, value=b["endereco"])
             ws.cell(row=row_idx, column=3, value=b["telefone"])
-            ws.cell(row=row_idx, column=4, value=b.get("email", ""))
-            ws.cell(row=row_idx, column=5, value=b["categoria"])
-            ws.cell(row=row_idx, column=6, value="Sim" if b["tem_site"] else "NÃO")
-            ws.cell(row=row_idx, column=7, value=b["url_site"])
-            ws.cell(row=row_idx, column=8, value=b["avaliacao"])
-            ws.cell(row=row_idx, column=9, value=b["num_avaliacoes"])
-            ws.cell(row=row_idx, column=10, value=b.get("cidade", ""))
+            ws.cell(row=row_idx, column=4, value=b.get("whatsapp", ""))
+            ws.cell(row=row_idx, column=5, value=b.get("instagram", ""))
+            ws.cell(row=row_idx, column=6, value=b.get("email", ""))
+            ws.cell(row=row_idx, column=7, value=b["categoria"])
+            ws.cell(row=row_idx, column=8, value="Sim" if b["tem_site"] else "NÃO")
+            ws.cell(row=row_idx, column=9, value=b["url_site"])
+            ws.cell(row=row_idx, column=10, value=b["avaliacao"])
+            ws.cell(row=row_idx, column=11, value=b["num_avaliacoes"])
+            ws.cell(row=row_idx, column=12, value=b.get("cidade", ""))
+            ws.cell(row=row_idx, column=13, value=b.get("bairro", ""))
+            ws.cell(row=row_idx, column=14, value=b.get("link_maps", ""))
 
             # Destaca leads sem site em amarelo
             if not b["tem_site"]:
                 highlight = PatternFill("solid", fgColor="FEF08A")
-                for col in range(1, 11):
+                for col in range(1, 15):
                     ws.cell(row=row_idx, column=col).fill = highlight
 
         # Ajusta largura das colunas
-        widths = [35, 45, 18, 30, 25, 10, 35, 10, 12, 20]
+        widths = [35, 45, 18, 18, 30, 30, 25, 10, 35, 10, 12, 20, 22, 45]
         for i, w in enumerate(widths, 1):
             ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = w
 
@@ -223,6 +229,8 @@ async def extrair_detalhes(page, categoria, cidade=""):
         "nome": "",
         "endereco": "",
         "telefone": "",
+        "whatsapp": "",
+        "instagram": "",
         "email": "",
         "categoria": categoria,
         "tem_site": False,
@@ -230,6 +238,8 @@ async def extrair_detalhes(page, categoria, cidade=""):
         "avaliacao": "",
         "num_avaliacoes": "",
         "cidade": cidade,
+        "bairro": "",
+        "link_maps": "",
     }
 
     # Nome - mais seletivo para evitar pegar elementos errados
@@ -293,6 +303,71 @@ async def extrair_detalhes(page, categoria, cidade=""):
     if await web_el.count() > 0:
         dados["tem_site"] = True
         dados["url_site"] = (await web_el.get_attribute("href")) or ""
+
+    # WhatsApp
+    whatsapp_el = page.locator(
+        'a[href*="wa.me"], a[href*="whatsapp"], '
+        'a[data-item-id*="whatsapp"], button[aria-label*="WhatsApp"], '
+        'a[aria-label*="WhatsApp"]'
+    ).first
+    if await whatsapp_el.count() > 0:
+        href = await whatsapp_el.get_attribute("href") or ""
+        if "wa.me" in href:
+            # Extrai o número do link wa.me
+            wa_match = re.search(r"wa\.me/(\d+)", href)
+            if wa_match:
+                dados["whatsapp"] = wa_match.group(1)
+        elif "whatsapp" in href.lower():
+            dados["whatsapp"] = href
+        else:
+            dados["whatsapp"] = (await whatsapp_el.inner_text()).strip()
+
+    # Se não achou WhatsApp dedicado, verifica se o telefone é celular (9° dígito)
+    if not dados["whatsapp"] and dados["telefone"]:
+        tel_limpo = re.sub(r"\D", "", dados["telefone"])
+        # Celulares no Brasil têm 11 dígitos (DDD + 9 + 8 dígitos)
+        if len(tel_limpo) == 11 or (len(tel_limpo) == 13 and tel_limpo.startswith("55")):
+            dados["whatsapp"] = dados["telefone"]
+
+    # Instagram
+    insta_el = page.locator(
+        'a[href*="instagram.com"], a[aria-label*="Instagram"]'
+    ).first
+    if await insta_el.count() > 0:
+        insta_href = await insta_el.get_attribute("href") or ""
+        if "instagram.com" in insta_href:
+            # Limpa URL do Instagram
+            insta_href = insta_href.rstrip("/")
+            dados["instagram"] = insta_href
+        else:
+            dados["instagram"] = (await insta_el.inner_text()).strip()
+
+    # Se o site for Instagram, captura como Instagram também
+    if dados["url_site"] and "instagram.com" in dados["url_site"].lower():
+        if not dados["instagram"]:
+            dados["instagram"] = dados["url_site"].rstrip("/")
+        dados["tem_site"] = False  # Instagram não é site próprio
+
+    # Link do Google Maps (captura URL atual da página de detalhe)
+    try:
+        current_url = page.url
+        if "/maps/" in current_url or "google" in current_url:
+            dados["link_maps"] = current_url
+    except Exception:
+        pass
+
+    # Bairro - extrair do endereço
+    if dados["endereco"]:
+        end = dados["endereco"]
+        partes = end.split(" - ")
+        if len(partes) >= 3:
+            dados["bairro"] = partes[-2].strip().split(",")[0].strip()
+        elif len(partes) == 2:
+            bairro_cidade = partes[-1].strip()
+            # Tenta separar bairro de cidade
+            bc_parts = bairro_cidade.split(",")
+            if len(bc_parts) >= 2:
+                dados["bairro"] = bc_parts[0].strip()
 
     # Email - Tenta encontrar em vários locais
     email_selectors = [
