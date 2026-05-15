@@ -1,0 +1,142 @@
+@import "tailwindcss";
+
+:root {
+  --background: #e8dcca;
+  --foreground: #3e2723;
+  --accent: #2e7d32;
+  --accent-light: #4caf50;
+  --accent-dark: #1b5e20;
+  --surface: #d7ccc8;
+  --surface-elevated: #efebe9;
+  --text-primary: #3e2723;
+  --text-secondary: #5d4037;
+  --text-muted: #8d6e63;
+  --border: #a1887f;
+  --cream: #fff8e1;
+  --yellow: #f9a825;
+  --red: #c62828;
+  --wood: #5d4037;
+  --tile: #d7ccc8;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-accent: var(--accent);
+  --color-accent-light: var(--accent-light);
+  --color-accent-dark: var(--accent-dark);
+  --color-surface: var(--surface);
+  --color-surface-elevated: var(--surface-elevated);
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-muted: var(--text-muted);
+  --color-border-custom: var(--border);
+  --color-cream: var(--cream);
+  --color-yellow: var(--yellow);
+  --color-red: var(--red);
+  --color-wood: var(--wood);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  background: var(--surface);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--wood);
+  border-radius: 4px;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+/* Banner wave animation for hero */
+@keyframes wave {
+  0%, 100% { d: path("M0,20 C150,40 350,0 500,20 L500,80 L0,80 Z"); }
+  50% { d: path("M0,20 C150,0 350,40 500,20 L500,80 L0,80 Z"); }
+}
+
+/* Floating recado */
+@keyframes float-recado {
+  0%, 100% { transform: rotate(-2deg) translateY(0); }
+  50% { transform: rotate(2deg) translateY(-4px); }
+}
+
+.animate-float-recado {
+  animation: float-recado 4s ease-in-out infinite;
+}
+
+.animate-float-recado-delayed {
+  animation: float-recado 4.5s ease-in-out infinite;
+  animation-delay: 1.5s;
+}
+
+/* Bandeja shine */
+@keyframes bandeja-shine {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.animate-bandeja-shine {
+  background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.3) 50%, transparent 100%);
+  background-size: 200% 100%;
+  animation: bandeja-shine 3s ease-in-out infinite;
+}
+
+/* Neon glow for boteco sign */
+@keyframes neon-flicker {
+  0%, 100% { opacity: 1; filter: brightness(1); }
+  41% { opacity: 1; filter: brightness(1); }
+  42% { opacity: 0.8; filter: brightness(1.2); }
+  43% { opacity: 1; filter: brightness(1); }
+  47% { opacity: 1; filter: brightness(1); }
+  48% { opacity: 0.7; filter: brightness(1.3); }
+  49% { opacity: 1; filter: brightness(1); }
+}
+
+.animate-neon {
+  animation: neon-flicker 4s ease-in-out infinite;
+}
+
+/* Steam rising from food */
+@keyframes steam-rise {
+  0% { transform: translateY(0) scaleX(1); opacity: 0.6; }
+  100% { transform: translateY(-40px) scaleX(1.5); opacity: 0; }
+}
+
+.animate-steam {
+  animation: steam-rise 2s ease-out infinite;
+}
+
+/* Tile pattern for sections */
+.tile-pattern {
+  background-color: #d7ccc8;
+  background-image:
+    linear-gradient(45deg, #a1887f 25%, transparent 25%),
+    linear-gradient(-45deg, #a1887f 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #a1887f 75%),
+    linear-gradient(-45deg, transparent 75%, #a1887f 75%);
+  background-size: 20px 20px;
+  background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+  opacity: 0.08;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
