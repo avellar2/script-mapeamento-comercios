@@ -7,6 +7,10 @@ __pycache__/
 # Playwright
 .ms-playwright/
 
+# Dependencies
+node_modules/
+frontend/node_modules/
+
 # IDE
 .vscode/
 .idea/
