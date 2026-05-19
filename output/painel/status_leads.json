@@ -5,7 +5,10 @@
     "status": "novo",
     "data_abordagem": "",
     "data_followup": "15/05/2026",
-    "observacoes": ""
+    "observacoes": "",
+    "statuses": [
+      "novo"
+    ]
   },
   "primor-odontologia-e-medicina-queimados": {
     "lead_id": "primor-odontologia-e-medicina-queimados",
@@ -13,7 +16,10 @@
     "status": "novo",
     "data_abordagem": "",
     "data_followup": "15/05/2026",
-    "observacoes": ""
+    "observacoes": "",
+    "statuses": [
+      "novo"
+    ]
   },
   "confeitaria-menina-de-bel-belford-roxo": {
     "lead_id": "confeitaria-menina-de-bel-belford-roxo",
@@ -21,7 +27,10 @@
     "status": "novo",
     "data_abordagem": "",
     "data_followup": "15/05/2026",
-    "observacoes": ""
+    "observacoes": "",
+    "statuses": [
+      "novo"
+    ]
   },
   "confeitaria-estela-bolos-itagua-": {
     "lead_id": "confeitaria-estela-bolos-itagua-",
@@ -29,15 +38,23 @@
     "status": "novo",
     "data_abordagem": "",
     "data_followup": "15/05/2026",
-    "observacoes": ""
+    "observacoes": "",
+    "statuses": [
+      "novo"
+    ]
   },
   "confeitaria-milla-mesquita": {
     "lead_id": "confeitaria-milla-mesquita",
     "nome": "Confeitaria Milla",
-    "status": "novo",
+    "status": "respondeu",
     "data_abordagem": "",
     "data_followup": "15/05/2026",
-    "observacoes": ""
+    "observacoes": "",
+    "statuses": [
+      "respondeu",
+      "mensagem enviada",
+      "video enviado"
+    ]
   },
   "andre-auto-mecanica-em-geral-nil-polis": {
     "lead_id": "andre-auto-mecanica-em-geral-nil-polis",
@@ -45,7 +62,10 @@
     "status": "novo",
     "data_abordagem": "",
     "data_followup": "15/05/2026",
-    "observacoes": ""
+    "observacoes": "",
+    "statuses": [
+      "novo"
+    ]
   },
   "cl-nica-cemo-vilar-dos-teles-s-o-jo-o-de-meriti": {
     "lead_id": "cl-nica-cemo-vilar-dos-teles-s-o-jo-o-de-meriti",
@@ -53,7 +73,10 @@
     "status": "novo",
     "data_abordagem": "",
     "data_followup": "15/05/2026",
-    "observacoes": ""
+    "observacoes": "",
+    "statuses": [
+      "novo"
+    ]
   },
   "bronze-meriti-s-o-jo-o-de-meriti": {
     "lead_id": "bronze-meriti-s-o-jo-o-de-meriti",
@@ -61,7 +84,10 @@
     "status": "novo",
     "data_abordagem": "",
     "data_followup": "15/05/2026",
-    "observacoes": ""
+    "observacoes": "",
+    "statuses": [
+      "novo"
+    ]
   },
   "clinicar-roosevelt-oficina-mec-nica-s-o-jo-o-de-meriti": {
     "lead_id": "clinicar-roosevelt-oficina-mec-nica-s-o-jo-o-de-meriti",
@@ -69,7 +95,10 @@
     "status": "novo",
     "data_abordagem": "",
     "data_followup": "15/05/2026",
-    "observacoes": ""
+    "observacoes": "",
+    "statuses": [
+      "novo"
+    ]
   },
   "advocacia-oliveira-belford-roxo": {
     "lead_id": "advocacia-oliveira-belford-roxo",
@@ -77,7 +106,10 @@
     "status": "novo",
     "data_abordagem": "",
     "data_followup": "15/05/2026",
-    "observacoes": ""
+    "observacoes": "",
+    "statuses": [
+      "novo"
+    ]
   },
   "escritorio-de-advocacia-belford-roxo": {
     "lead_id": "escritorio-de-advocacia-belford-roxo",
@@ -85,7 +117,10 @@
     "status": "novo",
     "data_abordagem": "",
     "data_followup": "15/05/2026",
-    "observacoes": ""
+    "observacoes": "",
+    "statuses": [
+      "novo"
+    ]
   },
   "jmm-open-bar-belford-roxo": {
     "lead_id": "jmm-open-bar-belford-roxo",
@@ -93,7 +128,10 @@
     "status": "novo",
     "data_abordagem": "",
     "data_followup": "15/05/2026",
-    "observacoes": ""
+    "observacoes": "",
+    "statuses": [
+      "novo"
+    ]
   },
   "pedrauto-oficina-mec-nica-belford-roxo": {
     "lead_id": "pedrauto-oficina-mec-nica-belford-roxo",
@@ -101,7 +139,10 @@
     "status": "novo",
     "data_abordagem": "",
     "data_followup": "15/05/2026",
-    "observacoes": ""
+    "observacoes": "",
+    "statuses": [
+      "novo"
+    ]
   },
   "barbearia-jo-o-f-lix-duque-de-caxias": {
     "lead_id": "barbearia-jo-o-f-lix-duque-de-caxias",
@@ -109,7 +150,10 @@
     "status": "novo",
     "data_abordagem": "",
     "data_followup": "15/05/2026",
-    "observacoes": ""
+    "observacoes": "",
+    "statuses": [
+      "novo"
+    ]
   },
   "lume-odontologia-dentista-alinhador-invis-vel-sousmile-impla": {
     "lead_id": "lume-odontologia-dentista-alinhador-invis-vel-sousmile-impla",
@@ -117,7 +161,10 @@
     "status": "novo",
     "data_abordagem": "",
     "data_followup": "15/05/2026",
-    "observacoes": ""
+    "observacoes": "",
+    "statuses": [
+      "novo"
+    ]
   },
   "ac-sa-de-cl-nica-m-dica-itagua-": {
     "lead_id": "ac-sa-de-cl-nica-m-dica-itagua-",
@@ -125,7 +172,10 @@
     "status": "novo",
     "data_abordagem": "",
     "data_followup": "15/05/2026",
-    "observacoes": ""
+    "observacoes": "",
+    "statuses": [
+      "novo"
+    ]
   },
   "est-tica-em-itagua-vanessa-sgrancio-itagua-": {
     "lead_id": "est-tica-em-itagua-vanessa-sgrancio-itagua-",
@@ -133,7 +183,10 @@
     "status": "novo",
     "data_abordagem": "",
     "data_followup": "15/05/2026",
-    "observacoes": ""
+    "observacoes": "",
+    "statuses": [
+      "novo"
+    ]
   },
   "caf-no-bule-itagua-": {
     "lead_id": "caf-no-bule-itagua-",
@@ -141,7 +194,10 @@
     "status": "novo",
     "data_abordagem": "",
     "data_followup": "15/05/2026",
-    "observacoes": ""
+    "observacoes": "",
+    "statuses": [
+      "novo"
+    ]
   },
   "laborat-rio-medwest-exames-laboratoriais-e-cl-nica-medwest-j": {
     "lead_id": "laborat-rio-medwest-exames-laboratoriais-e-cl-nica-medwest-j",
@@ -149,7 +205,10 @@
     "status": "novo",
     "data_abordagem": "",
     "data_followup": "15/05/2026",
-    "observacoes": ""
+    "observacoes": "",
+    "statuses": [
+      "novo"
+    ]
   },
   "terrabite-japeri": {
     "lead_id": "terrabite-japeri",
@@ -157,6 +216,9 @@
     "status": "novo",
     "data_abordagem": "",
     "data_followup": "15/05/2026",
-    "observacoes": ""
+    "observacoes": "",
+    "statuses": [
+      "novo"
+    ]
   }
 }

@@ -221,23 +221,25 @@ footer{padding:24px 0;border-top:1px solid var(--border);text-align:center;color
 
 <section class="filters">
   <button class="filter-btn active" data-filter="todos">Todos</button>
+  <button class="filter-btn" data-filter="pendentes">Pendentes</button>
+  <button class="filter-btn" data-filter="mensagem-enviada">Mensagem enviada</button>
+  <button class="filter-btn" data-filter="respondeu">Respondeu</button>
+  <button class="filter-btn" data-filter="video-enviado">Video enviado</button>
+  <button class="filter-btn" data-filter="interessado">Interessados</button>
+  <button class="filter-btn" data-filter="proposta">Proposta</button>
+  <button class="filter-btn" data-filter="fechados">Fechados</button>
+  <button class="filter-btn" data-filter="perdidos">Perdidos</button>
+  <button class="filter-btn" data-filter="followup">Follow-up</button>
   <button class="filter-btn" data-filter="alta">Alta prioridade</button>
   <button class="filter-btn" data-filter="sem-site">Sem site</button>
   <button class="filter-btn" data-filter="com-whatsapp">Com WhatsApp</button>
-  <button class="filter-btn" data-filter="estetica">Estética</button>
+  <button class="filter-btn" data-filter="estetica">Estetica</button>
   <button class="filter-btn" data-filter="barbearia">Barbearia</button>
-  <button class="filter-btn" data-filter="comida">Comida/Cardápio</button>
-  <button class="filter-btn" data-filter="dentista">Dentista/Clínica</button>
+  <button class="filter-btn" data-filter="comida">Comida/Cardapio</button>
+  <button class="filter-btn" data-filter="dentista">Dentista/Clinica</button>
   <button class="filter-btn" data-filter="advocacia">Advocacia</button>
-  <button class="filter-btn" data-filter="servicos">Serviços técnicos</button>
+  <button class="filter-btn" data-filter="servicos">Servicos</button>
   <button class="filter-btn" data-filter="automotiva">Automotiva</button>
-  <button class="filter-btn" data-filter="igreja">Igreja/Evento</button>
-  <button class="filter-btn" data-filter="cursos">Cursos</button>
-  <button class="filter-btn" data-filter="personalizados">Personalizados</button>
-  <button class="filter-btn" data-filter="respondidos">Respondidos</button>
-  <button class="filter-btn" data-filter="followup">Follow-up</button>
-  <button class="filter-btn" data-filter="fechados">Fechados</button>
-  <button class="filter-btn" data-filter="perdidos">Perdidos</button>
   <div class="search-box">
     <input type="text" class="search-input" id="searchInput" placeholder="Buscar por nome, nicho ou cidade...">
   </div>
@@ -263,36 +265,90 @@ const LEADS = [{"nome": "OdontoCompany São João de Meriti", "nicho": "dentista
 let currentFilter = 'todos';
 let searchTerm = '';
 
-// ── Status persistence ────────────────────────────────────────
-const STATUS_KEY = 'prospeccao_status_v2';
+// ── Status persistence (via API → status_leads.json) ──────────
+let _statusCache = {};
+let _apiConnected = false;
 
-function loadStatus() {
+async function loadStatus() {
   try {
-    const raw = localStorage.getItem(STATUS_KEY);
-    return raw ? JSON.parse(raw) : {};
-  } catch { return {}; }
+    const res = await fetch('/api/status');
+    if (res.ok) {
+      _statusCache = await res.json();
+      _apiConnected = true;
+    }
+  } catch {}
+  // Fallback: tentar carregar o JSON direto
+  if (!_apiConnected) {
+    try {
+      const res2 = await fetch('status_leads.json');
+      if (res2.ok) _statusCache = await res2.json();
+    } catch {}
+    // Segundo fallback: localStorage
+    if (!Object.keys(_statusCache).length) {
+      try {
+        const raw = localStorage.getItem('prospeccao_status_v3');
+        if (raw) _statusCache = JSON.parse(raw);
+      } catch {}
+    }
+  }
+  // Migrar formato antigo
+  Object.keys(_statusCache).forEach(k => {
+    const s = _statusCache[k];
+    if (s.status && !s.statuses) s.statuses = [s.status];
+  });
+  return _statusCache;
 }
 
-function saveStatus(status) {
-  localStorage.setItem(STATUS_KEY, JSON.stringify(status));
+async function saveStatus(status) {
+  _statusCache = status;
+  if (_apiConnected) {
+    try {
+      await fetch('/api/status', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(status)
+      });
+      return;
+    } catch { _apiConnected = false; }
+  }
+  // Fallback: localStorage quando sem servidor
+  try { localStorage.setItem('prospeccao_status_v3', JSON.stringify(status)); } catch {}
 }
 
 function getStatus(leadId) {
-  const s = loadStatus();
-  return s[leadId] || { status: 'novo', data_abordagem: '', data_followup: '', observacoes: '' };
+  return _statusCache[leadId] || { statuses: ['novo'], data_abordagem: '', data_followup: '', observacoes: '' };
 }
 
-function setStatus(leadId, field, value) {
-  const s = loadStatus();
-  if (!s[leadId]) s[leadId] = { status: 'novo', data_abordagem: '', data_followup: '', observacoes: '' };
-  s[leadId][field] = value;
-  saveStatus(s);
+function getLeadStatus(leadId) {
+  const s = _statusCache[leadId];
+  if (!s) return 'novo';
+  if (s.statuses && s.statuses.length) return s.statuses[s.statuses.length - 1];
+  return s.status || 'novo';
+}
+
+function hasStatus(leadId, st) {
+  const s = _statusCache[leadId];
+  if (!s) return st === 'novo';
+  if (s.statuses) return s.statuses.includes(st);
+  return s.status === st;
+}
+
+async function setStatus(leadId, field, value) {
+  if (!_statusCache[leadId]) _statusCache[leadId] = { statuses: ['novo'], data_abordagem: '', data_followup: '', observacoes: '' };
+  if (field === 'status') {
+    const statuses = _statusCache[leadId].statuses || [];
+    if (!statuses.includes(value)) statuses.push(value);
+    _statusCache[leadId].statuses = statuses;
+  } else {
+    _statusCache[leadId][field] = value;
+  }
+  await saveStatus(_statusCache);
   render();
 }
 
 // ── Filtering ────────────────────────────────────────────────
 function getFiltered() {
-  const status = loadStatus();
+  const status = _statusCache;
   let filtered = LEADS.filter(l => {
     const s = status[l.lead_id] || {};
     const st = s.status || 'novo';
@@ -302,10 +358,15 @@ function getFiltered() {
     if (q && !(l.nome.toLowerCase().includes(q) || l.nicho.toLowerCase().includes(q) || l.cidade.toLowerCase().includes(q) || (l.bairro||'').toLowerCase().includes(q))) return false;
 
     // Status filters
-    if (currentFilter === 'respondidos') return ['respondeu','interessado'].includes(st);
-    if (currentFilter === 'followup') return st === 'follow-up';
-    if (currentFilter === 'fechados') return st === 'fechado';
-    if (currentFilter === 'perdidos') return st === 'perdido';
+    if (currentFilter === 'pendentes') return !hasStatus(l.lead_id, 'mensagem enviada') && !hasStatus(l.lead_id, 'respondeu');
+    if (currentFilter === 'mensagem-enviada') return hasStatus(l.lead_id, 'mensagem enviada');
+    if (currentFilter === 'respondeu') return hasStatus(l.lead_id, 'respondeu');
+    if (currentFilter === 'video-enviado') return hasStatus(l.lead_id, 'video enviado');
+    if (currentFilter === 'interessado') return hasStatus(l.lead_id, 'interessado');
+    if (currentFilter === 'proposta') return hasStatus(l.lead_id, 'proposta enviada');
+    if (currentFilter === 'fechados') return hasStatus(l.lead_id, 'fechado');
+    if (currentFilter === 'perdidos') return hasStatus(l.lead_id, 'perdido');
+    if (currentFilter === 'followup') return hasStatus(l.lead_id, 'follow-up');
 
     // Niche filters
     if (currentFilter === 'estetica') return l.categoria === 'estetica';
@@ -324,24 +385,22 @@ function getFiltered() {
     if (currentFilter === 'sem-site') return l.site === 'Não';
     if (currentFilter === 'com-whatsapp') return !!(l.whatsapp || l.link_whatsapp);
 
-    // "Todos" mostra apenas leads que ainda nao foram abordados
-    const naoAbordado = ['novo', 'abordar hoje'].includes(st);
-    return naoAbordado;
+    // "Todos" mostra todos os leads
+    return true;
   });
   return filtered;
 }
 
 // ── Summary ───────────────────────────────────────────────────
 function updateSummary() {
-  const status = loadStatus();
   let enviadas = 0, responderam = 0, interessados = 0, propostas = 0, fechados = 0;
   LEADS.forEach(l => {
-    const s = (status[l.lead_id] || {}).status || 'novo';
-    if (['mensagem enviada','video enviado','respondeu','interessado','proposta enviada','fechado','follow-up'].includes(s)) enviadas++;
-    if (['respondeu','interessado','proposta enviada','fechado'].includes(s)) responderam++;
-    if (['interessado','proposta enviada','fechado'].includes(s)) interessados++;
-    if (['proposta enviada','fechado'].includes(s)) propostas++;
-    if (s === 'fechado') fechados++;
+    const id = l.lead_id;
+    if (hasStatus(id, 'mensagem enviada') || hasStatus(id, 'video enviado') || hasStatus(id, 'respondeu') || hasStatus(id, 'interessado') || hasStatus(id, 'proposta enviada') || hasStatus(id, 'fechado') || hasStatus(id, 'follow-up')) enviadas++;
+    if (hasStatus(id, 'respondeu') || hasStatus(id, 'interessado') || hasStatus(id, 'proposta enviada') || hasStatus(id, 'fechado')) responderam++;
+    if (hasStatus(id, 'interessado') || hasStatus(id, 'proposta enviada') || hasStatus(id, 'fechado')) interessados++;
+    if (hasStatus(id, 'proposta enviada') || hasStatus(id, 'fechado')) propostas++;
+    if (hasStatus(id, 'fechado')) fechados++;
   });
   const taxa = enviadas > 0 ? Math.round((responderam / enviadas) * 100) : 0;
   animNum('sLeads', LEADS.length);
@@ -386,7 +445,7 @@ function statusClass(st) {
 
 function render() {
   const filtered = getFiltered();
-  const status = loadStatus();
+  const status = _statusCache;
 
   document.getElementById('visibleCount').textContent = filtered.length;
   document.getElementById('totalFiltered').textContent = LEADS.length;
@@ -400,10 +459,11 @@ function render() {
 
   grid.innerHTML = filtered.map((l, i) => {
     const s = status[l.lead_id] || {};
-    const st = s.status || 'novo';
+    const st = getLeadStatus(l.lead_id);
     const obs = s.observacoes || '';
     const sc = statusClass(st);
     const priClass = l.prioridade === 'Alta' ? 'alta' : 'media';
+    const statuses = s.statuses || ['novo'];
 
     // Badges
     let badges = '';
@@ -455,7 +515,7 @@ function render() {
         '<button class="action-btn perdido" onclick="setStatus(\'' + l.lead_id + '\',\'status\',\'perdido\')">Perdido</button>' +
         '<button class="action-btn followup" onclick="setStatus(\'' + l.lead_id + '\',\'status\',\'follow-up\')">Follow-up</button>' +
       '</div>' +
-      '<div class="status-bar"><span class="status-badge ' + sc + '">' + esc(st) + '</span></div>' +
+      '<div class="status-bar">' + statuses.map(s2 => '<span class="status-badge ' + statusClass(s2) + '">' + esc(s2) + '</span>').join(' ') + '</div>' +
       '<div class="obs-section"><textarea class="obs-input" placeholder="Observações..." onblur="setStatus(\'' + l.lead_id + '\',\'observacoes\',this.value)">' + esc(obs) + '</textarea></div>' +
     '</article>';
   }).join('');
@@ -520,7 +580,19 @@ document.getElementById('searchInput').addEventListener('input', (e) => {
 });
 
 // ── Init ──────────────────────────────────────────────────────
-render();
+window.onerror = function(msg, url, line) {
+  document.getElementById('toast').textContent = 'ERRO: ' + msg + ' linha ' + line;
+  document.getElementById('toast').classList.add('show');
+};
+(async () => {
+  try {
+    await loadStatus();
+    render();
+  } catch(e) {
+    document.getElementById('toast').textContent = 'ERRO INIT: ' + e.message;
+    document.getElementById('toast').classList.add('show');
+  }
+})();
 </script>
 </body>
 </html>
