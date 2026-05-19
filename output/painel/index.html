@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Painel de Prospecção - 19/05/2026</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg-deep:#08090a;--bg-card:#111214;--bg-elevated:#18191c;--bg-hover:#1e2023;
+  --accent:#6d5dfc;--accent-glow:rgba(109,93,252,.25);--accent2:#c084fc;
+  --green:#34d399;--green-dim:rgba(52,211,153,.12);
+  --blue:#60a5fa;--blue-dim:rgba(96,165,250,.12);
+  --yellow:#fbbf24;--yellow-dim:rgba(251,191,36,.12);
+  --red:#f87171;--red-dim:rgba(248,113,113,.12);
+  --orange:#fb923c;--orange-dim:rgba(251,146,60,.12);
+  --cyan:#22d3ee;--cyan-dim:rgba(34,211,238,.12);
+  --purple:#a78bfa;--purple-dim:rgba(167,139,250,.12);
+  --pink:#f472b6;--pink-dim:rgba(244,114,182,.12);
+  --text:#f1f1f1;--text2:#a0a0a8;--muted:#6b6b76;
+  --border:rgba(255,255,255,.06);--border-active:rgba(109,93,252,.4);
+  --radius:12px;
+}
+html{scroll-behavior:smooth}
+body{font-family:'Segoe UI',-apple-system,BlinkMacSystemFont,sans-serif;
+  background:var(--bg-deep);color:var(--text);min-height:100vh;line-height:1.6}
+.bg-mesh{position:fixed;inset:0;pointer-events:none;z-index:0;opacity:.35;
+  background-image:
+    radial-gradient(ellipse at 10% 10%,rgba(109,93,252,.08) 0%,transparent 50%),
+    radial-gradient(ellipse at 90% 80%,rgba(34,211,238,.06) 0%,transparent 50%),
+    radial-gradient(ellipse at 50% 50%,rgba(52,211,153,.04) 0%,transparent 70%)}
+.container{position:relative;z-index:1;max-width:1500px;margin:0 auto;padding:0 20px 60px}
+
+/* Header */
+header{padding:32px 0 24px;border-bottom:1px solid var(--border);margin-bottom:24px}
+.header-top{display:flex;justify-content:space-between;align-items:center;gap:20px;flex-wrap:wrap}
+.header-title h1{font-size:1.8rem;font-weight:700;letter-spacing:-.02em;
+  background:linear-gradient(135deg,var(--accent),var(--accent2),var(--cyan));
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.header-title p{color:var(--text2);font-size:.9rem;margin-top:4px}
+.header-date{color:var(--muted);font-size:.8rem;margin-top:2px}
+
+/* Summary cards */
+.summary-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:20px 0 24px}
+.summary-card{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);
+  padding:16px;text-align:center;transition:all .2s;cursor:default}
+.summary-card:hover{border-color:var(--border-active);transform:translateY(-2px);
+  box-shadow:0 8px 24px rgba(0,0,0,.3)}
+.summary-value{font-size:2rem;font-weight:700;line-height:1;margin-bottom:4px}
+.summary-label{font-size:.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
+.summary-card.leads .summary-value{color:var(--accent)}
+.summary-card.enviadas .summary-value{color:var(--cyan)}
+.summary-card.responderam .summary-value{color:var(--green)}
+.summary-card.interessados .summary-value{color:var(--yellow)}
+.summary-card.propostas .summary-value{color:var(--orange)}
+.summary-card.fechados .summary-value{color:var(--green)}
+.summary-card.taxa .summary-value{color:var(--purple)}
+
+/* Filters */
+.filters{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:20px;padding:16px;
+  background:var(--bg-card);border-radius:var(--radius);border:1px solid var(--border)}
+.filter-btn{background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;
+  padding:7px 16px;color:var(--text2);font-size:.82rem;cursor:pointer;transition:all .2s;
+  font-family:inherit;white-space:nowrap}
+.filter-btn:hover{border-color:var(--accent);color:var(--text)}
+.filter-btn.active{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+.search-box{flex:1;min-width:200px}
+.search-input{width:100%;background:var(--bg-elevated);border:1px solid var(--border);
+  border-radius:8px;padding:8px 14px;color:var(--text);font-size:.85rem;font-family:inherit;
+  transition:all .2s}
+.search-input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-glow)}
+.search-input::placeholder{color:var(--muted)}
+
+/* Leads count */
+.results-info{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;
+  font-size:.85rem;color:var(--text2)}
+.results-info strong{color:var(--accent);font-weight:600}
+
+/* Lead cards */
+.leads-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(420px,1fr));gap:16px;margin-bottom:40px}
+
+.lead-card{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);
+  overflow:hidden;transition:all .3s cubic-bezier(.4,0,.2,1);position:relative;
+  opacity:0;animation:fadeUp .4s ease forwards}
+.lead-card:hover{transform:translateY(-3px);border-color:var(--border-active);
+  box-shadow:0 12px 32px rgba(0,0,0,.3),0 0 40px var(--accent-glow)}
+
+.lead-card.alta::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;
+  background:linear-gradient(90deg,var(--accent),var(--accent2))}
+.lead-card.media::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;
+  background:linear-gradient(90deg,var(--yellow),var(--orange))}
+
+.card-header{padding:14px 16px 8px;display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
+.card-badges{display:flex;gap:5px;flex-wrap:wrap}
+.badge{font-size:.6rem;text-transform:uppercase;letter-spacing:.06em;padding:2px 8px;
+  border-radius:100px;font-weight:600;white-space:nowrap}
+.badge-nicho{background:var(--purple-dim);color:var(--purple)}
+.badge-cidade{background:var(--cyan-dim);color:var(--cyan)}
+.badge-sem-site{background:var(--green-dim);color:var(--green)}
+.badge-whatsapp{background:var(--blue-dim);color:var(--blue)}
+.badge-alta{background:rgba(109,93,252,.15);color:var(--accent)}
+.badge-score{font-size:.6rem;padding:2px 8px;border-radius:100px;font-weight:700}
+.badge-score.high{background:var(--green-dim);color:var(--green)}
+.badge-score.mid{background:var(--yellow-dim);color:var(--yellow)}
+
+.card-body{padding:0 16px 12px}
+.card-name{font-size:1.05rem;font-weight:600;line-height:1.3;margin-bottom:6px;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.card-meta{display:flex;flex-direction:column;gap:5px;margin-bottom:10px}
+.meta-row{display:flex;align-items:center;gap:6px;font-size:.82rem;color:var(--text2)}
+.meta-icon{width:14px;height:14px;flex-shrink:0;opacity:.5}
+.meta-icon svg{width:100%;height:100%}
+
+.card-info-grid{display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;margin-bottom:10px;font-size:.78rem;color:var(--text2)}
+.card-info-grid .info-label{color:var(--muted);font-size:.7rem;text-transform:uppercase;letter-spacing:.04em}
+.card-info-grid .info-value{color:var(--text2)}
+
+/* Message box */
+.msg-box{background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;
+  padding:10px 12px;margin-bottom:10px;position:relative}
+.msg-text{font-size:.8rem;color:var(--text2);line-height:1.5;max-height:60px;overflow:hidden;
+  transition:max-height .3s}
+.msg-text.expanded{max-height:500px}
+.msg-toggle{font-size:.7rem;color:var(--accent);cursor:pointer;margin-top:4px;display:inline-block}
+.msg-toggle:hover{text-decoration:underline}
+.copy-btn{position:absolute;top:8px;right:8px;background:var(--accent);border:none;border-radius:6px;
+  padding:4px 10px;color:#fff;font-size:.7rem;cursor:pointer;transition:all .2s;font-family:inherit}
+.copy-btn:hover{opacity:.85;transform:scale(1.02)}
+.copy-btn.copied{background:var(--green)}
+
+/* Actions */
+.card-actions{display:flex;flex-wrap:wrap;gap:6px;padding:0 16px 14px}
+.action-btn{background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;
+  padding:5px 10px;color:var(--text2);font-size:.72rem;cursor:pointer;transition:all .2s;
+  font-family:inherit;white-space:nowrap}
+.action-btn:hover{border-color:var(--accent);color:var(--text)}
+.action-btn.whatsapp{background:rgba(37,211,102,.1);border-color:rgba(37,211,102,.3);color:#25d366}
+.action-btn.whatsapp:hover{background:rgba(37,211,102,.2);border-color:rgba(37,211,102,.5)}
+.action-btn.enviada{background:var(--cyan-dim);border-color:rgba(96,165,250,.3);color:var(--blue)}
+.action-btn.respondeu{background:var(--green-dim);border-color:rgba(52,211,153,.3);color:var(--green)}
+.action-btn.video{background:var(--purple-dim);border-color:rgba(167,139,250,.3);color:var(--purple)}
+.action-btn.proposta{background:var(--orange-dim);border-color:rgba(251,146,60,.3);color:var(--orange)}
+.action-btn.fechado{background:var(--green-dim);border-color:rgba(52,211,153,.3);color:var(--green)}
+.action-btn.perdido{background:var(--red-dim);border-color:rgba(248,113,113,.3);color:var(--red)}
+.action-btn.followup{background:var(--yellow-dim);border-color:rgba(251,191,36,.3);color:var(--yellow)}
+
+/* Status bar */
+.status-bar{padding:8px 16px 12px;display:flex;align-items:center;gap:8px}
+.status-badge{font-size:.7rem;padding:3px 10px;border-radius:100px;font-weight:600;text-transform:uppercase}
+.status-badge.novo{background:var(--bg-elevated);color:var(--muted);border:1px solid var(--border)}
+.status-badge.mensagem-enviada{background:var(--cyan-dim);color:var(--cyan)}
+.status-badge.respondeu{background:var(--green-dim);color:var(--green)}
+.status-badge.video-enviado{background:var(--purple-dim);color:var(--purple)}
+.status-badge.interessado{background:var(--yellow-dim);color:var(--yellow)}
+.status-badge.proposta-enviada{background:var(--orange-dim);color:var(--orange)}
+.status-badge.fechado{background:rgba(52,211,153,.2);color:var(--green);border:1px solid rgba(52,211,153,.3)}
+.status-badge.perdido{background:var(--red-dim);color:var(--red)}
+.status-badge.follow-up{background:var(--yellow-dim);color:var(--yellow)}
+.status-badge.abordar-hoje{background:var(--accent);color:#fff;background:rgba(109,93,252,.15);color:var(--accent)}
+.status-badge.nao-abordar{background:rgba(107,107,118,.1);color:var(--muted)}
+
+/* Observations */
+.obs-section{padding:0 16px 14px}
+.obs-input{width:100%;background:var(--bg-elevated);border:1px solid var(--border);border-radius:6px;
+  padding:6px 10px;color:var(--text);font-size:.78rem;font-family:inherit;resize:vertical;min-height:32px}
+.obs-input:focus{outline:none;border-color:var(--accent)}
+
+/* Empty state */
+.empty-state{text-align:center;padding:60px 20px;color:var(--muted);grid-column:1/-1}
+.empty-state h3{font-size:1.2rem;color:var(--text2);margin-bottom:6px}
+
+/* Animations */
+@keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+
+/* Toast */
+.toast{position:fixed;bottom:24px;right:24px;background:var(--green);color:#fff;padding:10px 20px;
+  border-radius:8px;font-size:.85rem;font-weight:600;z-index:1000;opacity:0;transform:translateY(10px);
+  transition:all .3s;pointer-events:none}
+.toast.show{opacity:1;transform:translateY(0)}
+
+/* Footer */
+footer{padding:24px 0;border-top:1px solid var(--border);text-align:center;color:var(--muted);font-size:.8rem}
+
+/* Responsive */
+@media(max-width:900px){
+  .leads-grid{grid-template-columns:1fr}
+  .summary-grid{grid-template-columns:repeat(auto-fit,minmax(120px,1fr))}
+  .header-top{flex-direction:column;align-items:flex-start}
+}
+@media(max-width:500px){
+  .filters{padding:10px;gap:6px}
+  .filter-btn{padding:6px 10px;font-size:.75rem}
+  .card-actions{gap:4px}
+  .action-btn{padding:4px 7px;font-size:.68rem}
+}
+</style>
+</head>
+<body>
+<div class="bg-mesh"></div>
+<div class="container">
+
+<header>
+  <div class="header-top">
+    <div class="header-title">
+      <h1>Painel de Prospecção</h1>
+      <p>Leads diários para vender landing pages e mini sites</p>
+      <div class="header-date">Gerado em: __DATA_GERACAO__</div>
+    </div>
+  </div>
+</header>
+
+<section class="summary-grid" id="summaryGrid">
+  <div class="summary-card leads"><div class="summary-value" id="sLeads">0</div><div class="summary-label">Leads para hoje</div></div>
+  <div class="summary-card enviadas"><div class="summary-value" id="sEnviadas">0</div><div class="summary-label">Mensagens enviadas</div></div>
+  <div class="summary-card responderam"><div class="summary-value" id="sResponderam">0</div><div class="summary-label">Responderam</div></div>
+  <div class="summary-card interessados"><div class="summary-value" id="sInteressados">0</div><div class="summary-label">Interessados</div></div>
+  <div class="summary-card propostas"><div class="summary-value" id="sPropostas">0</div><div class="summary-label">Propostas enviadas</div></div>
+  <div class="summary-card fechados"><div class="summary-value" id="sFechados">0</div><div class="summary-label">Fechados</div></div>
+  <div class="summary-card taxa"><div class="summary-value" id="sTaxa">0%</div><div class="summary-label">Taxa de resposta</div></div>
+</section>
+
+<section class="filters">
+  <button class="filter-btn active" data-filter="todos">Todos</button>
+  <button class="filter-btn" data-filter="alta">Alta prioridade</button>
+  <button class="filter-btn" data-filter="sem-site">Sem site</button>
+  <button class="filter-btn" data-filter="com-whatsapp">Com WhatsApp</button>
+  <button class="filter-btn" data-filter="estetica">Estética</button>
+  <button class="filter-btn" data-filter="barbearia">Barbearia</button>
+  <button class="filter-btn" data-filter="comida">Comida/Cardápio</button>
+  <button class="filter-btn" data-filter="dentista">Dentista/Clínica</button>
+  <button class="filter-btn" data-filter="advocacia">Advocacia</button>
+  <button class="filter-btn" data-filter="servicos">Serviços técnicos</button>
+  <button class="filter-btn" data-filter="automotiva">Automotiva</button>
+  <button class="filter-btn" data-filter="igreja">Igreja/Evento</button>
+  <button class="filter-btn" data-filter="cursos">Cursos</button>
+  <button class="filter-btn" data-filter="personalizados">Personalizados</button>
+  <button class="filter-btn" data-filter="respondidos">Respondidos</button>
+  <button class="filter-btn" data-filter="followup">Follow-up</button>
+  <button class="filter-btn" data-filter="fechados">Fechados</button>
+  <button class="filter-btn" data-filter="perdidos">Perdidos</button>
+  <div class="search-box">
+    <input type="text" class="search-input" id="searchInput" placeholder="Buscar por nome, nicho ou cidade...">
+  </div>
+</section>
+
+<div class="results-info">
+  <span>Mostrando <strong id="visibleCount">0</strong> de <strong id="totalFiltered">0</strong> leads</span>
+</div>
+
+<main class="leads-grid" id="leadsGrid"></main>
+
+<footer>
+  <p>Painel de Prospecção — Atualize o status de cada lead após cada contato</p>
+  <p style="margin-top:4px">Este painel NÃO envia mensagens automaticamente. Use os botões para copiar e abrir WhatsApp manualmente.</p>
+</footer>
+
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const LEADS = [{"nome": "OdontoCompany São João de Meriti", "nicho": "dentista", "cidade": "São João de Meriti", "bairro": "Sobreloja", "telefone": "21) 2755-9402", "whatsapp": "", "site": "Não", "url_site": "", "nota_google": 4.1, "qtd_avaliacoes": 7, "score": 75, "prioridade": "Alta", "oferta_sugerida": "Mini Site Profissional", "motivo_prioridade": "sem site | tem telefone/WhatsApp | boa avaliação (4.1) | nicho promissor", "acao_recomendada": "Criar prévia visual e abordar pelo WhatsApp", "tipo_de_material": "Print do mini site vendedor", "mensagem_whatsapp": "Oi, tudo bem? Vi a OdontoCompany São João de Meriti no Google e percebi que vocês têm boas avaliações.\n\nNotei que as informações principais, como serviços, fotos, localização e contato, poderiam ficar mais organizadas em uma página simples.\n\nQuando o cliente precisa procurar muito, ele pode acabar desistindo ou chamando outro lugar.\n\nEu trabalho criando páginas profissionais para negócios locais. Posso te mandar uma prévia visual de como ficaria?", "link_whatsapp": "https://wa.me/552127559402?text=Oi%2C%20tudo%20bem%3F%20Vi%20a%20OdontoCompany%20S%C3%A3o%20Jo%C3%A3o%20de%20Meriti%20no%20Google%20e%20percebi%20que%20voc%C3%AAs%20t%C3%AAm%20boas%20avalia%C3%A7%C3%B5es.%0A%0ANotei%20que%20as%20informa%C3%A7%C3%B5es%20principais%2C%20como%20servi%C3%A7os%2C%20fotos%2C%20localiza%C3%A7%C3%A3o%20e%20contato%2C%20poderiam%20ficar%20mais%20organizadas%20em%20uma%20p%C3%A1gina%20simples.%0A%0AQuando%20o%20cliente%20precisa%20procurar%20muito%2C%20ele%20pode%20acabar%20desistindo%20ou%20chamando%20outro%20lugar.%0A%0AEu%20trabalho%20criando%20p%C3%A1ginas%20profissionais%20para%20neg%C3%B3cios%20locais.%20Posso%20te%20mandar%20uma%20pr%C3%A9via%20visual%20de%20como%20ficaria%3F", "instagram": "", "email": "", "endereco": "", "link_maps": "", "status": "novo", "data_abordagem": "", "data_followup": "15/05/2026", "observacoes": "", "lead_id": "odontocompany-s-o-jo-o-de-meriti-s-o-jo-o-de-meriti", "categoria": "dentista"}, {"nome": "Primor odontologia e medicina", "nicho": "dentista", "cidade": "Queimados", "bairro": "Queimados", "telefone": "21) 97270-7766", "whatsapp": "", "site": "Não", "url_site": "", "nota_google": 5.0, "qtd_avaliacoes": 3, "score": 75, "prioridade": "Alta", "oferta_sugerida": "Mini Site Profissional", "motivo_prioridade": "sem site | tem telefone/WhatsApp | boa avaliação (5.0) | nicho promissor", "acao_recomendada": "Criar prévia visual e abordar pelo WhatsApp", "tipo_de_material": "Print do mini site vendedor", "mensagem_whatsapp": "Oi, tudo bem? Vi a Primor odontologia e medicina no Google.\n\nNotei que as informações principais, como serviços, fotos, localização e contato, poderiam ficar mais organizadas em uma página simples.\n\nQuando o cliente precisa procurar muito, ele pode acabar desistindo ou chamando outro lugar.\n\nEu trabalho criando páginas profissionais para negócios locais. Posso te mandar uma prévia visual de como ficaria?", "link_whatsapp": "https://wa.me/5521972707766?text=Oi%2C%20tudo%20bem%3F%20Vi%20a%20Primor%20odontologia%20e%20medicina%20no%20Google.%0A%0ANotei%20que%20as%20informa%C3%A7%C3%B5es%20principais%2C%20como%20servi%C3%A7os%2C%20fotos%2C%20localiza%C3%A7%C3%A3o%20e%20contato%2C%20poderiam%20ficar%20mais%20organizadas%20em%20uma%20p%C3%A1gina%20simples.%0A%0AQuando%20o%20cliente%20precisa%20procurar%20muito%2C%20ele%20pode%20acabar%20desistindo%20ou%20chamando%20outro%20lugar.%0A%0AEu%20trabalho%20criando%20p%C3%A1ginas%20profissionais%20para%20neg%C3%B3cios%20locais.%20Posso%20te%20mandar%20uma%20pr%C3%A9via%20visual%20de%20como%20ficaria%3F", "instagram": "", "email": "", "endereco": "", "link_maps": "", "status": "novo", "data_abordagem": "", "data_followup": "15/05/2026", "observacoes": "", "lead_id": "primor-odontologia-e-medicina-queimados", "categoria": "dentista"}, {"nome": "Confeitaria Menina de Bel", "nicho": "confeitaria", "cidade": "Belford Roxo", "bairro": "Nova Piam", "telefone": "21) 97996-6795", "whatsapp": "", "site": "Não", "url_site": "", "nota_google": 5.0, "qtd_avaliacoes": 0, "score": 75, "prioridade": "Alta", "oferta_sugerida": "Cardápio Digital", "motivo_prioridade": "sem site | tem telefone/WhatsApp | boa avaliação (5.0) | nicho promissor", "acao_recomendada": "Criar prévia visual e abordar pelo WhatsApp", "tipo_de_material": "Vídeo curto do cardápio digital", "mensagem_whatsapp": "Oi, tudo bem? Vi a Confeitaria Menina de Bel no Google.\n\nNotei que o cardápio e as formas de pedir poderiam ficar mais fáceis de acessar em uma página simples com o cardápio digital e botão direto para WhatsApp.\n\nQuando o cliente quer pedir e não encontra o cardápio fácil, ele pode acabar pedindo em outro lugar.\n\nEu crio cardápios digitais para restaurantes e lanchonetes. Posso te mandar uma prévia de como ficaria?", "link_whatsapp": "https://wa.me/5521979966795?text=Oi%2C%20tudo%20bem%3F%20Vi%20a%20Confeitaria%20Menina%20de%20Bel%20no%20Google.%0A%0ANotei%20que%20o%20card%C3%A1pio%20e%20as%20formas%20de%20pedir%20poderiam%20ficar%20mais%20f%C3%A1ceis%20de%20acessar%20em%20uma%20p%C3%A1gina%20simples%20com%20o%20card%C3%A1pio%20digital%20e%20bot%C3%A3o%20direto%20para%20WhatsApp.%0A%0AQuando%20o%20cliente%20quer%20pedir%20e%20n%C3%A3o%20encontra%20o%20card%C3%A1pio%20f%C3%A1cil%2C%20ele%20pode%20acabar%20pedindo%20em%20outro%20lugar.%0A%0AEu%20crio%20card%C3%A1pios%20digitais%20para%20restaurantes%20e%20lanchonetes.%20Posso%20te%20mandar%20uma%20pr%C3%A9via%20de%20como%20ficaria%3F", "instagram": "", "email": "", "endereco": "", "link_maps": "", "status": "novo", "data_abordagem": "", "data_followup": "15/05/2026", "observacoes": "", "lead_id": "confeitaria-menina-de-bel-belford-roxo", "categoria": "comida"}, {"nome": "Confeitaria Estela Bolos", "nicho": "confeitaria", "cidade": "Itaguaí", "bairro": "loja a", "telefone": "21) 98556-9556", "whatsapp": "", "site": "Não", "url_site": "", "nota_google": 5.0, "qtd_avaliacoes": 0, "score": 75, "prioridade": "Alta", "oferta_sugerida": "Cardápio Digital", "motivo_prioridade": "sem site | tem telefone/WhatsApp | boa avaliação (5.0) | nicho promissor", "acao_recomendada": "Criar prévia visual e abordar pelo WhatsApp", "tipo_de_material": "Vídeo curto do cardápio digital", "mensagem_whatsapp": "Oi, tudo bem? Vi a Confeitaria Estela Bolos no Google.\n\nNotei que o cardápio e as formas de pedir poderiam ficar mais fáceis de acessar em uma página simples com o cardápio digital e botão direto para WhatsApp.\n\nQuando o cliente quer pedir e não encontra o cardápio fácil, ele pode acabar pedindo em outro lugar.\n\nEu crio cardápios digitais para restaurantes e lanchonetes. Posso te mandar uma prévia de como ficaria?", "link_whatsapp": "https://wa.me/5521985569556?text=Oi%2C%20tudo%20bem%3F%20Vi%20a%20Confeitaria%20Estela%20Bolos%20no%20Google.%0A%0ANotei%20que%20o%20card%C3%A1pio%20e%20as%20formas%20de%20pedir%20poderiam%20ficar%20mais%20f%C3%A1ceis%20de%20acessar%20em%20uma%20p%C3%A1gina%20simples%20com%20o%20card%C3%A1pio%20digital%20e%20bot%C3%A3o%20direto%20para%20WhatsApp.%0A%0AQuando%20o%20cliente%20quer%20pedir%20e%20n%C3%A3o%20encontra%20o%20card%C3%A1pio%20f%C3%A1cil%2C%20ele%20pode%20acabar%20pedindo%20em%20outro%20lugar.%0A%0AEu%20crio%20card%C3%A1pios%20digitais%20para%20restaurantes%20e%20lanchonetes.%20Posso%20te%20mandar%20uma%20pr%C3%A9via%20de%20como%20ficaria%3F", "instagram": "", "email": "", "endereco": "", "link_maps": "", "status": "novo", "data_abordagem": "", "data_followup": "15/05/2026", "observacoes": "", "lead_id": "confeitaria-estela-bolos-itagua-", "categoria": "comida"}, {"nome": "Confeitaria Milla", "nicho": "confeitaria", "cidade": "Mesquita", "bairro": "Santa Terezinha", "telefone": "21) 99186-4222", "whatsapp": "", "site": "Não", "url_site": "", "nota_google": 5.0, "qtd_avaliacoes": 0, "score": 75, "prioridade": "Alta", "oferta_sugerida": "Cardápio Digital", "motivo_prioridade": "sem site | tem telefone/WhatsApp | boa avaliação (5.0) | nicho promissor", "acao_recomendada": "Criar prévia visual e abordar pelo WhatsApp", "tipo_de_material": "Vídeo curto do cardápio digital", "mensagem_whatsapp": "Oi, tudo bem? Vi a Confeitaria Milla no Google.\n\nNotei que o cardápio e as formas de pedir poderiam ficar mais fáceis de acessar em uma página simples com o cardápio digital e botão direto para WhatsApp.\n\nQuando o cliente quer pedir e não encontra o cardápio fácil, ele pode acabar pedindo em outro lugar.\n\nEu crio cardápios digitais para restaurantes e lanchonetes. Posso te mandar uma prévia de como ficaria?", "link_whatsapp": "https://wa.me/5521991864222?text=Oi%2C%20tudo%20bem%3F%20Vi%20a%20Confeitaria%20Milla%20no%20Google.%0A%0ANotei%20que%20o%20card%C3%A1pio%20e%20as%20formas%20de%20pedir%20poderiam%20ficar%20mais%20f%C3%A1ceis%20de%20acessar%20em%20uma%20p%C3%A1gina%20simples%20com%20o%20card%C3%A1pio%20digital%20e%20bot%C3%A3o%20direto%20para%20WhatsApp.%0A%0AQuando%20o%20cliente%20quer%20pedir%20e%20n%C3%A3o%20encontra%20o%20card%C3%A1pio%20f%C3%A1cil%2C%20ele%20pode%20acabar%20pedindo%20em%20outro%20lugar.%0A%0AEu%20crio%20card%C3%A1pios%20digitais%20para%20restaurantes%20e%20lanchonetes.%20Posso%20te%20mandar%20uma%20pr%C3%A9via%20de%20como%20ficaria%3F", "instagram": "", "email": "", "endereco": "", "link_maps": "", "status": "novo", "data_abordagem": "", "data_followup": "15/05/2026", "observacoes": "", "lead_id": "confeitaria-milla-mesquita", "categoria": "comida"}, {"nome": "Andre Auto Mecanica Em geral", "nicho": "oficina mecânica", "cidade": "Nilópolis", "bairro": "Centro", "telefone": "21) 99350-1257", "whatsapp": "", "site": "Não", "url_site": "", "nota_google": 5.0, "qtd_avaliacoes": 0, "score": 75, "prioridade": "Alta", "oferta_sugerida": "Mini Site Profissional", "motivo_prioridade": "sem site | tem telefone/WhatsApp | boa avaliação (5.0) | nicho promissor", "acao_recomendada": "Criar prévia visual e abordar pelo WhatsApp", "tipo_de_material": "Print ou vídeo de mini site profissional", "mensagem_whatsapp": "Oi, tudo bem? Vi a Andre Auto Mecanica Em geral no Google.\n\nNotei que as informações de contato, serviços e orçamento podem ficar mais organizados em uma página simples.\n\nQuando o cliente precisa de um serviço rápido e não acha fácil como entrar em contato, ele pode ligar para outro profissional.\n\nEu crio páginas com orçamento pelo WhatsApp para quem trabalha com serviços. Posso te mandar uma prévia?", "link_whatsapp": "https://wa.me/5521993501257?text=Oi%2C%20tudo%20bem%3F%20Vi%20a%20Andre%20Auto%20Mecanica%20Em%20geral%20no%20Google.%0A%0ANotei%20que%20as%20informa%C3%A7%C3%B5es%20de%20contato%2C%20servi%C3%A7os%20e%20or%C3%A7amento%20podem%20ficar%20mais%20organizados%20em%20uma%20p%C3%A1gina%20simples.%0A%0AQuando%20o%20cliente%20precisa%20de%20um%20servi%C3%A7o%20r%C3%A1pido%20e%20n%C3%A3o%20acha%20f%C3%A1cil%20como%20entrar%20em%20contato%2C%20ele%20pode%20ligar%20para%20outro%20profissional.%0A%0AEu%20crio%20p%C3%A1ginas%20com%20or%C3%A7amento%20pelo%20WhatsApp%20para%20quem%20trabalha%20com%20servi%C3%A7os.%20Posso%20te%20mandar%20uma%20pr%C3%A9via%3F", "instagram": "", "email": "", "endereco": "", "link_maps": "", "status": "novo", "data_abordagem": "", "data_followup": "15/05/2026", "observacoes": "", "lead_id": "andre-auto-mecanica-em-geral-nil-polis", "categoria": "automotiva"}, {"nome": "Clínica Cemo | Vilar dos Teles", "nicho": "clínica médica", "cidade": "São João de Meriti", "bairro": "Lote 12 Loja B C D", "telefone": "21) 99866-4721", "whatsapp": "", "site": "Não", "url_site": "", "nota_google": 5.0, "qtd_avaliacoes": 0, "score": 75, "prioridade": "Alta", "oferta_sugerida": "Página de Agendamento", "motivo_prioridade": "sem site | tem telefone/WhatsApp | boa avaliação (5.0) | nicho promissor", "acao_recomendada": "Criar prévia visual e abordar pelo WhatsApp", "tipo_de_material": "Print do mini site vendedor", "mensagem_whatsapp": "Oi, tudo bem? Vi a Clínica Cemo | Vilar dos Teles no Google.\n\nNotei que as informações principais, como serviços, fotos, localização e contato, poderiam ficar mais organizadas em uma página simples.\n\nQuando o cliente precisa procurar muito, ele pode acabar desistindo ou chamando outro lugar.\n\nEu trabalho criando páginas profissionais para negócios locais. Posso te mandar uma prévia visual de como ficaria?", "link_whatsapp": "https://wa.me/5521998664721?text=Oi%2C%20tudo%20bem%3F%20Vi%20a%20Cl%C3%ADnica%20Cemo%20%7C%20Vilar%20dos%20Teles%20no%20Google.%0A%0ANotei%20que%20as%20informa%C3%A7%C3%B5es%20principais%2C%20como%20servi%C3%A7os%2C%20fotos%2C%20localiza%C3%A7%C3%A3o%20e%20contato%2C%20poderiam%20ficar%20mais%20organizadas%20em%20uma%20p%C3%A1gina%20simples.%0A%0AQuando%20o%20cliente%20precisa%20procurar%20muito%2C%20ele%20pode%20acabar%20desistindo%20ou%20chamando%20outro%20lugar.%0A%0AEu%20trabalho%20criando%20p%C3%A1ginas%20profissionais%20para%20neg%C3%B3cios%20locais.%20Posso%20te%20mandar%20uma%20pr%C3%A9via%20visual%20de%20como%20ficaria%3F", "instagram": "", "email": "", "endereco": "", "link_maps": "", "status": "novo", "data_abordagem": "", "data_followup": "15/05/2026", "observacoes": "", "lead_id": "cl-nica-cemo-vilar-dos-teles-s-o-jo-o-de-meriti", "categoria": "dentista"}, {"nome": "Bronze Meriti", "nicho": "estética", "cidade": "São João de Meriti", "bairro": "Centro", "telefone": "21) 96769-2200", "whatsapp": "", "site": "Não", "url_site": "", "nota_google": 5.0, "qtd_avaliacoes": 0, "score": 75, "prioridade": "Alta", "oferta_sugerida": "Página de Agendamento", "motivo_prioridade": "sem site | tem telefone/WhatsApp | boa avaliação (5.0) | nicho promissor", "acao_recomendada": "Criar prévia visual e abordar pelo WhatsApp", "tipo_de_material": "Vídeo curto da demo de estética", "mensagem_whatsapp": "Oi, tudo bem? Vi a Bronze Meriti no Google.\n\nNotei que as informações principais, como serviços, preços e agendamento, poderiam ficar mais fáceis de encontrar em uma página simples.\n\nQuando a cliente precisa procurar muito, ela pode acabar agendando em outro lugar.\n\nEu trabalho criando páginas de agendamento para salões e clínicas de estética. Posso te mandar uma prévia visual de como ficaria?", "link_whatsapp": "https://wa.me/5521967692200?text=Oi%2C%20tudo%20bem%3F%20Vi%20a%20Bronze%20Meriti%20no%20Google.%0A%0ANotei%20que%20as%20informa%C3%A7%C3%B5es%20principais%2C%20como%20servi%C3%A7os%2C%20pre%C3%A7os%20e%20agendamento%2C%20poderiam%20ficar%20mais%20f%C3%A1ceis%20de%20encontrar%20em%20uma%20p%C3%A1gina%20simples.%0A%0AQuando%20a%20cliente%20precisa%20procurar%20muito%2C%20ela%20pode%20acabar%20agendando%20em%20outro%20lugar.%0A%0AEu%20trabalho%20criando%20p%C3%A1ginas%20de%20agendamento%20para%20sal%C3%B5es%20e%20cl%C3%ADnicas%20de%20est%C3%A9tica.%20Posso%20te%20mandar%20uma%20pr%C3%A9via%20visual%20de%20como%20ficaria%3F", "instagram": "", "email": "", "endereco": "", "link_maps": "", "status": "novo", "data_abordagem": "", "data_followup": "15/05/2026", "observacoes": "", "lead_id": "bronze-meriti-s-o-jo-o-de-meriti", "categoria": "estetica"}, {"nome": "Clinicar Roosevelt Oficina Mecânica", "nicho": "oficina mecânica", "cidade": "São João de Meriti", "bairro": "Coelho da Rocha", "telefone": "21) 97009-7462", "whatsapp": "", "site": "Não", "url_site": "", "nota_google": 5.0, "qtd_avaliacoes": 0, "score": 75, "prioridade": "Alta", "oferta_sugerida": "Mini Site Profissional", "motivo_prioridade": "sem site | tem telefone/WhatsApp | boa avaliação (5.0) | nicho promissor", "acao_recomendada": "Criar prévia visual e abordar pelo WhatsApp", "tipo_de_material": "Print ou vídeo de mini site profissional", "mensagem_whatsapp": "Oi, tudo bem? Vi a Clinicar Roosevelt Oficina Mecânica no Google.\n\nNotei que as informações de contato, serviços e orçamento podem ficar mais organizados em uma página simples.\n\nQuando o cliente precisa de um serviço rápido e não acha fácil como entrar em contato, ele pode ligar para outro profissional.\n\nEu crio páginas com orçamento pelo WhatsApp para quem trabalha com serviços. Posso te mandar uma prévia?", "link_whatsapp": "https://wa.me/5521970097462?text=Oi%2C%20tudo%20bem%3F%20Vi%20a%20Clinicar%20Roosevelt%20Oficina%20Mec%C3%A2nica%20no%20Google.%0A%0ANotei%20que%20as%20informa%C3%A7%C3%B5es%20de%20contato%2C%20servi%C3%A7os%20e%20or%C3%A7amento%20podem%20ficar%20mais%20organizados%20em%20uma%20p%C3%A1gina%20simples.%0A%0AQuando%20o%20cliente%20precisa%20de%20um%20servi%C3%A7o%20r%C3%A1pido%20e%20n%C3%A3o%20acha%20f%C3%A1cil%20como%20entrar%20em%20contato%2C%20ele%20pode%20ligar%20para%20outro%20profissional.%0A%0AEu%20crio%20p%C3%A1ginas%20com%20or%C3%A7amento%20pelo%20WhatsApp%20para%20quem%20trabalha%20com%20servi%C3%A7os.%20Posso%20te%20mandar%20uma%20pr%C3%A9via%3F", "instagram": "", "email": "", "endereco": "", "link_maps": "", "status": "novo", "data_abordagem": "", "data_followup": "15/05/2026", "observacoes": "", "lead_id": "clinicar-roosevelt-oficina-mec-nica-s-o-jo-o-de-meriti", "categoria": "automotiva"}, {"nome": "Advocacia Oliveira", "nicho": "advogado", "cidade": "Belford Roxo", "bairro": "sala 306", "telefone": "21) 99946-2584", "whatsapp": "", "site": "Não", "url_site": "", "nota_google": 5.0, "qtd_avaliacoes": 0, "score": 75, "prioridade": "Alta", "oferta_sugerida": "Mini Site Profissional", "motivo_prioridade": "sem site | tem telefone/WhatsApp | boa avaliação (5.0) | nicho promissor", "acao_recomendada": "Criar prévia visual e abordar pelo WhatsApp", "tipo_de_material": "Print do mini site vendedor", "mensagem_whatsapp": "Oi, tudo bem? Vi a Advocacia Oliveira no Google.\n\nNotei que as informações principais, como serviços, fotos, localização e contato, poderiam ficar mais organizadas em uma página simples.\n\nQuando o cliente precisa procurar muito, ele pode acabar desistindo ou chamando outro lugar.\n\nEu trabalho criando páginas profissionais para negócios locais. Posso te mandar uma prévia visual de como ficaria?", "link_whatsapp": "https://wa.me/5521999462584?text=Oi%2C%20tudo%20bem%3F%20Vi%20a%20Advocacia%20Oliveira%20no%20Google.%0A%0ANotei%20que%20as%20informa%C3%A7%C3%B5es%20principais%2C%20como%20servi%C3%A7os%2C%20fotos%2C%20localiza%C3%A7%C3%A3o%20e%20contato%2C%20poderiam%20ficar%20mais%20organizadas%20em%20uma%20p%C3%A1gina%20simples.%0A%0AQuando%20o%20cliente%20precisa%20procurar%20muito%2C%20ele%20pode%20acabar%20desistindo%20ou%20chamando%20outro%20lugar.%0A%0AEu%20trabalho%20criando%20p%C3%A1ginas%20profissionais%20para%20neg%C3%B3cios%20locais.%20Posso%20te%20mandar%20uma%20pr%C3%A9via%20visual%20de%20como%20ficaria%3F", "instagram": "", "email": "", "endereco": "", "link_maps": "", "status": "novo", "data_abordagem": "", "data_followup": "15/05/2026", "observacoes": "", "lead_id": "advocacia-oliveira-belford-roxo", "categoria": "advocacia"}, {"nome": "Escritorio de advocacia", "nicho": "advogado", "cidade": "Belford Roxo", "bairro": "Nova Piam", "telefone": "21) 96442-4471", "whatsapp": "", "site": "Não", "url_site": "", "nota_google": 5.0, "qtd_avaliacoes": 0, "score": 75, "prioridade": "Alta", "oferta_sugerida": "Mini Site Profissional", "motivo_prioridade": "sem site | tem telefone/WhatsApp | boa avaliação (5.0) | nicho promissor", "acao_recomendada": "Criar prévia visual e abordar pelo WhatsApp", "tipo_de_material": "Print do mini site vendedor", "mensagem_whatsapp": "Oi, tudo bem? Vi a Escritorio de advocacia no Google.\n\nNotei que as informações principais, como serviços, fotos, localização e contato, poderiam ficar mais organizadas em uma página simples.\n\nQuando o cliente precisa procurar muito, ele pode acabar desistindo ou chamando outro lugar.\n\nEu trabalho criando páginas profissionais para negócios locais. Posso te mandar uma prévia visual de como ficaria?", "link_whatsapp": "https://wa.me/5521964424471?text=Oi%2C%20tudo%20bem%3F%20Vi%20a%20Escritorio%20de%20advocacia%20no%20Google.%0A%0ANotei%20que%20as%20informa%C3%A7%C3%B5es%20principais%2C%20como%20servi%C3%A7os%2C%20fotos%2C%20localiza%C3%A7%C3%A3o%20e%20contato%2C%20poderiam%20ficar%20mais%20organizadas%20em%20uma%20p%C3%A1gina%20simples.%0A%0AQuando%20o%20cliente%20precisa%20procurar%20muito%2C%20ele%20pode%20acabar%20desistindo%20ou%20chamando%20outro%20lugar.%0A%0AEu%20trabalho%20criando%20p%C3%A1ginas%20profissionais%20para%20neg%C3%B3cios%20locais.%20Posso%20te%20mandar%20uma%20pr%C3%A9via%20visual%20de%20como%20ficaria%3F", "instagram": "", "email": "", "endereco": "", "link_maps": "", "status": "novo", "data_abordagem": "", "data_followup": "15/05/2026", "observacoes": "", "lead_id": "escritorio-de-advocacia-belford-roxo", "categoria": "advocacia"}, {"nome": "Jmm open bar", "nicho": "bar", "cidade": "Belford Roxo", "bairro": "RJ", "telefone": "21) 97578-7613", "whatsapp": "", "site": "Não", "url_site": "", "nota_google": 5.0, "qtd_avaliacoes": 0, "score": 75, "prioridade": "Alta", "oferta_sugerida": "Cardápio Digital", "motivo_prioridade": "sem site | tem telefone/WhatsApp | boa avaliação (5.0) | nicho promissor", "acao_recomendada": "Criar prévia visual e abordar pelo WhatsApp", "tipo_de_material": "Vídeo curto do cardápio digital", "mensagem_whatsapp": "Oi, tudo bem? Vi a Jmm open bar no Google.\n\nNotei que o cardápio e as formas de pedir poderiam ficar mais fáceis de acessar em uma página simples com o cardápio digital e botão direto para WhatsApp.\n\nQuando o cliente quer pedir e não encontra o cardápio fácil, ele pode acabar pedindo em outro lugar.\n\nEu crio cardápios digitais para restaurantes e lanchonetes. Posso te mandar uma prévia de como ficaria?", "link_whatsapp": "https://wa.me/5521975787613?text=Oi%2C%20tudo%20bem%3F%20Vi%20a%20Jmm%20open%20bar%20no%20Google.%0A%0ANotei%20que%20o%20card%C3%A1pio%20e%20as%20formas%20de%20pedir%20poderiam%20ficar%20mais%20f%C3%A1ceis%20de%20acessar%20em%20uma%20p%C3%A1gina%20simples%20com%20o%20card%C3%A1pio%20digital%20e%20bot%C3%A3o%20direto%20para%20WhatsApp.%0A%0AQuando%20o%20cliente%20quer%20pedir%20e%20n%C3%A3o%20encontra%20o%20card%C3%A1pio%20f%C3%A1cil%2C%20ele%20pode%20acabar%20pedindo%20em%20outro%20lugar.%0A%0AEu%20crio%20card%C3%A1pios%20digitais%20para%20restaurantes%20e%20lanchonetes.%20Posso%20te%20mandar%20uma%20pr%C3%A9via%20de%20como%20ficaria%3F", "instagram": "", "email": "", "endereco": "", "link_maps": "", "status": "novo", "data_abordagem": "", "data_followup": "15/05/2026", "observacoes": "", "lead_id": "jmm-open-bar-belford-roxo", "categoria": "comida"}, {"nome": "PEDRAUTO OFICINA MECÂNICA", "nicho": "oficina mecânica", "cidade": "Belford Roxo", "bairro": "Bom Pastor", "telefone": "21) 97002-8716", "whatsapp": "", "site": "Não", "url_site": "", "nota_google": 5.0, "qtd_avaliacoes": 0, "score": 75, "prioridade": "Alta", "oferta_sugerida": "Mini Site Profissional", "motivo_prioridade": "sem site | tem telefone/WhatsApp | boa avaliação (5.0) | nicho promissor", "acao_recomendada": "Criar prévia visual e abordar pelo WhatsApp", "tipo_de_material": "Print ou vídeo de mini site profissional", "mensagem_whatsapp": "Oi, tudo bem? Vi a PEDRAUTO OFICINA MECÂNICA no Google.\n\nNotei que as informações de contato, serviços e orçamento podem ficar mais organizados em uma página simples.\n\nQuando o cliente precisa de um serviço rápido e não acha fácil como entrar em contato, ele pode ligar para outro profissional.\n\nEu crio páginas com orçamento pelo WhatsApp para quem trabalha com serviços. Posso te mandar uma prévia?", "link_whatsapp": "https://wa.me/5521970028716?text=Oi%2C%20tudo%20bem%3F%20Vi%20a%20PEDRAUTO%20OFICINA%20MEC%C3%82NICA%20no%20Google.%0A%0ANotei%20que%20as%20informa%C3%A7%C3%B5es%20de%20contato%2C%20servi%C3%A7os%20e%20or%C3%A7amento%20podem%20ficar%20mais%20organizados%20em%20uma%20p%C3%A1gina%20simples.%0A%0AQuando%20o%20cliente%20precisa%20de%20um%20servi%C3%A7o%20r%C3%A1pido%20e%20n%C3%A3o%20acha%20f%C3%A1cil%20como%20entrar%20em%20contato%2C%20ele%20pode%20ligar%20para%20outro%20profissional.%0A%0AEu%20crio%20p%C3%A1ginas%20com%20or%C3%A7amento%20pelo%20WhatsApp%20para%20quem%20trabalha%20com%20servi%C3%A7os.%20Posso%20te%20mandar%20uma%20pr%C3%A9via%3F", "instagram": "", "email": "", "endereco": "", "link_maps": "", "status": "novo", "data_abordagem": "", "data_followup": "15/05/2026", "observacoes": "", "lead_id": "pedrauto-oficina-mec-nica-belford-roxo", "categoria": "automotiva"}, {"nome": "Barbearia João Félix", "nicho": "barbearia", "cidade": "Duque de Caxias", "bairro": "Centro", "telefone": "21) 98295-3258", "whatsapp": "", "site": "Não", "url_site": "", "nota_google": 5.0, "qtd_avaliacoes": 0, "score": 75, "prioridade": "Alta", "oferta_sugerida": "Página de Agendamento", "motivo_prioridade": "sem site | tem telefone/WhatsApp | boa avaliação (5.0) | nicho promissor", "acao_recomendada": "Criar prévia visual e abordar pelo WhatsApp", "tipo_de_material": "Vídeo curto da demo de barbearia", "mensagem_whatsapp": "Oi, tudo bem? Vi a Barbearia João Félix no Google.\n\nNotei que os horários, preços e formas de agendar um corte podem ficar mais organizados em uma página simples.\n\nQuando o cliente quer agendar e não acha fácil, ele acaba procurando outra barbearia.\n\nEu crio páginas de agendamento para barbearias. Posso te mandar uma prévia de como ficaria?", "link_whatsapp": "https://wa.me/5521982953258?text=Oi%2C%20tudo%20bem%3F%20Vi%20a%20Barbearia%20Jo%C3%A3o%20F%C3%A9lix%20no%20Google.%0A%0ANotei%20que%20os%20hor%C3%A1rios%2C%20pre%C3%A7os%20e%20formas%20de%20agendar%20um%20corte%20podem%20ficar%20mais%20organizados%20em%20uma%20p%C3%A1gina%20simples.%0A%0AQuando%20o%20cliente%20quer%20agendar%20e%20n%C3%A3o%20acha%20f%C3%A1cil%2C%20ele%20acaba%20procurando%20outra%20barbearia.%0A%0AEu%20crio%20p%C3%A1ginas%20de%20agendamento%20para%20barbearias.%20Posso%20te%20mandar%20uma%20pr%C3%A9via%20de%20como%20ficaria%3F", "instagram": "", "email": "", "endereco": "", "link_maps": "", "status": "novo", "data_abordagem": "", "data_followup": "15/05/2026", "observacoes": "", "lead_id": "barbearia-jo-o-f-lix-duque-de-caxias", "categoria": "barbearia"}, {"nome": "Lume Odontologia | Dentista | Alinhador Invisível | SouSmile | Implantes | Duque de Caxias", "nicho": "dentista", "cidade": "Duque de Caxias", "bairro": "Centro", "telefone": "21) 98234-8330", "whatsapp": "", "site": "Não", "url_site": "", "nota_google": 5.0, "qtd_avaliacoes": 0, "score": 75, "prioridade": "Alta", "oferta_sugerida": "Mini Site Profissional", "motivo_prioridade": "sem site | tem telefone/WhatsApp | boa avaliação (5.0) | nicho promissor", "acao_recomendada": "Criar prévia visual e abordar pelo WhatsApp", "tipo_de_material": "Print do mini site vendedor", "mensagem_whatsapp": "Oi, tudo bem? Vi a Lume Odontologia | Dentista | Alinhador Invisível | SouSmile | Implantes | Duque de Caxias no Google.\n\nNotei que as informações principais, como serviços, fotos, localização e contato, poderiam ficar mais organizadas em uma página simples.\n\nQuando o cliente precisa procurar muito, ele pode acabar desistindo ou chamando outro lugar.\n\nEu trabalho criando páginas profissionais para negócios locais. Posso te mandar uma prévia visual de como ficaria?", "link_whatsapp": "https://wa.me/5521982348330?text=Oi%2C%20tudo%20bem%3F%20Vi%20a%20Lume%20Odontologia%20%7C%20Dentista%20%7C%20Alinhador%20Invis%C3%ADvel%20%7C%20SouSmile%20%7C%20Implantes%20%7C%20Duque%20de%20Caxias%20no%20Google.%0A%0ANotei%20que%20as%20informa%C3%A7%C3%B5es%20principais%2C%20como%20servi%C3%A7os%2C%20fotos%2C%20localiza%C3%A7%C3%A3o%20e%20contato%2C%20poderiam%20ficar%20mais%20organizadas%20em%20uma%20p%C3%A1gina%20simples.%0A%0AQuando%20o%20cliente%20precisa%20procurar%20muito%2C%20ele%20pode%20acabar%20desistindo%20ou%20chamando%20outro%20lugar.%0A%0AEu%20trabalho%20criando%20p%C3%A1ginas%20profissionais%20para%20neg%C3%B3cios%20locais.%20Posso%20te%20mandar%20uma%20pr%C3%A9via%20visual%20de%20como%20ficaria%3F", "instagram": "", "email": "", "endereco": "", "link_maps": "", "status": "novo", "data_abordagem": "", "data_followup": "15/05/2026", "observacoes": "", "lead_id": "lume-odontologia-dentista-alinhador-invis-vel-sousmile-impla", "categoria": "dentista"}, {"nome": "AC Saúde Clínica Médica", "nicho": "clínica médica", "cidade": "Itaguaí", "bairro": "Centro", "telefone": "21) 2177-5564", "whatsapp": "", "site": "Não", "url_site": "", "nota_google": 5.0, "qtd_avaliacoes": 0, "score": 75, "prioridade": "Alta", "oferta_sugerida": "Página de Agendamento", "motivo_prioridade": "sem site | tem telefone/WhatsApp | boa avaliação (5.0) | nicho promissor", "acao_recomendada": "Criar prévia visual e abordar pelo WhatsApp", "tipo_de_material": "Print do mini site vendedor", "mensagem_whatsapp": "Oi, tudo bem? Vi a AC Saúde Clínica Médica no Google.\n\nNotei que as informações principais, como serviços, fotos, localização e contato, poderiam ficar mais organizadas em uma página simples.\n\nQuando o cliente precisa procurar muito, ele pode acabar desistindo ou chamando outro lugar.\n\nEu trabalho criando páginas profissionais para negócios locais. Posso te mandar uma prévia visual de como ficaria?", "link_whatsapp": "https://wa.me/552121775564?text=Oi%2C%20tudo%20bem%3F%20Vi%20a%20AC%20Sa%C3%BAde%20Cl%C3%ADnica%20M%C3%A9dica%20no%20Google.%0A%0ANotei%20que%20as%20informa%C3%A7%C3%B5es%20principais%2C%20como%20servi%C3%A7os%2C%20fotos%2C%20localiza%C3%A7%C3%A3o%20e%20contato%2C%20poderiam%20ficar%20mais%20organizadas%20em%20uma%20p%C3%A1gina%20simples.%0A%0AQuando%20o%20cliente%20precisa%20procurar%20muito%2C%20ele%20pode%20acabar%20desistindo%20ou%20chamando%20outro%20lugar.%0A%0AEu%20trabalho%20criando%20p%C3%A1ginas%20profissionais%20para%20neg%C3%B3cios%20locais.%20Posso%20te%20mandar%20uma%20pr%C3%A9via%20visual%20de%20como%20ficaria%3F", "instagram": "", "email": "", "endereco": "", "link_maps": "", "status": "novo", "data_abordagem": "", "data_followup": "15/05/2026", "observacoes": "", "lead_id": "ac-sa-de-cl-nica-m-dica-itagua-", "categoria": "dentista"}, {"nome": "Estética em Itaguaí - Vanessa Sgrancio", "nicho": "estética", "cidade": "Itaguaí", "bairro": "Centro", "telefone": "21) 98712-7265", "whatsapp": "", "site": "Não", "url_site": "", "nota_google": 5.0, "qtd_avaliacoes": 0, "score": 75, "prioridade": "Alta", "oferta_sugerida": "Página de Agendamento", "motivo_prioridade": "sem site | tem telefone/WhatsApp | boa avaliação (5.0) | nicho promissor", "acao_recomendada": "Criar prévia visual e abordar pelo WhatsApp", "tipo_de_material": "Vídeo curto da demo de estética", "mensagem_whatsapp": "Oi, tudo bem? Vi a Estética em Itaguaí - Vanessa Sgrancio no Google.\n\nNotei que as informações principais, como serviços, preços e agendamento, poderiam ficar mais fáceis de encontrar em uma página simples.\n\nQuando a cliente precisa procurar muito, ela pode acabar agendando em outro lugar.\n\nEu trabalho criando páginas de agendamento para salões e clínicas de estética. Posso te mandar uma prévia visual de como ficaria?", "link_whatsapp": "https://wa.me/5521987127265?text=Oi%2C%20tudo%20bem%3F%20Vi%20a%20Est%C3%A9tica%20em%20Itagua%C3%AD%20-%20Vanessa%20Sgrancio%20no%20Google.%0A%0ANotei%20que%20as%20informa%C3%A7%C3%B5es%20principais%2C%20como%20servi%C3%A7os%2C%20pre%C3%A7os%20e%20agendamento%2C%20poderiam%20ficar%20mais%20f%C3%A1ceis%20de%20encontrar%20em%20uma%20p%C3%A1gina%20simples.%0A%0AQuando%20a%20cliente%20precisa%20procurar%20muito%2C%20ela%20pode%20acabar%20agendando%20em%20outro%20lugar.%0A%0AEu%20trabalho%20criando%20p%C3%A1ginas%20de%20agendamento%20para%20sal%C3%B5es%20e%20cl%C3%ADnicas%20de%20est%C3%A9tica.%20Posso%20te%20mandar%20uma%20pr%C3%A9via%20visual%20de%20como%20ficaria%3F", "instagram": "", "email": "", "endereco": "", "link_maps": "", "status": "novo", "data_abordagem": "", "data_followup": "15/05/2026", "observacoes": "", "lead_id": "est-tica-em-itagua-vanessa-sgrancio-itagua-", "categoria": "estetica"}, {"nome": "Café no Bule", "nicho": "lanchonete", "cidade": "Itaguaí", "bairro": "Coroa Grande", "telefone": "21) 97008-2808", "whatsapp": "", "site": "Não", "url_site": "", "nota_google": 5.0, "qtd_avaliacoes": 0, "score": 75, "prioridade": "Alta", "oferta_sugerida": "Cardápio Digital", "motivo_prioridade": "sem site | tem telefone/WhatsApp | boa avaliação (5.0) | nicho promissor", "acao_recomendada": "Criar prévia visual e abordar pelo WhatsApp", "tipo_de_material": "Vídeo curto do cardápio digital", "mensagem_whatsapp": "Oi, tudo bem? Vi a Café no Bule no Google.\n\nNotei que o cardápio e as formas de pedir poderiam ficar mais fáceis de acessar em uma página simples com o cardápio digital e botão direto para WhatsApp.\n\nQuando o cliente quer pedir e não encontra o cardápio fácil, ele pode acabar pedindo em outro lugar.\n\nEu crio cardápios digitais para restaurantes e lanchonetes. Posso te mandar uma prévia de como ficaria?", "link_whatsapp": "https://wa.me/5521970082808?text=Oi%2C%20tudo%20bem%3F%20Vi%20a%20Caf%C3%A9%20no%20Bule%20no%20Google.%0A%0ANotei%20que%20o%20card%C3%A1pio%20e%20as%20formas%20de%20pedir%20poderiam%20ficar%20mais%20f%C3%A1ceis%20de%20acessar%20em%20uma%20p%C3%A1gina%20simples%20com%20o%20card%C3%A1pio%20digital%20e%20bot%C3%A3o%20direto%20para%20WhatsApp.%0A%0AQuando%20o%20cliente%20quer%20pedir%20e%20n%C3%A3o%20encontra%20o%20card%C3%A1pio%20f%C3%A1cil%2C%20ele%20pode%20acabar%20pedindo%20em%20outro%20lugar.%0A%0AEu%20crio%20card%C3%A1pios%20digitais%20para%20restaurantes%20e%20lanchonetes.%20Posso%20te%20mandar%20uma%20pr%C3%A9via%20de%20como%20ficaria%3F", "instagram": "", "email": "", "endereco": "", "link_maps": "", "status": "novo", "data_abordagem": "", "data_followup": "15/05/2026", "observacoes": "", "lead_id": "caf-no-bule-itagua-", "categoria": "comida"}, {"nome": "Laboratório MedWest | Exames Laboratoriais e Clínica MedWest | Japeri e Regiões", "nicho": "clínica médica", "cidade": "Japeri", "bairro": "Loja 1", "telefone": "21) 97775-7667", "whatsapp": "", "site": "Não", "url_site": "", "nota_google": 5.0, "qtd_avaliacoes": 0, "score": 75, "prioridade": "Alta", "oferta_sugerida": "Página de Agendamento", "motivo_prioridade": "sem site | tem telefone/WhatsApp | boa avaliação (5.0) | nicho promissor", "acao_recomendada": "Criar prévia visual e abordar pelo WhatsApp", "tipo_de_material": "Print do mini site vendedor", "mensagem_whatsapp": "Oi, tudo bem? Vi a Laboratório MedWest | Exames Laboratoriais e Clínica MedWest | Japeri e Regiões no Google.\n\nNotei que as informações principais, como serviços, fotos, localização e contato, poderiam ficar mais organizadas em uma página simples.\n\nQuando o cliente precisa procurar muito, ele pode acabar desistindo ou chamando outro lugar.\n\nEu trabalho criando páginas profissionais para negócios locais. Posso te mandar uma prévia visual de como ficaria?", "link_whatsapp": "https://wa.me/5521977757667?text=Oi%2C%20tudo%20bem%3F%20Vi%20a%20Laborat%C3%B3rio%20MedWest%20%7C%20Exames%20Laboratoriais%20e%20Cl%C3%ADnica%20MedWest%20%7C%20Japeri%20e%20Regi%C3%B5es%20no%20Google.%0A%0ANotei%20que%20as%20informa%C3%A7%C3%B5es%20principais%2C%20como%20servi%C3%A7os%2C%20fotos%2C%20localiza%C3%A7%C3%A3o%20e%20contato%2C%20poderiam%20ficar%20mais%20organizadas%20em%20uma%20p%C3%A1gina%20simples.%0A%0AQuando%20o%20cliente%20precisa%20procurar%20muito%2C%20ele%20pode%20acabar%20desistindo%20ou%20chamando%20outro%20lugar.%0A%0AEu%20trabalho%20criando%20p%C3%A1ginas%20profissionais%20para%20neg%C3%B3cios%20locais.%20Posso%20te%20mandar%20uma%20pr%C3%A9via%20visual%20de%20como%20ficaria%3F", "instagram": "", "email": "", "endereco": "", "link_maps": "", "status": "novo", "data_abordagem": "", "data_followup": "15/05/2026", "observacoes": "", "lead_id": "laborat-rio-medwest-exames-laboratoriais-e-cl-nica-medwest-j", "categoria": "dentista"}, {"nome": "Terrabite", "nicho": "restaurante", "cidade": "Japeri", "bairro": "Citrópolis", "telefone": "21) 96662-3375", "whatsapp": "", "site": "Não", "url_site": "", "nota_google": 5.0, "qtd_avaliacoes": 0, "score": 75, "prioridade": "Alta", "oferta_sugerida": "Cardápio Digital", "motivo_prioridade": "sem site | tem telefone/WhatsApp | boa avaliação (5.0) | nicho promissor", "acao_recomendada": "Criar prévia visual e abordar pelo WhatsApp", "tipo_de_material": "Vídeo curto do cardápio digital", "mensagem_whatsapp": "Oi, tudo bem? Vi a Terrabite no Google.\n\nNotei que o cardápio e as formas de pedir poderiam ficar mais fáceis de acessar em uma página simples com o cardápio digital e botão direto para WhatsApp.\n\nQuando o cliente quer pedir e não encontra o cardápio fácil, ele pode acabar pedindo em outro lugar.\n\nEu crio cardápios digitais para restaurantes e lanchonetes. Posso te mandar uma prévia de como ficaria?", "link_whatsapp": "https://wa.me/5521966623375?text=Oi%2C%20tudo%20bem%3F%20Vi%20a%20Terrabite%20no%20Google.%0A%0ANotei%20que%20o%20card%C3%A1pio%20e%20as%20formas%20de%20pedir%20poderiam%20ficar%20mais%20f%C3%A1ceis%20de%20acessar%20em%20uma%20p%C3%A1gina%20simples%20com%20o%20card%C3%A1pio%20digital%20e%20bot%C3%A3o%20direto%20para%20WhatsApp.%0A%0AQuando%20o%20cliente%20quer%20pedir%20e%20n%C3%A3o%20encontra%20o%20card%C3%A1pio%20f%C3%A1cil%2C%20ele%20pode%20acabar%20pedindo%20em%20outro%20lugar.%0A%0AEu%20crio%20card%C3%A1pios%20digitais%20para%20restaurantes%20e%20lanchonetes.%20Posso%20te%20mandar%20uma%20pr%C3%A9via%20de%20como%20ficaria%3F", "instagram": "", "email": "", "endereco": "", "link_maps": "", "status": "novo", "data_abordagem": "", "data_followup": "15/05/2026", "observacoes": "", "lead_id": "terrabite-japeri", "categoria": "comida"}];
+let currentFilter = 'todos';
+let searchTerm = '';
+
+// ── Status persistence ────────────────────────────────────────
+const STATUS_KEY = 'prospeccao_status_v2';
+
+function loadStatus() {
+  try {
+    const raw = localStorage.getItem(STATUS_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch { return {}; }
+}
+
+function saveStatus(status) {
+  localStorage.setItem(STATUS_KEY, JSON.stringify(status));
+}
+
+function getStatus(leadId) {
+  const s = loadStatus();
+  return s[leadId] || { status: 'novo', data_abordagem: '', data_followup: '', observacoes: '' };
+}
+
+function setStatus(leadId, field, value) {
+  const s = loadStatus();
+  if (!s[leadId]) s[leadId] = { status: 'novo', data_abordagem: '', data_followup: '', observacoes: '' };
+  s[leadId][field] = value;
+  saveStatus(s);
+  render();
+}
+
+// ── Filtering ────────────────────────────────────────────────
+function getFiltered() {
+  const status = loadStatus();
+  let filtered = LEADS.filter(l => {
+    const s = status[l.lead_id] || {};
+    const st = s.status || 'novo';
+    const q = searchTerm.toLowerCase();
+
+    // Search
+    if (q && !(l.nome.toLowerCase().includes(q) || l.nicho.toLowerCase().includes(q) || l.cidade.toLowerCase().includes(q) || (l.bairro||'').toLowerCase().includes(q))) return false;
+
+    // Status filters
+    if (currentFilter === 'respondidos') return ['respondeu','interessado'].includes(st);
+    if (currentFilter === 'followup') return st === 'follow-up';
+    if (currentFilter === 'fechados') return st === 'fechado';
+    if (currentFilter === 'perdidos') return st === 'perdido';
+
+    // Niche filters
+    if (currentFilter === 'estetica') return l.categoria === 'estetica';
+    if (currentFilter === 'barbearia') return l.categoria === 'barbearia';
+    if (currentFilter === 'comida') return l.categoria === 'comida';
+    if (currentFilter === 'dentista') return l.categoria === 'dentista';
+    if (currentFilter === 'advocacia') return l.categoria === 'advocacia';
+    if (currentFilter === 'servicos') return l.categoria === 'servicos';
+    if (currentFilter === 'automotiva') return l.categoria === 'automotiva';
+    if (currentFilter === 'igreja') return l.categoria === 'igreja';
+    if (currentFilter === 'cursos') return l.categoria === 'cursos';
+    if (currentFilter === 'personalizados') return l.categoria === 'personalizados';
+
+    // Attribute filters
+    if (currentFilter === 'alta') return l.prioridade === 'Alta';
+    if (currentFilter === 'sem-site') return l.site === 'Não';
+    if (currentFilter === 'com-whatsapp') return !!(l.whatsapp || l.link_whatsapp);
+
+    // "Todos" mostra apenas leads que ainda nao foram abordados
+    const naoAbordado = ['novo', 'abordar hoje'].includes(st);
+    return naoAbordado;
+  });
+  return filtered;
+}
+
+// ── Summary ───────────────────────────────────────────────────
+function updateSummary() {
+  const status = loadStatus();
+  let enviadas = 0, responderam = 0, interessados = 0, propostas = 0, fechados = 0;
+  LEADS.forEach(l => {
+    const s = (status[l.lead_id] || {}).status || 'novo';
+    if (['mensagem enviada','video enviado','respondeu','interessado','proposta enviada','fechado','follow-up'].includes(s)) enviadas++;
+    if (['respondeu','interessado','proposta enviada','fechado'].includes(s)) responderam++;
+    if (['interessado','proposta enviada','fechado'].includes(s)) interessados++;
+    if (['proposta enviada','fechado'].includes(s)) propostas++;
+    if (s === 'fechado') fechados++;
+  });
+  const taxa = enviadas > 0 ? Math.round((responderam / enviadas) * 100) : 0;
+  animNum('sLeads', LEADS.length);
+  animNum('sEnviadas', enviadas);
+  animNum('sResponderam', responderam);
+  animNum('sInteressados', interessados);
+  animNum('sPropostas', propostas);
+  animNum('sFechados', fechados);
+  document.getElementById('sTaxa').textContent = taxa + '%';
+}
+
+function animNum(id, target) {
+  const el = document.getElementById(id);
+  const start = performance.now();
+  (function tick(now) {
+    const p = Math.min((now - start) / 600, 1);
+    el.textContent = Math.floor(target * (1 - Math.pow(1 - p, 3)));
+    if (p < 1) requestAnimationFrame(tick);
+  })(start);
+}
+
+// ── Icons ─────────────────────────────────────────────────────
+const IC = {
+  phone: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>',
+  pin: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>',
+  star: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>',
+  wa: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.981.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.42 4.432-9.849 9.855-9.849 2.633 0 5.117 1.027 6.988 2.891a9.825 9.825 0 012.89 6.994c-.003 5.42-4.433 9.849-9.855 9.849m8.398-18.276A13.892 13.892 0 0012.047 0C5.395 0 .028 5.362.025 12.017c-.001 2.118.553 4.182 1.61 6.003L0 24l6.095-1.597a13.867 13.867 0 006.426 1.581h.005c6.548 0 11.917-5.362 11.92-11.917a11.834 11.834 0 00-3.478-8.392"/></svg>',
+};
+
+// ── Render ────────────────────────────────────────────────────
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+function statusClass(st) {
+  const map = {
+    'novo':'novo','abordar hoje':'abordar-hoje','mensagem enviada':'mensagem-enviada',
+    'respondeu':'respondeu','video enviado':'video-enviado','interessado':'interessado',
+    'proposta enviada':'proposta-enviada','fechado':'fechado','perdido':'perdido',
+    'follow-up':'follow-up','não abordar':'nao-abordar'
+  };
+  return map[st] || 'novo';
+}
+
+function render() {
+  const filtered = getFiltered();
+  const status = loadStatus();
+
+  document.getElementById('visibleCount').textContent = filtered.length;
+  document.getElementById('totalFiltered').textContent = LEADS.length;
+
+  const grid = document.getElementById('leadsGrid');
+  if (!filtered.length) {
+    grid.innerHTML = '<div class="empty-state"><h3>Nenhum lead encontrado</h3><p>Ajuste os filtros para ver resultados.</p></div>';
+    updateSummary();
+    return;
+  }
+
+  grid.innerHTML = filtered.map((l, i) => {
+    const s = status[l.lead_id] || {};
+    const st = s.status || 'novo';
+    const obs = s.observacoes || '';
+    const sc = statusClass(st);
+    const priClass = l.prioridade === 'Alta' ? 'alta' : 'media';
+
+    // Badges
+    let badges = '';
+    badges += '<span class="badge badge-nicho">' + esc(l.nicho) + '</span>';
+    badges += '<span class="badge badge-cidade">' + esc(l.cidade) + '</span>';
+    if (l.site === 'Não') badges += '<span class="badge badge-sem-site">Sem site</span>';
+    if (l.whatsapp || l.link_whatsapp) badges += '<span class="badge badge-whatsapp">WhatsApp</span>';
+    if (l.prioridade === 'Alta') badges += '<span class="badge badge-alta">Alta</span>';
+
+    // Score badge
+    const scoreClass = l.score >= 85 ? 'high' : 'mid';
+    badges += '<span class="badge badge-score ' + scoreClass + '">' + l.score + '</span>';
+
+    // Meta rows
+    let meta = '';
+    if (l.telefone || l.whatsapp) {
+      const fone = l.whatsapp || l.telefone;
+      meta += '<div class="meta-row"><span class="meta-icon">' + IC.phone + '</span>' + esc(fone) + '</div>';
+    }
+    if (l.bairro) {
+      meta += '<div class="meta-row"><span class="meta-icon">' + IC.pin + '</span>' + esc(l.bairro) + ' — ' + esc(l.cidade) + '</div>';
+    }
+
+    // Info grid
+    let info = '';
+    if (l.nota_google) info += '<div><div class="info-label">Nota Google</div><div class="info-value">' + l.nota_google.toFixed(1) + ' (' + l.qtd_avaliacoes + ')</div></div>';
+    if (l.oferta_sugerida) info += '<div><div class="info-label">Oferta</div><div class="info-value">' + esc(l.oferta_sugerida) + '</div></div>';
+    if (l.tipo_de_material) info += '<div><div class="info-label">Material</div><div class="info-value">' + esc(l.tipo_de_material) + '</div></div>';
+    if (l.motivo_prioridade) info += '<div><div class="info-label">Motivo</div><div class="info-value">' + esc(l.motivo_prioridade) + '</div></div>';
+
+    // WhatsApp link
+    const waLink = l.link_whatsapp || '#';
+
+    return '<article class="lead-card ' + priClass + '" style="animation-delay:' + (i * 30) + 'ms">' +
+      '<div class="card-header"><div class="card-badges">' + badges + '</div></div>' +
+      '<div class="card-body">' +
+        '<div class="card-name">' + esc(l.nome) + '</div>' +
+        '<div class="card-meta">' + meta + '</div>' +
+        (info ? '<div class="card-info-grid">' + info + '</div>' : '') +
+      '</div>' +
+      (l.mensagem_whatsapp ? '<div class="msg-box"><button class="copy-btn" onclick="copyMsg(\'' + l.lead_id + '\',this)">Copiar</button><div class="msg-text" id="msg-' + l.lead_id + '">' + esc(l.mensagem_whatsapp) + '</div><span class="msg-toggle" onclick="toggleMsg(\'' + l.lead_id + '\',this)">Ver mais</span></div>' : '') +
+      '<div class="card-actions">' +
+        (waLink !== '#' ? '<a href="' + esc(waLink) + '" target="_blank" class="action-btn whatsapp">Abrir WhatsApp</a>' : '') +
+        '<button class="action-btn enviada" onclick="setStatus(\'' + l.lead_id + '\',\'status\',\'mensagem enviada\')">Mensagem enviada</button>' +
+        '<button class="action-btn respondeu" onclick="setStatus(\'' + l.lead_id + '\',\'status\',\'respondeu\')">Respondeu</button>' +
+        '<button class="action-btn video" onclick="setStatus(\'' + l.lead_id + '\',\'status\',\'video enviado\')">Vídeo enviado</button>' +
+        '<button class="action-btn proposta" onclick="setStatus(\'' + l.lead_id + '\',\'status\',\'proposta enviada\')">Proposta</button>' +
+        '<button class="action-btn fechado" onclick="setStatus(\'' + l.lead_id + '\',\'status\',\'fechado\')">Fechado</button>' +
+        '<button class="action-btn perdido" onclick="setStatus(\'' + l.lead_id + '\',\'status\',\'perdido\')">Perdido</button>' +
+        '<button class="action-btn followup" onclick="setStatus(\'' + l.lead_id + '\',\'status\',\'follow-up\')">Follow-up</button>' +
+      '</div>' +
+      '<div class="status-bar"><span class="status-badge ' + sc + '">' + esc(st) + '</span></div>' +
+      '<div class="obs-section"><textarea class="obs-input" placeholder="Observações..." onblur="setStatus(\'' + l.lead_id + '\',\'observacoes\',this.value)">' + esc(obs) + '</textarea></div>' +
+    '</article>';
+  }).join('');
+
+  updateSummary();
+}
+
+function copyMsg(leadId, btn) {
+  const lead = LEADS.find(l => l.lead_id === leadId);
+  if (!lead || !lead.mensagem_whatsapp) return;
+  navigator.clipboard.writeText(lead.mensagem_whatsapp).then(() => {
+    btn.textContent = 'Copiado!';
+    btn.classList.add('copied');
+    showToast('Mensagem copiada!');
+    setTimeout(() => { btn.textContent = 'Copiar'; btn.classList.remove('copied'); }, 2000);
+  }).catch(() => {
+    // Fallback
+    const ta = document.createElement('textarea');
+    ta.value = lead.mensagem_whatsapp;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    btn.textContent = 'Copiado!';
+    btn.classList.add('copied');
+    showToast('Mensagem copiada!');
+    setTimeout(() => { btn.textContent = 'Copiar'; btn.classList.remove('copied'); }, 2000);
+  });
+}
+
+function toggleMsg(leadId, toggle) {
+  const el = document.getElementById('msg-' + leadId);
+  if (el.classList.contains('expanded')) {
+    el.classList.remove('expanded');
+    toggle.textContent = 'Ver mais';
+  } else {
+    el.classList.add('expanded');
+    toggle.textContent = 'Ver menos';
+  }
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+// ── Events ────────────────────────────────────────────────────
+document.querySelectorAll('.filter-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentFilter = btn.dataset.filter;
+    render();
+  });
+});
+
+document.getElementById('searchInput').addEventListener('input', (e) => {
+  searchTerm = e.target.value;
+  render();
+});
+
+// ── Init ──────────────────────────────────────────────────────
+render();
+</script>
+</body>
+</html>
