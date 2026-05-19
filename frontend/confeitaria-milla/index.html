@@ -1,0 +1,752 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Confeitaria Milla — Doces Feitos com Amor em Mesquita</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;0,800;1,400&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+/* ═══════════════════════════════════════════════════════════════
+   CONFEITARIA MILLA — Landing Page Premium
+   Baseado em: Emil Design Eng + Design Taste Frontend
+   Variance: 8 | Motion: 6 | Density: 4
+   ═══════════════════════════════════════════════════════════════ */
+
+*{margin:0;padding:0;box-sizing:border-box}
+
+:root{
+  --bg-deep:#fdf9f3;
+  --bg-surface:#ffffff;
+  --bg-warm:#f5ebe0;
+  --bg-cream:#faf3e8;
+  --text-primary:#1c1917;
+  --text-secondary:#57534e;
+  --text-muted:#a8a29e;
+  --accent:#c06c4d;
+  --accent-light:#e8b4a0;
+  --accent-soft:#f5ddd3;
+  --accent-dark:#9a5338;
+  --caramel:#8c6b4a;
+  --green-wa:#25d366;
+  --border:rgba(0,0,0,.05);
+  --border-light:rgba(0,0,0,.03);
+  --shadow-sm:0 2px 8px rgba(0,0,0,.04);
+  --shadow-md:0 8px 24px rgba(0,0,0,.06);
+  --shadow-lg:0 16px 48px rgba(0,0,0,.08);
+  --shadow-xl:0 24px 64px rgba(0,0,0,.1);
+  --radius-sm:10px;
+  --radius-md:18px;
+  --radius-lg:28px;
+  --radius-xl:36px;
+  --ease-out:cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out:cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer:cubic-bezier(0.32, 0.72, 0, 1);
+  --font-sans:'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-display:'Playfair Display', Georgia, serif;
+}
+
+html{scroll-behavior:smooth}
+body{font-family:var(--font-sans);background:var(--bg-deep);color:var(--text-primary);line-height:1.6;overflow-x:hidden}
+
+::-webkit-scrollbar{width:5px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--accent-light);border-radius:3px}
+
+.container{max-width:1340px;margin:0 auto;padding:0 24px}
+@media(min-width:768px){.container{padding:0 40px}}
+@media(min-width:1024px){.container{padding:0 48px}}
+
+/* ── Header ──────────────────────────────────────────────────── */
+.header{position:fixed;top:0;left:0;right:0;z-index:100;padding:18px 0;transition:all 350ms var(--ease-out)}
+.header.scrolled{
+  background:rgba(253,249,243,.82);
+  backdrop-filter:blur(24px) saturate(1.3);
+  -webkit-backdrop-filter:blur(24px) saturate(1.3);
+  border-bottom:1px solid var(--border-light);
+  box-shadow:0 1px 0 rgba(255,255,255,.6) inset, var(--shadow-sm);
+}
+.header-inner{display:flex;align-items:center;justify-content:space-between;gap:20px}
+.logo{font-family:var(--font-display);font-size:1.5rem;font-weight:700;letter-spacing:-.01em;color:var(--text-primary);text-decoration:none}
+.logo span{color:var(--accent)}
+.nav{display:flex;align-items:center;gap:36px}
+.nav a{color:var(--text-secondary);text-decoration:none;font-size:.86rem;font-weight:500;transition:color 200ms var(--ease-out);position:relative;letter-spacing:.02em}
+.nav a:hover{color:var(--text-primary)}
+.nav a::after{content:'';position:absolute;bottom:-5px;left:0;width:0;height:1.5px;background:var(--accent);transition:width 300ms var(--ease-out)}
+.nav a:hover::after{width:100%}
+.nav-cta{background:var(--accent);color:#fff;padding:9px 22px;border-radius:100px;font-size:.82rem;font-weight:600;text-decoration:none;transition:all 200ms var(--ease-out);border:1.5px solid transparent;letter-spacing:.02em}
+.nav-cta:hover{background:var(--accent-dark);transform:translateY(-2px);box-shadow:var(--shadow-md)}
+.nav-cta:active{transform:scale(0.97)}
+.mobile-toggle{display:none;background:none;border:none;cursor:pointer;padding:4px}
+.mobile-toggle svg{width:26px;height:26px;stroke:var(--text-primary)}
+
+@media(max-width:768px){
+  .nav{display:none;position:absolute;top:100%;left:0;right:0;background:var(--bg-surface);padding:24px;flex-direction:column;align-items:flex-start;gap:18px;border-bottom:1px solid var(--border);box-shadow:var(--shadow-lg)}
+  .nav.open{display:flex}
+  .mobile-toggle{display:block}
+}
+
+/* ── HERO V2 — Editorial Split ───────────────────────────────── */
+.hero{min-height:100dvh;display:grid;grid-template-columns:1fr;position:relative;overflow:hidden;background:var(--bg-deep)}
+@media(min-width:1024px){.hero{grid-template-columns:52% 48%}}
+
+.hero-left{display:flex;flex-direction:column;justify-content:center;padding:140px 24px 60px;position:relative;z-index:2}
+@media(min-width:768px){.hero-left{padding:160px 40px 80px}}
+@media(min-width:1024px){.hero-left{padding:0 48px 0 0}}
+
+.hero-pill{display:inline-flex;align-items:center;gap:10px;background:var(--bg-warm);border:1px solid var(--border-light);padding:7px 16px;border-radius:100px;font-size:.72rem;font-weight:600;text-transform:uppercase;letter-spacing:.1em;color:var(--caramel);margin-bottom:28px;width:fit-content;opacity:0;transform:translateY(14px);animation:fadeUp .7s var(--ease-out) .3s forwards}
+.hero-pill::before{content:'';width:7px;height:7px;border-radius:50%;background:var(--accent);animation:pulse 2.2s ease-in-out infinite}
+
+.hero-headline{font-family:var(--font-display);font-size:clamp(3.2rem,7vw,6rem);font-weight:700;line-height:.92;letter-spacing:-.03em;margin-bottom:24px;max-width:620px;opacity:0;transform:translateY(24px);animation:fadeUp .8s var(--ease-out) .45s forwards}
+.hero-headline em{color:var(--accent);font-style:italic}
+
+.hero-body{font-size:clamp(1.05rem,1.6vw,1.25rem);color:var(--text-secondary);max-width:460px;margin-bottom:40px;line-height:1.65;opacity:0;transform:translateY(18px);animation:fadeUp .7s var(--ease-out) .6s forwards}
+
+.hero-ctas{display:flex;gap:14px;flex-wrap:wrap;opacity:0;transform:translateY(14px);animation:fadeUp .6s var(--ease-out) .75s forwards}
+
+.btn-primary{background:var(--accent);color:#fff;padding:15px 34px;border-radius:100px;font-size:.98rem;font-weight:600;text-decoration:none;display:inline-flex;align-items:center;gap:10px;transition:all 220ms var(--ease-out);border:1.5px solid transparent;box-shadow:0 4px 18px rgba(192,108,77,.22);letter-spacing:.01em}
+.btn-primary:hover{background:var(--accent-dark);transform:translateY(-2px);box-shadow:0 10px 28px rgba(192,108,77,.28)}
+.btn-primary:active{transform:scale(0.97)}
+
+.btn-ghost{background:transparent;color:var(--text-primary);padding:15px 34px;border-radius:100px;font-size:.98rem;font-weight:600;text-decoration:none;display:inline-flex;align-items:center;gap:10px;transition:all 220ms var(--ease-out);border:1.5px solid var(--border)}
+.btn-ghost:hover{border-color:var(--accent);color:var(--accent);transform:translateY(-2px)}
+.btn-ghost:active{transform:scale(0.97)}
+
+.hero-stats{display:flex;gap:32px;margin-top:44px;padding-top:28px;border-top:1px solid var(--border-light);opacity:0;animation:fadeUp .6s var(--ease-out) .9s forwards}
+.h-stat{display:flex;flex-direction:column;gap:3px}
+.h-stat-num{font-size:1.7rem;font-weight:700;color:var(--accent);line-height:1;font-family:var(--font-display)}
+.h-stat-label{font-size:.68rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.1em}
+
+.hero-right{position:relative;overflow:hidden;min-height:50vh}
+@media(min-width:1024px){.hero-right{min-height:auto}}
+.hero-img-bg{width:100%;height:100%;object-fit:cover;position:absolute;inset:0;transform:scale(1.08);transition:transform 10s var(--ease-out);will-change:transform}
+.hero-right:hover .hero-img-bg{transform:scale(1)}
+.hero-vignette{position:absolute;inset:0;background:linear-gradient(135deg,rgba(253,249,243,.95) 0%,rgba(253,249,243,0) 35%,transparent 55%);z-index:1}
+@media(min-width:1024px){.hero-vignette{background:linear-gradient(90deg,rgba(253,249,243,1) 0%,rgba(253,249,243,0) 25%,transparent 45%)}}
+
+/* Floating review card */
+.hero-float{position:absolute;bottom:40px;right:40px;z-index:2;background:rgba(255,255,255,.88);backdrop-filter:blur(16px);padding:20px 24px;border-radius:var(--radius-lg);border:1px solid rgba(255,255,255,.5);box-shadow:var(--shadow-lg);max-width:260px;opacity:0;transform:translateY(20px);animation:fadeUp .7s var(--ease-out) 1.1s forwards}
+@media(max-width:768px){.hero-float{display:none}}
+.float-stars{color:var(--accent);font-size:1.1rem;letter-spacing:2px;margin-bottom:8px}
+.float-text{font-size:.85rem;color:var(--text-secondary);line-height:1.5;font-style:italic;font-family:var(--font-display)}
+.float-author{font-size:.75rem;color:var(--text-muted);margin-top:10px;font-weight:500}
+
+/* ── Sections ────────────────────────────────────────────────── */
+.section{padding:90px 0}
+@media(min-width:768px){.section{padding:110px 0}}
+@media(min-width:1024px){.section{padding:130px 0}}
+
+.s-label{text-align:center;font-size:.7rem;font-weight:600;text-transform:uppercase;letter-spacing:.14em;color:var(--caramel);margin-bottom:14px}
+.s-title{text-align:center;font-family:var(--font-display);font-size:clamp(2.2rem,4.5vw,3.8rem);font-weight:700;letter-spacing:-.02em;margin-bottom:16px;line-height:1.05}
+.s-desc{text-align:center;color:var(--text-secondary);max-width:540px;margin:0 auto 64px;font-size:1.05rem;line-height:1.7}
+
+/* ── About ───────────────────────────────────────────────────── */
+.about-grid{display:grid;grid-template-columns:1fr;gap:48px;align-items:center}
+@media(min-width:1024px){.about-grid{grid-template-columns:1.1fr .9fr;gap:72px}}
+
+.about-img-wrap{position:relative;border-radius:var(--radius-xl);overflow:hidden;aspect-ratio:3/4;box-shadow:var(--shadow-xl)}
+.about-img{width:100%;height:100%;object-fit:cover;transition:transform 7s var(--ease-out);will-change:transform}
+.about-img-wrap:hover .about-img{transform:scale(1.04)}
+.about-img-frame{position:absolute;inset:16px;border:1px solid rgba(255,255,255,.3);border-radius:var(--radius-lg);pointer-events:none;z-index:2}
+.about-img-shine{position:absolute;inset:0;background:linear-gradient(135deg,transparent 40%,rgba(255,255,255,.08) 50%,transparent 60%);pointer-events:none;z-index:3;transition:transform .6s var(--ease-out)}
+.about-img-wrap:hover .about-img-shine{transform:translateX(100%)}
+
+.about-text{padding:0 4px}
+@media(min-width:1024px){.about-text{padding-left:16px}}
+.about-text h3{font-family:var(--font-display);font-size:clamp(1.9rem,3.5vw,2.8rem);font-weight:700;letter-spacing:-.02em;margin-bottom:20px;line-height:1.1}
+.about-text p{color:var(--text-secondary);margin-bottom:18px;line-height:1.75;font-size:1.02rem}
+.about-stats{display:flex;gap:40px;margin-top:36px;padding-top:28px;border-top:1px solid var(--border-light)}
+.a-stat{display:flex;flex-direction:column;gap:5px}
+.a-stat-num{font-size:2.2rem;font-weight:700;color:var(--accent);line-height:1;font-family:var(--font-display)}
+.a-stat-label{font-size:.78rem;color:var(--text-muted);letter-spacing:.04em}
+
+/* ── Menu / Cardápio — Bento Asymmetric ────────────────────────── */
+.menu-section{background:var(--bg-cream)}
+
+.menu-tabs{display:flex;justify-content:center;gap:10px;margin-bottom:56px;flex-wrap:wrap}
+.menu-tab{background:transparent;border:1.5px solid var(--border-light);padding:10px 24px;border-radius:100px;font-size:.85rem;font-weight:500;color:var(--text-secondary);cursor:pointer;transition:all 220ms var(--ease-out);font-family:inherit;letter-spacing:.02em}
+.menu-tab:hover{border-color:var(--accent-light);color:var(--text-primary);background:var(--bg-warm)}
+.menu-tab.active{background:var(--accent);color:#fff;border-color:var(--accent);box-shadow:0 6px 20px rgba(192,108,77,.25);transform:translateY(-1px)}
+.menu-tab.active:hover{background:var(--accent-dark);color:#fff}
+
+/* BENTO GRID — never equal columns */
+.bento-grid{display:grid;grid-template-columns:1fr;gap:20px}
+@media(min-width:640px){.bento-grid{grid-template-columns:1fr 1fr}}
+@media(min-width:1024px){.bento-grid{grid-template-columns:1.4fr .6fr 1fr}}
+@media(min-width:1280px){.bento-grid{grid-template-columns:1.2fr .8fr 1fr .7fr}}
+
+/* Card base */
+.bento-card{opacity:0;transform:translateY(30px) scale(0.97);animation:cardEnter .7s var(--ease-out) forwards}
+.bento-card:nth-child(1){animation-delay:0ms}
+.bento-card:nth-child(2){animation-delay:80ms}
+.bento-card:nth-child(3){animation-delay:160ms}
+.bento-card:nth-child(4){animation-delay:240ms}
+.bento-card:nth-child(5){animation-delay:320ms}
+.bento-card:nth-child(6){animation-delay:400ms}
+.bento-card:nth-child(7){animation-delay:480ms}
+.bento-card:nth-child(8){animation-delay:560ms}
+.bento-card:nth-child(9){animation-delay:640ms}
+
+/* Span classes for asymmetric layout */
+@media(min-width:1024px){
+  .bento-card.wide{grid-column:span 2}
+  .bento-card.tall{grid-row:span 2}
+  .bento-card.wide .item-card .item-img-wrap{aspect-ratio:16/10}
+}
+@media(min-width:1280px){
+  .bento-card.wide-xl{grid-column:span 2}
+}
+
+/* Item Card — with 3D tilt + spotlight */
+.item-card{background:var(--bg-surface);border:1px solid var(--border-light);border-radius:var(--radius-lg);overflow:hidden;transition:all 350ms var(--ease-out);position:relative;transform-style:preserve-3d}
+.item-card:hover{transform:translateY(-8px);box-shadow:var(--shadow-xl);border-color:rgba(192,108,77,.18)}
+.item-card:hover .item-img{transform:scale(1.08)}
+.item-card:hover .item-price-tag{transform:translateY(0);opacity:1}
+
+/* Spotlight border on hover */
+.item-card::before{
+  content:'';position:absolute;inset:0;border-radius:var(--radius-lg);
+  background:radial-gradient(600px circle at var(--mouse-x,50%) var(--mouse-y,50%),rgba(192,108,77,.08),transparent 40%);
+  opacity:0;transition:opacity .4s ease;pointer-events:none;z-index:10
+}
+.item-card:hover::before{opacity:1}
+
+.item-img-wrap{position:relative;overflow:hidden;aspect-ratio:4/3}
+.item-img{width:100%;height:100%;object-fit:cover;transition:transform 700ms var(--ease-out);will-change:transform}
+.item-badge{position:absolute;top:14px;left:14px;background:rgba(28,25,23,.75);backdrop-filter:blur(10px);color:#fff;padding:5px 14px;border-radius:100px;font-size:.68rem;font-weight:600;text-transform:uppercase;letter-spacing:.06em;z-index:2}
+.item-price-tag{position:absolute;top:14px;right:14px;background:var(--accent);color:#fff;padding:6px 16px;border-radius:100px;font-size:.9rem;font-weight:700;z-index:2;opacity:0;transform:translateY(-8px);transition:all 350ms var(--ease-out);box-shadow:var(--shadow-sm)}
+
+.item-info{padding:22px 24px 24px}
+.item-name{font-size:1.15rem;font-weight:600;margin-bottom:5px;letter-spacing:-.01em}
+.item-desc{font-size:.84rem;color:var(--text-muted);margin-bottom:18px;line-height:1.55;max-width:100%;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.item-footer{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.item-price{font-family:var(--font-display);font-size:1.35rem;font-weight:700;color:var(--accent)}
+.item-price-unit{font-size:.72rem;color:var(--text-muted);font-weight:400;font-family:var(--font-sans)}
+.item-btn{background:var(--bg-cream);border:1.5px solid var(--border-light);padding:8px 18px;border-radius:100px;font-size:.8rem;font-weight:600;color:var(--text-primary);cursor:pointer;transition:all 220ms var(--ease-out);font-family:inherit;letter-spacing:.01em}
+.item-btn:hover{background:var(--accent);color:#fff;border-color:var(--accent);transform:translateY(-2px);box-shadow:0 4px 12px rgba(192,108,77,.2)}
+.item-btn:active{transform:scale(0.97)}
+
+/* Tall card variant */
+.item-card.tall .item-img-wrap{aspect-ratio:3/4}
+
+/* ── Specials — Editorial Cards ──────────────────────────────── */
+.specials-grid{display:grid;grid-template-columns:1fr;gap:28px}
+@media(min-width:768px){.specials-grid{grid-template-columns:1fr 1fr;gap:36px}}
+
+.special-card{background:var(--bg-surface);border:1px solid var(--border-light);border-radius:var(--radius-xl);overflow:hidden;display:flex;flex-direction:column;transition:all 400ms var(--ease-out);position:relative}
+@media(min-width:768px){.special-card{flex-direction:row}}
+.special-card:hover{box-shadow:var(--shadow-xl);transform:translateY(-6px);border-color:rgba(192,108,77,.15)}
+.special-card:hover .special-img{transform:scale(1.06)}
+.special-img-wrap{position:relative;overflow:hidden;min-height:280px}
+@media(min-width:768px){.special-img-wrap{min-height:auto;min-width:46%}}
+.special-img{width:100%;height:100%;object-fit:cover;transition:transform 700ms var(--ease-out);will-change:transform}
+.special-body{padding:36px;display:flex;flex-direction:column;justify-content:center}
+.special-pill{display:inline-flex;width:fit-content;background:var(--bg-warm);border:1px solid var(--border-light);padding:5px 14px;border-radius:100px;font-size:.68rem;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--caramel);margin-bottom:14px}
+.special-title{font-family:var(--font-display);font-size:1.6rem;font-weight:700;margin-bottom:14px;line-height:1.15}
+.special-desc{color:var(--text-secondary);font-size:.92rem;line-height:1.65;margin-bottom:24px}
+.special-meta{display:flex;gap:24px;margin-top:auto}
+.special-meta-item{display:flex;align-items:center;gap:8px;font-size:.82rem;color:var(--text-muted)}
+.special-meta-item svg{width:16px;height:16px;stroke:var(--accent);stroke-width:2;fill:none}
+
+/* ── CTA ──────────────────────────────────────────────────────── */
+.cta-section{background:var(--text-primary);color:#fff;position:relative;overflow:hidden}
+.cta-bg{position:absolute;inset:0;pointer-events:none}
+.cta-bg::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse at 25% 50%,rgba(192,108,77,.25) 0%,transparent 55%),radial-gradient(ellipse at 75% 25%,rgba(140,107,74,.15) 0%,transparent 45%)}
+.cta-inner{position:relative;z-index:1;text-align:center;padding:110px 24px}
+@media(min-width:768px){.cta-inner{padding:140px 40px}}
+.cta-title{font-family:var(--font-display);font-size:clamp(2.2rem,4.5vw,4rem);font-weight:700;letter-spacing:-.02em;margin-bottom:18px;line-height:1.05}
+.cta-desc{font-size:1.15rem;color:rgba(255,255,255,.55);max-width:480px;margin:0 auto 40px;line-height:1.65}
+.cta-btn{background:var(--green-wa);color:#fff;padding:18px 44px;border-radius:100px;font-size:1.1rem;font-weight:600;text-decoration:none;display:inline-flex;align-items:center;gap:12px;transition:all 220ms var(--ease-out);box-shadow:0 6px 24px rgba(37,211,102,.28);letter-spacing:.01em}
+.cta-btn:hover{background:#1ebe57;transform:translateY(-3px);box-shadow:0 12px 32px rgba(37,211,102,.32)}
+.cta-btn:active{transform:scale(0.97)}
+.cta-phone{font-family:var(--font-display);font-size:1.5rem;font-weight:700;margin-top:18px;color:rgba(255,255,255,.75)}
+
+/* ── Footer ──────────────────────────────────────────────────── */
+.footer{padding:72px 0 36px;border-top:1px solid var(--border-light)}
+.footer-grid{display:grid;grid-template-columns:1fr;gap:48px;margin-bottom:48px}
+@media(min-width:768px){.footer-grid{grid-template-columns:1.6fr 1fr 1fr;gap:40px}}
+.f-brand{font-family:var(--font-display);font-size:1.4rem;font-weight:700;margin-bottom:14px}
+.f-brand span{color:var(--accent)}
+.f-desc{color:var(--text-muted);font-size:.9rem;max-width:280px;line-height:1.7}
+.f-col h4{font-size:.72rem;font-weight:600;text-transform:uppercase;letter-spacing:.12em;color:var(--text-muted);margin-bottom:18px}
+.f-links{display:flex;flex-direction:column;gap:12px}
+.f-links a{color:var(--text-secondary);text-decoration:none;font-size:.88rem;transition:color 200ms var(--ease-out)}
+.f-links a:hover{color:var(--accent)}
+.f-bottom{display:flex;justify-content:space-between;align-items:center;padding-top:28px;border-top:1px solid var(--border-light);font-size:.75rem;color:var(--text-muted);letter-spacing:.02em}
+
+/* ── Animations ──────────────────────────────────────────────── */
+@keyframes fadeUp{from{opacity:0;transform:translateY(24px)}to{opacity:1;transform:translateY(0)}}
+@keyframes cardEnter{from{opacity:0;transform:translateY(30px) scale(0.97)}to{opacity:1;transform:translateY(0) scale(1)}}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(.9)}}
+
+.reveal{opacity:0;transform:translateY(40px);transition:opacity .8s var(--ease-out), transform .8s var(--ease-out)}
+.reveal.visible{opacity:1;transform:translateY(0)}
+
+/* Clip-path image reveal */
+.clip-reveal{clip-path:inset(0 0 100% 0);transition:clip-path 1.2s var(--ease-out)}
+.clip-reveal.visible{clip-path:inset(0 0 0 0)}
+
+/* ── Reduced Motion ─────────────────────────────────────────── */
+@media(prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.01ms !important;animation-iteration-count:1 !important;transition-duration:.01ms !important}
+  .hero-img-bg{transform:none}
+  .item-card{transform:none}
+}
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<header class="header" id="header">
+  <div class="container header-inner">
+    <a href="#" class="logo">Confeitaria <span>Milla</span></a>
+    <nav class="nav" id="nav">
+      <a href="#cardapio">Cardápio</a>
+      <a href="#sobre">Sobre</a>
+      <a href="#especiais">Encomendas</a>
+      <a href="#pedir" class="nav-cta">Peça pelo WhatsApp</a>
+    </nav>
+    <button class="mobile-toggle" id="mobileToggle" aria-label="Menu">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+    </button>
+  </div>
+</header>
+
+<!-- Hero — Editorial Split -->
+<section class="hero" id="inicio">
+  <div class="hero-left">
+    <div class="container" style="max-width:none;padding:0">
+      <div class="hero-pill">Desde 2018 em Mesquita</div>
+      <h1 class="hero-headline">Doces que <em>encantam</em> o coração da Baixada</h1>
+      <p class="hero-body">Bolos artesanais, doces gourmet e salgadinhos feitos com ingredientes frescos e muito carinho. Cada receita carrega o sabor da tradição.</p>
+      <div class="hero-ctas">
+        <a href="#cardapio" class="btn-primary">Explorar Cardápio</a>
+        <a href="#pedir" class="btn-ghost">Fazer Pedido</a>
+      </div>
+      <div class="hero-stats">
+        <div class="h-stat"><span class="h-stat-num">5.0</span><span class="h-stat-label">Nota Google</span></div>
+        <div class="h-stat"><span class="h-stat-num">6+</span><span class="h-stat-label">Anos de História</span></div>
+        <div class="h-stat"><span class="h-stat-num">Santa Terezinha</span><span class="h-stat-label">Mesquita, RJ</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="hero-right">
+    <div class="hero-vignette"></div>
+    <img src="https://images.unsplash.com/photo-1578985545062-69928b1d9587?w=1200&q=80" alt="Bolo de chocolate artesanal decorado" class="hero-img-bg" loading="eager">
+    <div class="hero-float">
+      <div class="float-stars">★★★★★</div>
+      <div class="float-text">"O bolo de chocolate da Milla é o melhor que já comi na região. Atendimento impecável!"</div>
+      <div class="float-author">— Cliente do Google</div>
+    </div>
+  </div>
+</section>
+
+<!-- About -->
+<section class="section" id="sobre">
+  <div class="container">
+    <div class="s-label">Nossa História</div>
+    <h2 class="s-title">Tradição e sabor em cada detalhe</h2>
+    <div class="about-grid">
+      <div class="about-img-wrap reveal">
+        <img src="https://www.academiaassai.com.br/sites/default/files/styles/noticia_1020x640/public/empreendendo_na_confeitaria_dicas_para_mulheres_que_querem_comecar.jpg?itok=4hFQbl7a" alt="Mulher confeiteira preparando doces artesanais" class="about-img" loading="lazy">
+        <div class="about-img-frame"></div>
+        <div class="about-img-shine"></div>
+      </div>
+      <div class="about-text">
+        <h3>Da cozinha de casa para o coração da Baixada</h3>
+        <p>A Confeitaria Milla nasceu de uma paixão pela confeitaria artesanal. O que começou como bolos caseiros para familiares e amigos, logo se transformou em uma referência de qualidade em Mesquita.</p>
+        <p>Trabalhamos apenas com ingredientes selecionados, receitas testadas e a dedicação de quem acredita que um doce bem feito pode transformar qualquer momento em algo inesquecível.</p>
+        <p>Seja um aniversário, um café da tarde especial ou simplesmente aquela vontade de algo gostoso, aqui você encontra o sabor que procura.</p>
+        <div class="about-stats">
+          <div class="a-stat"><span class="a-stat-num">100%</span><span class="a-stat-label">Artesanal</span></div>
+          <div class="a-stat"><span class="a-stat-num">5.0</span><span class="a-stat-label">Avaliação Google</span></div>
+          <div class="a-stat"><span class="a-stat-num">RJ</span><span class="a-stat-label">Mesquita</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Menu / Cardápio — Bento Asymmetric -->
+<section class="section menu-section" id="cardapio">
+  <div class="container">
+    <div class="s-label">Nossos Produtos</div>
+    <h2 class="s-title">Cardápio</h2>
+    <p class="s-desc">De bolos decorados a doces finos, cada item é preparado sob encomenda com atenção aos detalhes e o cuidado que você merece.</p>
+
+    <div class="menu-tabs" id="menuTabs">
+      <button class="menu-tab active" data-filter="todos">Todos</button>
+      <button class="menu-tab" data-filter="bolos">Bolos</button>
+      <button class="menu-tab" data-filter="doces">Doces</button>
+      <button class="menu-tab" data-filter="salgados">Salgados</button>
+      <button class="menu-tab" data-filter="especiais">Especiais</button>
+    </div>
+
+    <div class="bento-grid" id="bentoGrid">
+      <!-- Bolo Chocolate — Wide -->
+      <div class="bento-card wide" data-category="bolos">
+        <div class="item-card tall">
+          <div class="item-img-wrap">
+            <img src="https://images.unsplash.com/photo-1565958011703-44f9829ba187?w=800&q=80" alt="Bolo de Chocolate Belga" class="item-img" loading="lazy">
+            <span class="item-badge">Mais Pedido</span>
+            <span class="item-price-tag">R$ 89/kg</span>
+          </div>
+          <div class="item-info">
+            <div class="item-name">Bolo de Chocolate Belga</div>
+            <div class="item-desc">Massa fofinha com cacau 70%, recheio de ganache meio amargo e cobertura de brigadeiro gourmet.</div>
+            <div class="item-footer">
+              <span class="item-price">R$ 89,00<span class="item-price-unit">/kg</span></span>
+              <button class="item-btn" onclick="pedir('Bolo de Chocolate Belga')">Quero este</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Red Velvet -->
+      <div class="bento-card" data-category="bolos">
+        <div class="item-card">
+          <div class="item-img-wrap">
+            <img src="https://images.unsplash.com/photo-1576618148400-f54bed99fcfd?w=600&q=80" alt="Bolo Red Velvet" class="item-img" loading="lazy">
+            <span class="item-price-tag">R$ 95/kg</span>
+          </div>
+          <div class="item-info">
+            <div class="item-name">Bolo Red Velvet</div>
+            <div class="item-desc">Massa vermelha veludo com cream cheese frosting. Elegante e irresistível.</div>
+            <div class="item-footer">
+              <span class="item-price">R$ 95,00<span class="item-price-unit">/kg</span></span>
+              <button class="item-btn" onclick="pedir('Bolo Red Velvet')">Quero este</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Bolo Coco — Tall -->
+      <div class="bento-card tall" data-category="bolos">
+        <div class="item-card tall">
+          <div class="item-img-wrap">
+            <img src="https://images.unsplash.com/photo-1515037893149-de7f840978e2?w=600&q=80" alt="Bolo de Coco" class="item-img" loading="lazy">
+            <span class="item-price-tag">R$ 82/kg</span>
+          </div>
+          <div class="item-info">
+            <div class="item-name">Bolo de Coco</div>
+            <div class="item-desc">Massa leve de coco com leite condensado, coberto com coco flocos tostado.</div>
+            <div class="item-footer">
+              <span class="item-price">R$ 82,00<span class="item-price-unit">/kg</span></span>
+              <button class="item-btn" onclick="pedir('Bolo de Coco')">Quero este</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Brigadeiro -->
+      <div class="bento-card" data-category="doces">
+        <div class="item-card">
+          <div class="item-img-wrap">
+            <img src="https://images.unsplash.com/photo-1548741487-18d363dc4469?w=600&q=80" alt="Brigadeiro Gourmet" class="item-img" loading="lazy">
+            <span class="item-badge">Clássico</span>
+            <span class="item-price-tag">R$ 4,50/un</span>
+          </div>
+          <div class="item-info">
+            <div class="item-name">Brigadeiro Gourmet</div>
+            <div class="item-desc">Chocolate belga, leite condensado artesanal e granulado belga. Caixa com 12 unidades.</div>
+            <div class="item-footer">
+              <span class="item-price">R$ 4,50<span class="item-price-unit">/un</span></span>
+              <button class="item-btn" onclick="pedir('Brigadeiro Gourmet')">Quero este</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Cupcake Morango — Wide -->
+      <div class="bento-card wide-xl" data-category="doces">
+        <div class="item-card">
+          <div class="item-img-wrap">
+            <img src="https://images.unsplash.com/photo-1548907040-4baa42d10919?w=900&q=80" alt="Cupcake de Morango" class="item-img" loading="lazy">
+            <span class="item-price-tag">R$ 8/un</span>
+          </div>
+          <div class="item-info">
+            <div class="item-name">Cupcake de Morango</div>
+            <div class="item-desc">Massa de baunilha com pedaços de morango fresco e buttercream de morango. Perfeito para presentear.</div>
+            <div class="item-footer">
+              <span class="item-price">R$ 8,00<span class="item-price-unit">/un</span></span>
+              <button class="item-btn" onclick="pedir('Cupcake de Morango')">Quero este</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Palha Italiana -->
+      <div class="bento-card" data-category="doces">
+        <div class="item-card">
+          <div class="item-img-wrap">
+            <img src="https://images.unsplash.com/photo-1488477181946-6428a0291777?w=600&q=80" alt="Palha Italiana" class="item-img" loading="lazy">
+            <span class="item-price-tag">R$ 6/un</span>
+          </div>
+          <div class="item-info">
+            <div class="item-name">Palha Italiana</div>
+            <div class="item-desc">Biscoitos champagne, chocolate meio amargo e leite condensado. Corte perfeito.</div>
+            <div class="item-footer">
+              <span class="item-price">R$ 6,00<span class="item-price-unit">/un</span></span>
+              <button class="item-btn" onclick="pedir('Palha Italiana')">Quero este</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Coxinha -->
+      <div class="bento-card" data-category="salgados">
+        <div class="item-card">
+          <div class="item-img-wrap">
+            <img src="https://images.unsplash.com/photo-1563805042-7684c019e1cb?w=600&q=80" alt="Coxinha de Frango" class="item-img" loading="lazy">
+            <span class="item-price-tag">R$ 5/un</span>
+          </div>
+          <div class="item-info">
+            <div class="item-name">Coxinha de Frango</div>
+            <div class="item-desc">Massa crocante, recheio de frango desfiado temperado. Tamanho festa.</div>
+            <div class="item-footer">
+              <span class="item-price">R$ 5,00<span class="item-price-unit">/un</span></span>
+              <button class="item-btn" onclick="pedir('Coxinha de Frango')">Quero este</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Empada -->
+      <div class="bento-card" data-category="salgados">
+        <div class="item-card">
+          <div class="item-img-wrap">
+            <img src="https://images.unsplash.com/photo-1626200419199-391ae4be7a41?w=600&q=80" alt="Empada de Palmito" class="item-img" loading="lazy">
+            <span class="item-price-tag">R$ 7/un</span>
+          </div>
+          <div class="item-info">
+            <div class="item-name">Empada de Palmito</div>
+            <div class="item-desc">Massa folhada crocante com recheio cremoso de palmito e requeijão.</div>
+            <div class="item-footer">
+              <span class="item-price">R$ 7,00<span class="item-price-unit">/un</span></span>
+              <button class="item-btn" onclick="pedir('Empada de Palmito')">Quero este</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Torta Limão — Wide -->
+      <div class="bento-card wide" data-category="especiais">
+        <div class="item-card">
+          <div class="item-img-wrap">
+            <img src="https://images.unsplash.com/photo-1519915028121-7d3463d20b13?w=800&q=80" alt="Torta de Limão" class="item-img" loading="lazy">
+            <span class="item-badge">Favorita</span>
+            <span class="item-price-tag">R$ 78</span>
+          </div>
+          <div class="item-info">
+            <div class="item-name">Torta de Limão</div>
+            <div class="item-desc">Base de biscoito, creme de limão siciliano com raspas e merengue dourado no maçarico.</div>
+            <div class="item-footer">
+              <span class="item-price">R$ 78,00</span>
+              <button class="item-btn" onclick="pedir('Torta de Limão')">Quero este</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Mini Pavlova -->
+      <div class="bento-card" data-category="especiais">
+        <div class="item-card">
+          <div class="item-img-wrap">
+            <img src="https://images.unsplash.com/photo-1464305795204-6f5bbfc7fb81?w=600&q=80" alt="Mini Pavlova" class="item-img" loading="lazy">
+            <span class="item-price-tag">R$ 12/un</span>
+          </div>
+          <div class="item-info">
+            <div class="item-name">Mini Pavlova</div>
+            <div class="item-desc">Suspiro crocante por fora, marshmallow por dentro, com frutas vermelhas frescas.</div>
+            <div class="item-footer">
+              <span class="item-price">R$ 12,00<span class="item-price-unit">/un</span></span>
+              <button class="item-btn" onclick="pedir('Mini Pavlova')">Quero este</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Specials / Encomendas — Editorial Cards -->
+<section class="section" id="especiais">
+  <div class="container">
+    <div class="s-label">Para datas especiais</div>
+    <h2 class="s-title">Encomendas sob medida</h2>
+    <p class="s-desc">Bolos decorados, mesas de doces e kits festa personalizados para transformar seu evento em um momento inesquecível.</p>
+
+    <div class="specials-grid">
+      <div class="special-card reveal">
+        <div class="special-img-wrap">
+          <img src="https://lh6.googleusercontent.com/proxy/U2Vq7N28u7Vb57q3CHbY5ZXcwkIxYWyS8jCtC7yMe2QO9SWthqaAllWg4wE8fEBDVawuLlhsy7HQQVGejCuOVpG76TcLACw6qQmkkT2e3uEZbQvKjABTeKg6jCFjTrYQ6n5UYmKdUFkcqs6kLP0iTmRFDF1qPv8_4YcxtLsKWck" alt="Bolos decorados para festas" class="special-img" loading="lazy">
+        </div>
+        <div class="special-body">
+          <span class="special-pill">Aniversários</span>
+          <h3 class="special-title">Bolos Decorados</h3>
+          <p class="special-desc">Do tema clássico ao personalizado, criamos bolos que são o centro das atenções da sua festa. Consulte temas, tamanhos e valores.</p>
+          <div class="special-meta">
+            <div class="special-meta-item">
+              <svg viewBox="0 0 24 24"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/><path d="M12 6v6l4 2"/></svg>
+              Prazo: 5 dias
+            </div>
+            <div class="special-meta-item">
+              <svg viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
+              Mesquita, RJ
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="special-card reveal">
+        <div class="special-img-wrap">
+          <img src="https://images.squarespace-cdn.com/content/v1/55ccfbe1e4b07043dba47268/1593541727825-CLYET1FJ741ZXA20A194/unnamed+%284%29.jpg" alt="Mesa de doces" class="special-img" loading="lazy">
+        </div>
+        <div class="special-body">
+          <span class="special-pill">Eventos</span>
+          <h3 class="special-title">Mesa de Doces</h3>
+          <p class="special-desc">Montamos mesas completas com doces variados, decoração coordenada e apresentação impecável para casamentos, batizados e eventos corporativos.</p>
+          <div class="special-meta">
+            <div class="special-meta-item">
+              <svg viewBox="0 0 24 24"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/><path d="M12 6v6l4 2"/></svg>
+              Prazo: 7 dias
+            </div>
+            <div class="special-meta-item">
+              <svg viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
+              Atendemos região
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- CTA WhatsApp -->
+<section class="section cta-section" id="pedir">
+  <div class="cta-bg"></div>
+  <div class="cta-inner">
+    <h2 class="cta-title">Peça agora pelo WhatsApp</h2>
+    <p class="cta-desc">Entre em contato direto com a Confeitaria Milla. Tire dúvidas, faça encomendas e receba atendimento personalizado.</p>
+    <a href="https://wa.me/5521991864222?text=Oi%2C%20vi%20o%20card%C3%A1pio%20da%20Confeitaria%20Milla%20e%20gostaria%20de%20fazer%20um%20pedido%21" class="cta-btn" target="_blank">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.981.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.42 4.432-9.849 9.855-9.849 2.633 0 5.117 1.027 6.988 2.891a9.825 9.825 0 012.89 6.994c-.003 5.42-4.433 9.849-9.855 9.849m8.398-18.276A13.892 13.892 0 0012.047 0C5.395 0 .028 5.362.025 12.017c-.001 2.118.553 4.182 1.61 6.003L0 24l6.095-1.597a13.867 13.867 0 006.426 1.581h.005c6.548 0 11.917-5.362 11.92-11.917a11.834 11.834 0 00-3.478-8.392"/></svg>
+      Chamar no WhatsApp
+    </a>
+    <p class="cta-phone">(21) 99186-4222</p>
+  </div>
+</section>
+
+<!-- Footer -->
+<footer class="footer">
+  <div class="container">
+    <div class="footer-grid">
+      <div>
+        <div class="f-brand">Confeitaria <span>Milla</span></div>
+        <p class="f-desc">Doces artesanais feitos com amor desde 2018. Bolos, doces e salgados para tornar seus momentos inesquecíveis.</p>
+      </div>
+      <div class="f-col">
+        <h4>Navegar</h4>
+        <div class="f-links">
+          <a href="#inicio">Início</a>
+          <a href="#cardapio">Cardápio</a>
+          <a href="#sobre">Sobre</a>
+          <a href="#especiais">Especiais</a>
+        </div>
+      </div>
+      <div class="f-col">
+        <h4>Contato</h4>
+        <div class="f-links">
+          <a href="https://wa.me/5521991864222" target="_blank">WhatsApp</a>
+          <span style="color:var(--text-muted);font-size:.88rem">R. Eng. Henrique Lussack, 1073</span>
+          <span style="color:var(--text-muted);font-size:.88rem">Santa Terezinha, Mesquita - RJ</span>
+        </div>
+      </div>
+    </div>
+    <div class="f-bottom">
+      <span>Confeitaria Milla — Mesquita, RJ</span>
+      <span>Nota 5.0 no Google</span>
+    </div>
+  </div>
+</footer>
+
+<script>
+/* ── Header scroll ──────────────────────────────────────────── */
+const header = document.getElementById('header');
+window.addEventListener('scroll', () => {
+  if (window.scrollY > 50) header.classList.add('scrolled');
+  else header.classList.remove('scrolled');
+}, { passive: true });
+
+/* ── Mobile nav ─────────────────────────────────────────────── */
+document.getElementById('mobileToggle').addEventListener('click', () => {
+  document.getElementById('nav').classList.toggle('open');
+});
+
+/* ── Menu filter with animation reset ─────────────────────────── */
+const tabs = document.querySelectorAll('.menu-tab');
+const cards = document.querySelectorAll('.bento-card');
+tabs.forEach(btn => {
+  btn.addEventListener('click', () => {
+    tabs.forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    const filter = btn.dataset.filter;
+    cards.forEach(card => {
+      const cat = card.dataset.category;
+      if (filter === 'todos' || cat === filter) {
+        card.style.display = 'block';
+        card.style.animation = 'none';
+        card.offsetHeight;
+        card.style.animation = '';
+      } else {
+        card.style.display = 'none';
+      }
+    });
+  });
+});
+
+/* ── Scroll reveal ──────────────────────────────────────────── */
+const revealObserver = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      entry.target.classList.add('visible');
+      revealObserver.unobserve(entry.target);
+    }
+  });
+}, { threshold: 0.12, rootMargin: '0px 0px -60px 0px' });
+document.querySelectorAll('.reveal, .clip-reveal').forEach(el => revealObserver.observe(el));
+
+/* ── Spotlight border on cards ────────────────────────────────── */
+document.querySelectorAll('.item-card').forEach(card => {
+  card.addEventListener('mousemove', (e) => {
+    const rect = card.getBoundingClientRect();
+    card.style.setProperty('--mouse-x', (e.clientX - rect.left) + 'px');
+    card.style.setProperty('--mouse-y', (e.clientY - rect.top) + 'px');
+  });
+});
+
+/* ── Parallax hero image ────────────────────────────────────── */
+let ticking = false;
+window.addEventListener('scroll', () => {
+  if (!ticking) {
+    requestAnimationFrame(() => {
+      const heroImg = document.querySelector('.hero-img-bg');
+      if (heroImg) {
+        const y = window.scrollY * 0.15;
+        heroImg.style.transform = `translateY(${y}px) scale(1.08)`;
+      }
+      ticking = false;
+    });
+    ticking = true;
+  }
+}, { passive: true });
+
+/* ── Pedir WhatsApp ───────────────────────────────────────────── */
+function pedir(produto) {
+  const msg = encodeURIComponent(`Oi! Vi no cardápio da Confeitaria Milla e me interessei pelo(a) ${produto}. Poderia me passar mais informações?`);
+  window.open(`https://wa.me/5521991864222?text=${msg}`, '_blank');
+}
+</script>
+
+</body>
+</html>

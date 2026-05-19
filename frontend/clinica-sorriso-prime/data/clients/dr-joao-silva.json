@@ -1,0 +1,174 @@
+{
+  "slug": "dr-joao-silva",
+  "template": "advogado",
+  "businessName": "Dr. João Silva Advocacia",
+  "headline": "Atendimento jurídico claro, ético e profissional",
+  "subheadline": "Orientação jurídica em Direito de Família, Trabalhista e Cível com atendimento humanizado.",
+  "whatsapp": "5521999999999",
+  "city": "Duque de Caxias",
+  "neighborhood": "Centro",
+  "address": "Rua Exemplo, 123 - Centro, Duque de Caxias",
+  "instagram": "https://instagram.com/exemplo",
+  "googleMapsUrl": "https://maps.google.com/?q=Duque+de+Caxias+Centro",
+  "rating": "4.8",
+  "reviewsCount": "32",
+  "services": [
+    "Direito de Família",
+    "Direito Trabalhista",
+    "Direito Cível",
+    "Direito do Consumidor"
+  ],
+  "serviceItems": [
+    {
+      "icon": "Users",
+      "title": "Direito de Família",
+      "description": "Divórcio, guarda, pensão alimentícia e inventário com sensibilidade e rigor técnico."
+    },
+    {
+      "icon": "Briefcase",
+      "title": "Direito Trabalhista",
+      "description": "Reclamação trabalhista, assédio moral, horas extras e rescisão contratual."
+    },
+    {
+      "icon": "Scale",
+      "title": "Direito Cível",
+      "description": "Contratos, cobranças, indenizações e ações civis públicas."
+    },
+    {
+      "icon": "Shield",
+      "title": "Direito do Consumidor",
+      "description": "Problemas com produtos, serviços, cobranças indevidas e publicidade enganosa."
+    }
+  ],
+  "differentials": [
+    "Atendimento humanizado",
+    "Clareza nas orientações",
+    "Ética profissional",
+    "Acompanhamento próximo",
+    "Resposta rápida via WhatsApp"
+  ],
+  "differentialItems": [
+    {
+      "icon": "Heart",
+      "title": "Atendimento humanizado",
+      "description": "Cada cliente é ouvido com atenção e respeito, sem jurisdiques incompreensíveis."
+    },
+    {
+      "icon": "FileText",
+      "title": "Clareza nas orientações",
+      "description": "Explicamos cada etapa do processo em linguagem acessível e transparente."
+    },
+    {
+      "icon": "Shield",
+      "title": "Ética profissional",
+      "description": "Atuamos com integridade, sigilo e compromisso com a verdade."
+    },
+    {
+      "icon": "UserCheck",
+      "title": "Acompanhamento próximo",
+      "description": "Você acompanha cada andamento do seu caso em tempo real."
+    },
+    {
+      "icon": "MessageCircle",
+      "title": "Resposta rápida via WhatsApp",
+      "description": "Dúvidas respondidas em minutos, diretamente no seu celular."
+    }
+  ],
+  "images": {
+    "hero": [
+      "https://images.unsplash.com/photo-1589829545856-d10d5576950b?w=600&h=800&fit=crop&q=80",
+      "https://images.unsplash.com/photo-1521791136082-00be1e4c3749?w=400&h=300&fit=crop&q=80",
+      "https://images.unsplash.com/photo-1450101499163-c8848c66ca85?w=400&h=300&fit=crop&q=80"
+    ],
+    "gallery": [
+      "https://images.unsplash.com/photo-1589829545856-d10d5576950b?w=500&h=350&fit=crop&q=80"
+    ]
+  },
+  "brandColors": {
+    "primary": "#0F172A",
+    "primaryLight": "#1E3A5F",
+    "primaryDark": "#0A1628",
+    "secondary": "#C8A45D",
+    "accent": "#25D366"
+  },
+  "trustSignals": [
+    "Consulta inicial gratuita",
+    "Mais de 15 anos de experiência"
+  ],
+  "ctaLabel": "Fale com um advogado",
+  "ctaText": "Agende uma consulta pelo WhatsApp. Orientação clara e sem compromisso.",
+  "sectionTitles": {
+    "services": "Áreas de Atuação",
+    "servicesSubtitle": "Atuamos em diversas áreas do Direito para proteger seus direitos.",
+    "differentials": "Por que nos escolher?",
+    "differentialsSubtitle": "Compromisso com transparência, ética e resultados.",
+    "testimonials": "O que nossos clientes dizem",
+    "testimonialsSubtitle": "Cada caso é uma história de confiança construída com dedicação.",
+    "location": "Nosso escritório",
+    "locationSubtitle": "Atendimento presencial e online em todo o Brasil.",
+    "faq": "Perguntas frequentes",
+    "faqSubtitle": "Tire suas dúvidas sobre atendimento e serviços jurídicos.",
+    "cta": "Precisa de orientação jurídica?",
+    "ctaSubtitle": "Fale com um advogado agora pelo WhatsApp. Sem compromisso."
+  },
+  "openingHours": "Segunda a Sexta: 9h às 18h",
+  "phone": "(21) 99999-9999",
+  "email": "contato@joaosilvaadvocacia.com.br",
+  "navLinks": [
+    { "href": "#servicos", "label": "Áreas de Atuação" },
+    { "href": "#diferenciais", "label": "Diferenciais" },
+    { "href": "#depoimentos", "label": "Depoimentos" },
+    { "href": "#localizacao", "label": "Localização" },
+    { "href": "#faq", "label": "FAQ" }
+  ],
+  "testimonials": [
+    {
+      "name": "Ana Beatriz Costa",
+      "role": "Cliente desde 2022",
+      "text": "O Dr. João me ajudou em um caso de guarda com muita sensibilidade e profissionalismo. Recomendo de olhos fechados.",
+      "rating": 5,
+      "image": "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=100&h=100&fit=crop&q=80"
+    },
+    {
+      "name": "Carlos Eduardo Mendes",
+      "role": "Cliente desde 2023",
+      "text": "Meu processo trabalhista foi resolvido rapidamente. Sempre fui informado de cada etapa e me senti seguro.",
+      "rating": 5,
+      "image": "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=100&h=100&fit=crop&q=80"
+    },
+    {
+      "name": "Maria Fernanda Rocha",
+      "role": "Cliente desde 2021",
+      "text": "Fui muito bem orientada em uma questão de Direito do Consumidor. O escritório é sério e competente.",
+      "rating": 5,
+      "image": "https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100&h=100&fit=crop&q=80"
+    }
+  ],
+  "faq": [
+    {
+      "question": "Como funciona a primeira consulta?",
+      "answer": "A consulta inicial é gratuita. Avaliamos seu caso, explicamos as opções e você decide como prosseguir. Sem compromisso."
+    },
+    {
+      "question": "Vocês atendem online?",
+      "answer": "Sim, atendemos clientes de todo o Brasil por videoconferência e WhatsApp. Você não precisa se deslocar."
+    },
+    {
+      "question": "Quanto custa um processo?",
+      "answer": "Os honorários variam conforme a complexidade do caso. Na consulta inicial, apresentamos um plano transparente de custos."
+    },
+    {
+      "question": "O escritório atende casos de emergência?",
+      "answer": "Sim, para urgências como medidas cautelares ou liminares, disponibilizamos atendimento prioritário via WhatsApp."
+    },
+    {
+      "question": "Posso acompanhar meu caso online?",
+      "answer": "Sim, mantemos você informado de cada andamento. Você pode consultar o status do seu caso a qualquer momento."
+    },
+    {
+      "question": "Qual a área de atuação do escritório?",
+      "answer": "Atuamos em Direito de Família, Trabalhista, Cível e do Consumidor, sempre com foco em resultados e transparência."
+    }
+  ],
+  "notes": "Prévia visual para apresentação comercial. Fotos e textos finais podem ser ajustados depois."
+}

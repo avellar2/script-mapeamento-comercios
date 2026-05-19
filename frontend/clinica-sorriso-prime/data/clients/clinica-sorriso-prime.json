@@ -1,0 +1,242 @@
+{
+  "slug": "clinica-sorriso-prime",
+  "template": "dentista",
+  "businessName": "Clínica Sorriso Prime",
+  "headline": "Cuidado que transforma sorrisos",
+  "subheadline": "Na Clínica Sorriso Prime, cada paciente recebe atenção individualizada e tratamentos com tecnologia moderna. Sua saúde bucal em mãos de quem entende.",
+  "whatsapp": "5511999999999",
+  "city": "São Paulo",
+  "neighborhood": "Jardins",
+  "address": "Rua Oscar Freire, 1234 - Jardins, São Paulo - SP, 05409-012",
+  "instagram": "https://instagram.com/sorrisoprime",
+  "googleMapsUrl": "https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3657.197587765244!2d-46.674272!3d-23.561763!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x94ce578f0ea6f5f7%3A0x8a5e1c6e7d3c3e0e!2sRua%20Oscar%20Freire!5e0!3m2!1spt-BR!2sbr!4v1234567890",
+  "rating": "4.9",
+  "reviewsCount": "127",
+  "services": [
+    "Avaliação Odontológica",
+    "Limpeza",
+    "Clareamento",
+    "Ortodontia",
+    "Implantes",
+    "Restaurações",
+    "Tratamento de Canal"
+  ],
+  "serviceItems": [
+    {
+      "icon": "Target",
+      "title": "Avaliação Odontológica",
+      "description": "Exame completo para entender sua saúde bucal e definir o melhor plano de cuidados.",
+      "color": "primary"
+    },
+    {
+      "icon": "Sparkles",
+      "title": "Limpeza",
+      "description": "Remoção de tártaro e placa bacteriana com cuidado e tecnologia ultrassônica.",
+      "color": "accent"
+    },
+    {
+      "icon": "Smile",
+      "title": "Clareamento",
+      "description": "Procedimento estético seguro para revitalizar o brilho natural dos seus dentes.",
+      "color": "primary"
+    },
+    {
+      "icon": "AlignCenter",
+      "title": "Ortodontia",
+      "description": "Alinhadores modernos e aparelhos para uma oclusão saudável e estética.",
+      "color": "accent"
+    },
+    {
+      "icon": "Bone",
+      "title": "Implantes",
+      "description": "Reposição de dentes ausentes com bioestratégia e materiais de alta performance.",
+      "color": "primary"
+    },
+    {
+      "icon": "Wrench",
+      "title": "Restaurações",
+      "description": "Reconstrução estética e funcional com resinas de última geração.",
+      "color": "accent"
+    },
+    {
+      "icon": "Shield",
+      "title": "Tratamento de Canal",
+      "description": "Endodontia moderna com conforto, preservando seu dente natural sempre que possível.",
+      "color": "primary"
+    }
+  ],
+  "differentials": [
+    "Atendimento humanizado",
+    "Ambiente confortável",
+    "Profissionais qualificados",
+    "Tecnologia no atendimento",
+    "Facilidade para agendar"
+  ],
+  "differentialItems": [
+    {
+      "icon": "Heart",
+      "title": "Atendimento humanizado",
+      "description": "Cada paciente é ouvido, respeitado e tratado com atenção individual desde o primeiro contato."
+    },
+    {
+      "icon": "Home",
+      "title": "Ambiente confortável",
+      "description": "Espaço pensado para seu bem-estar, com aroma, música e uma atmosfera que reduz a tensão."
+    },
+    {
+      "icon": "GraduationCap",
+      "title": "Profissionais qualificados",
+      "description": "Equipe com formação contínua e experiência prática em procedimentos modernos."
+    },
+    {
+      "icon": "Monitor",
+      "title": "Tecnologia no atendimento",
+      "description": "Equipamento digital, radiografia computadorizada e sistemas de planejamento 3D."
+    },
+    {
+      "icon": "CalendarCheck",
+      "title": "Facilidade para agendar",
+      "description": "Agendamento direto pelo WhatsApp com resposta rápida e horários flexíveis."
+    }
+  ],
+  "images": {
+    "hero": [
+      "https://images.unsplash.com/photo-1629909613654-28e377c37b09?w=600&h=800&fit=crop&q=80",
+      "https://images.unsplash.com/photo-1606811841689-23dfddce3e95?w=400&h=300&fit=crop&q=80",
+      "https://images.unsplash.com/photo-1588776814546-1ffcf47267a5?w=600&h=500&fit=crop&q=80"
+    ],
+    "gallery": [
+      "https://images.unsplash.com/photo-1629909615184-74f495363b67?w=500&h=350&fit=crop&q=80",
+      "https://images.unsplash.com/photo-1519494026892-80bbd2d6fd0d?w=400&h=300&fit=crop&q=80",
+      "https://images.unsplash.com/photo-1516549655169-df83a0774514?w=400&h=300&fit=crop&q=80",
+      "https://images.unsplash.com/photo-1519494026892-80bbd2d6fd0d?w=500&h=350&fit=crop&q=80"
+    ],
+    "team": [
+      "https://images.unsplash.com/photo-1559839734-2b71ea197ec2?w=300&h=360&fit=crop&q=80",
+      "https://images.unsplash.com/photo-1612349317150-e413f6a5b16d?w=300&h=360&fit=crop&q=80",
+      "https://images.unsplash.com/photo-1594824476967-48c8b96468f1?w=300&h=360&fit=crop&q=80"
+    ]
+  },
+  "brandColors": {
+    "primary": "#0d9488",
+    "primaryLight": "#5eead4",
+    "primaryDark": "#0f766e",
+    "secondary": "#38bdf8",
+    "accent": "#25D366"
+  },
+  "trustSignals": [
+    "Ambiente acolhedor",
+    "Equipe especializada"
+  ],
+  "ctaLabel": "Agendar avaliação",
+  "ctaText": "Agende sua avaliação pelo WhatsApp. Nossa equipe responde em minutos e encontra o melhor horário para você.",
+  "sectionTitles": {
+    "services": "Tratamentos",
+    "servicesSubtitle": "Cuidamos de cada detalhe do seu sorriso",
+    "servicesDescription": "Oferecemos soluções completas em odontologia, desde prevenção até reabilitação oral.",
+    "differentials": "Diferenciais",
+    "differentialsSubtitle": "Por que escolher a Sorriso Prime?",
+    "differentialsDescription": "Acreditamos que ir ao dentista pode ser uma experiência leve. Nosso diferencial está em cada detalhe.",
+    "team": "Nossa Equipe",
+    "teamSubtitle": "Quem cuida de você",
+    "teamDescription": "Profissionais dedicados, em constante atualização e com olhar atento ao que cada paciente precisa.",
+    "testimonials": "Depoimentos",
+    "testimonialsSubtitle": "O que nossos pacientes dizem",
+    "testimonialsDescription": "Cada sorriso atendido é uma história de confiança construída com cuidado.",
+    "structure": "Estrutura",
+    "structureSubtitle": "Um espaço pensado para seu conforto",
+    "structureDescription": "Cada detalhe da nossa clínica foi projetado para que você se sinta acolhido.",
+    "location": "Localização",
+    "locationSubtitle": "Venha nos conhecer",
+    "locationDescription": "Estamos em uma região de fácil acesso, com estacionamento próximo e transporte público à porta.",
+    "faq": "Dúvidas",
+    "faqSubtitle": "Perguntas frequentes",
+    "faqDescription": "Tire suas dúvidas sobre nossos serviços e agendamentos.",
+    "cta": "Pronto para cuidar do seu sorriso?",
+    "ctaSubtitle": "Agende sua avaliação pelo WhatsApp."
+  },
+  "team": [
+    {
+      "name": "Dra. Helena Martins",
+      "role": "Cirurgiã-Dentista",
+      "specialty": "Implantodontia e Reabilitação Oral",
+      "image": "https://images.unsplash.com/photo-1559839734-2b71ea197ec2?w=300&h=360&fit=crop&q=80",
+      "credential": "CRO-SP 98765"
+    },
+    {
+      "name": "Dr. Ricardo Almeida",
+      "role": "Cirurgião-Dentista",
+      "specialty": "Ortodontia e Alinhadores",
+      "image": "https://images.unsplash.com/photo-1612349317150-e413f6a5b16d?w=300&h=360&fit=crop&q=80",
+      "credential": "CRO-SP 87654"
+    },
+    {
+      "name": "Dra. Camila Rocha",
+      "role": "Cirurgiã-Dentista",
+      "specialty": "Endodontia e Estética",
+      "image": "https://images.unsplash.com/photo-1594824476967-48c8b96468f1?w=300&h=360&fit=crop&q=80",
+      "credential": "CRO-SP 76543"
+    }
+  ],
+  "testimonials": [
+    {
+      "name": "Mariana Goulart",
+      "role": "Paciente desde 2022",
+      "text": "Sempre tive medo de dentista. Aqui pela primeira vez me senti ouvida e cuidada. O atendimento é delicado e o resultado do meu tratamento superou minhas expectativas.",
+      "rating": 5,
+      "image": "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=100&h=100&fit=crop&q=80"
+    },
+    {
+      "name": "Fernando Lopes",
+      "role": "Paciente desde 2023",
+      "text": "Fiz implante e o processo foi muito mais tranquilo do que imaginei. A equipe explicou cada etapa e me deu segurança do início ao fim.",
+      "rating": 5,
+      "image": "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=100&h=100&fit=crop&q=80"
+    },
+    {
+      "name": "Ana Carolina Dias",
+      "role": "Paciente desde 2021",
+      "text": "Levei minha mãe de 68 anos para avaliação. A paciência da Dra. Helena e a forma como explicou tudo para ela foi tocante. Encontramos um lugar de confiança.",
+      "rating": 5,
+      "image": "https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100&h=100&fit=crop&q=80"
+    }
+  ],
+  "faq": [
+    {
+      "question": "Como funciona o primeiro atendimento?",
+      "answer": "Na primeira consulta, realizamos uma avaliação completa da sua saúde bucal, incluindo exame clínico e, se necessário, radiografias. O profissional conversa com você sobre suas necessidades e apresenta as opções de tratamento disponíveis."
+    },
+    {
+      "question": "A clínica aceita convênios odontológicos?",
+      "answer": "Trabalhamos com diversos planos odontológicos. Entre em contato pelo WhatsApp informando seu convênio para verificar a cobertura e agendar sua consulta."
+    },
+    {
+      "question": "É possível parcelar os tratamentos?",
+      "answer": "Sim, oferecemos opções de parcelamento para tratamentos mais extensos. As condições podem variar conforme o procedimento."
+    },
+    {
+      "question": "Quanto tempo dura um implante dentário?",
+      "answer": "O tempo varia conforme cada caso. O procedimento de colocação é rápido. O período de cicatrização pode levar alguns meses antes da coroa definitiva."
+    },
+    {
+      "question": "A clínica atende crianças?",
+      "answer": "Sim, recebemos pacientes de todas as idades. Para crianças, temos uma abordagem delicada e explicativa."
+    },
+    {
+      "question": "Como faço para agendar pelo WhatsApp?",
+      "answer": "Clique no botão de WhatsApp, envie uma mensagem com seu nome e o tipo de atendimento que precisa. Nossa equipe responde em poucos minutos."
+    }
+  ],
+  "openingHours": "Segunda a Sexta: 8h às 20h\nSábado: 8h às 14h",
+  "phone": "(11) 99999-9999",
+  "email": "contato@sorrisoprime.com.br",
+  "navLinks": [
+    { "href": "#tratamentos", "label": "Tratamentos" },
+    { "href": "#diferenciais", "label": "Diferenciais" },
+    { "href": "#equipe", "label": "Equipe" },
+    { "href": "#depoimentos", "label": "Depoimentos" },
+    { "href": "#localizacao", "label": "Localização" },
+    { "href": "#faq", "label": "FAQ" }
+  ],
+  "notes": "Demo base da Clínica Sorriso Prime. Prévia para apresentação comercial."
+}
