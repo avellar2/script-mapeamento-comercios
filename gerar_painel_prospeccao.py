@@ -4,11 +4,12 @@ Painel de Prospecção - Gerador de Dashboard HTML
 Lê a planilha mais atual e gera um painel visual em HTML
 para controlar a prospecção diária de vendas de landing pages.
 
-Uso: python gerar_painel_prospeccao.py [--limite N]
+Uso: python gerar_painel_prospeccao.py [--limite N] [--novos]
 """
 
 import json
 import re
+import sqlite3
 import sys
 from datetime import date, timedelta
 from pathlib import Path
@@ -599,6 +600,26 @@ def carregar_status():
     return {}
 
 
+def carregar_historico():
+    """Carrega historico acumulado de todos os leads ja abordados."""
+    caminho = PAINEL_DIR / "historico_leads.json"
+    if caminho.exists():
+        try:
+            with open(caminho, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError):
+            return {}
+    return {}
+
+
+def salvar_historico(historico):
+    """Salva historico acumulado de leads."""
+    caminho = PAINEL_DIR / "historico_leads.json"
+    with open(caminho, "w", encoding="utf-8") as f:
+        json.dump(historico, f, ensure_ascii=False, indent=2)
+    return caminho
+
+
 def mesclar_status(leads, status_existente):
     """Mescla dados dos leads com status salvo."""
     for lead in leads:
@@ -635,15 +656,29 @@ def salvar_status(leads):
 # GERAÇÃO DO HTML
 # ═══════════════════════════════════════════════════════════════════
 
-def gerar_html(leads, data_geracao):
+def gerar_html(leads, data_geracao, metricas=None):
     """Gera o HTML completo do painel."""
     leads_json = json.dumps(leads, ensure_ascii=False)
 
     hoje_str = data_geracao.strftime("%d/%m/%Y")
 
+    # Metricas acumuladas
+    if metricas is None:
+        metricas = {
+            "total_abordados": len(leads),
+            "mensagens_enviadas": 0,
+            "responderam": 0,
+            "interessados": 0,
+            "propostas": 0,
+            "fechados": 0,
+        }
+
+    metricas_json = json.dumps(metricas, ensure_ascii=False)
+
     html = HTML_TEMPLATE.replace("__LEADS_DATA__", leads_json, 1)
     html = html.replace("__DATA_GERACAO__", hoje_str, 1)
     html = html.replace("__TOTAL_LEADS__", str(len(leads)), 1)
+    html = html.replace("__METRICAS_ACUMULADAS__", metricas_json, 1)
 
     return html
 
@@ -910,39 +945,85 @@ footer{padding:24px 0;border-top:1px solid var(--border);text-align:center;color
 
 <script>
 const LEADS = __LEADS_DATA__;
+const METRICAS_ACUMULADAS = __METRICAS_ACUMULADAS__;
 let currentFilter = 'todos';
 let searchTerm = '';
 
-// ── Status persistence ────────────────────────────────────────
-const STATUS_KEY = 'prospeccao_status_v2';
+// ── Status persistence (SQLite via API) ────────────────────────
+let statusCache = null;
 
-function loadStatus() {
+async function loadStatus() {
+  if (statusCache) return statusCache;
   try {
-    const raw = localStorage.getItem(STATUS_KEY);
-    return raw ? JSON.parse(raw) : {};
-  } catch { return {}; }
+    const res = await fetch('/api/leads');
+    const data = await res.json();
+    const map = {};
+    (data.leads || []).forEach(l => {
+      map[l.lead_id] = {
+        status: l.status || 'novo',
+        data_abordagem: l.data_abordagem || '',
+        data_followup: l.data_followup || '',
+        observacoes: l.observacoes || ''
+      };
+    });
+    statusCache = map;
+    return map;
+  } catch(e) {
+    console.warn('Erro ao carregar status do servidor, usando localStorage:', e);
+    try {
+      const raw = localStorage.getItem('prospeccao_status_v2');
+      return raw ? JSON.parse(raw) : {};
+    } catch { return {}; }
+  }
 }
 
-function saveStatus(status) {
-  localStorage.setItem(STATUS_KEY, JSON.stringify(status));
+function saveStatusLocal(status) {
+  localStorage.setItem('prospeccao_status_v2', JSON.stringify(status));
 }
 
-function getStatus(leadId) {
-  const s = loadStatus();
-  return s[leadId] || { status: 'novo', data_abordagem: '', data_followup: '', observacoes: '' };
-}
-
-function setStatus(leadId, field, value) {
-  const s = loadStatus();
+async function setStatus(leadId, field, value) {
+  // Atualiza local imediatamente para UI rapida
+  const s = await loadStatus();
   if (!s[leadId]) s[leadId] = { status: 'novo', data_abordagem: '', data_followup: '', observacoes: '' };
   s[leadId][field] = value;
-  saveStatus(s);
+  statusCache = s;
+  saveStatusLocal(s);
   render();
+
+  // Salva no servidor (SQLite)
+  try {
+    const res = await fetch('/api/status-single', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ lead_id: leadId, ...s[leadId] })
+    });
+    const data = await res.json();
+    if (data.ok && data.metricas) {
+      updateSummaryFromMetricas(data.metricas);
+    }
+  } catch(e) {
+    console.warn('Erro ao salvar no servidor:', e);
+  }
+}
+
+async function updateObs(leadId, value) {
+  return setStatus(leadId, 'observacoes', value);
+}
+
+function updateSummaryFromMetricas(m) {
+  animNum('sLeads', m.total_abordados);
+  animNum('sEnviadas', m.mensagens_enviadas);
+  animNum('sResponderam', m.responderam);
+  animNum('sInteressados', m.interessados);
+  animNum('sPropostas', m.propostas);
+  animNum('sFechados', m.fechados);
+  const taxa = m.mensagens_enviadas > 0 ? Math.round((m.responderam / m.mensagens_enviadas) * 100) : 0;
+  document.getElementById('sTaxa').textContent = taxa + '%';
 }
 
 // ── Filtering ────────────────────────────────────────────────
-function getFiltered() {
-  const status = loadStatus();
+async function getFiltered() {
+  const status = await loadStatus();
   let filtered = LEADS.filter(l => {
     const s = status[l.lead_id] || {};
     const st = s.status || 'novo';
@@ -982,8 +1063,8 @@ function getFiltered() {
 }
 
 // ── Summary ───────────────────────────────────────────────────
-function updateSummary() {
-  const status = loadStatus();
+async function updateSummary() {
+  const status = await loadStatus();
   let enviadas = 0, responderam = 0, interessados = 0, propostas = 0, fechados = 0;
   LEADS.forEach(l => {
     const s = (status[l.lead_id] || {}).status || 'novo';
@@ -1034,8 +1115,8 @@ function statusClass(st) {
   return map[st] || 'novo';
 }
 
-function render() {
-  const filtered = getFiltered();
+async function render() {
+  const filtered = await getFiltered();
   const status = loadStatus();
 
   document.getElementById('visibleCount').textContent = filtered.length;
@@ -1106,7 +1187,7 @@ function render() {
         '<button class="action-btn followup" onclick="setStatus(\'' + l.lead_id + '\',\'status\',\'follow-up\')">Follow-up</button>' +
       '</div>' +
       '<div class="status-bar"><span class="status-badge ' + sc + '">' + esc(st) + '</span></div>' +
-      '<div class="obs-section"><textarea class="obs-input" placeholder="Observações..." onblur="setStatus(\'' + l.lead_id + '\',\'observacoes\',this.value)">' + esc(obs) + '</textarea></div>' +
+      '<div class="obs-section"><textarea class="obs-input" placeholder="Observações..." onblur="setStatus(\'' + l.lead_id + '\',\'observacoes\',this.value)">' + esc(obs) + '</textarea></div>'
     '</article>';
   }).join('');
 
@@ -1170,7 +1251,7 @@ document.getElementById('searchInput').addEventListener('input', (e) => {
 });
 
 // ── Init ──────────────────────────────────────────────────────
-render();
+loadStatus().then(() => render());
 </script>
 </body>
 </html>"""
@@ -1184,6 +1265,7 @@ def main():
     import argparse
     parser = argparse.ArgumentParser(description="Painel de Prospecção - Gerador de Dashboard HTML")
     parser.add_argument("--limite", type=int, default=DAILY_LIMIT, help=f"Limite de leads por dia (padrão: {DAILY_LIMIT})")
+    parser.add_argument("--novos", action="store_true", help="Excluir leads ja abordados e gerar painel com leads novos")
     args = parser.parse_args()
 
     if sys.platform == "win32":
@@ -1221,6 +1303,26 @@ def main():
         print("\n[!] Nenhum lead elegível encontrado.")
         sys.exit(0)
 
+    # Inicializar banco de dados
+    sys.path.insert(0, str(PAINEL_DIR))
+    import db
+    db.init_db()
+    conn = db.get_conn()
+
+    # Determinar rodada atual
+    rodada_atual = db.get_rodada_atual(conn) + 1
+    if not args.novos:
+        rodada_atual = max(1, rodada_atual - 1)  # Se nao for --novos, usar mesma rodada
+
+    # Excluir leads ja abordados se --novos
+    if args.novos:
+        leads_existentes = conn.execute("SELECT lead_id FROM leads").fetchall()
+        abordados = set(r["lead_id"] for r in leads_existentes)
+        leads_filtrados = [l for l in leads_filtrados if l["lead_id"] not in abordados]
+        print(f"  Leads ja abordados (excluidos): {len(abordados)}")
+        print(f"  Leads novos restantes: {len(leads_filtrados)}")
+        rodada_atual = db.get_rodada_atual(conn) + 1
+
     # Ordena
     leads_ordenados = ordenar_leads(leads_filtrados)
 
@@ -1232,19 +1334,55 @@ def main():
     for lead in leads_limitados:
         lead["categoria"] = classificar_nicho(lead)
 
-    # Mescla com status existente
-    status_existente = carregar_status()
-    leads_limitados = mesclar_status(leads_limitados, status_existente)
+    # Mescla com status existente do banco
+    for lead in leads_limitados:
+        existing = db.get_lead(conn, lead["lead_id"])
+        if existing:
+            if existing["status"] != "novo":
+                lead["status"] = existing["status"]
+            if existing.get("data_abordagem"):
+                lead["data_abordagem"] = existing["data_abordagem"]
+            if existing.get("data_followup"):
+                lead["data_followup"] = existing["data_followup"]
+            if existing.get("observacoes"):
+                lead["observacoes"] = existing["observacoes"]
+
+    # Inserir leads no banco
+    for lead in leads_limitados:
+        db.upsert_lead(conn,
+            lead_id=lead["lead_id"],
+            nome=lead["nome"],
+            status=lead.get("status", "novo"),
+            data_abordagem=lead.get("data_abordagem", ""),
+            data_followup=lead.get("data_followup", ""),
+            observacoes=lead.get("observacoes", ""),
+            nicho=lead.get("nicho", ""),
+            cidade=lead.get("cidade", ""),
+            telefone=lead.get("telefone", ""),
+            whatsapp=lead.get("whatsapp", ""),
+            score=lead.get("score", 0),
+            prioridade=lead.get("prioridade", ""),
+            mensagem_whatsapp=lead.get("mensagem_whatsapp", ""),
+            link_whatsapp=lead.get("link_whatsapp", ""),
+            rodada=rodada_atual)
+
+    conn.commit()
+
+    # Recalcular metricas
+    db.recalcular_metricas(conn)
+    metricas = db.get_metricas(conn)
+    conn.close()
 
     # Cria diretório
     PAINEL_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Salva status JSON
-    caminho_status = salvar_status(leads_limitados)
-    print(f"\n  Status salvo: {caminho_status}")
+    print(f"\n  Banco de dados: {db.DB_PATH}")
+    print(f"  Rodada: {rodada_atual}")
+    print(f"  Total de leads ja abordados (todas as rodadas): {metricas['total_abordados']}")
+    print(f"  Mensagens enviadas (acumulado): {metricas['mensagens_enviadas']}")
 
     # Gera HTML
-    html = gerar_html(leads_limitados, date.today())
+    html = gerar_html(leads_limitados, date.today(), metricas=metricas)
     caminho_html = PAINEL_DIR / "index.html"
     caminho_html.write_text(html, encoding="utf-8")
     print(f"  Painel salvo: {caminho_html}")

@@ -1,29 +1,18 @@
 #!/usr/bin/env python3
-"""Servidor local para o Painel de Prospecção com persistência em arquivo."""
+"""Servidor local para o Painel de Prospecção com SQLite."""
 
 import json
 import http.server
 import socketserver
-import webbrowser
 import sys
+import webbrowser
 from pathlib import Path
 from urllib.parse import urlparse
 
+import db
+
 PORT = 8000
 PAINEL_DIR = Path(__file__).parent
-STATUS_FILE = PAINEL_DIR / "status_leads.json"
-
-
-def load_status():
-    if STATUS_FILE.exists():
-        with open(STATUS_FILE, encoding="utf-8") as f:
-            return json.load(f)
-    return {}
-
-
-def save_status(data):
-    with open(STATUS_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
@@ -43,11 +32,25 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
     def do_GET(self):
         path = urlparse(self.path).path
-        if path == "/api/status":
+        if path == "/api/leads":
+            conn = db.get_conn()
+            rodada = db.get_rodada_atual(conn)
+            leads = db.get_all_leads(conn, rodada=rodada)
+            metricas = db.get_metricas(conn)
+            conn.close()
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()
-            self.wfile.write(json.dumps(load_status(), ensure_ascii=False).encode("utf-8"))
+            self.wfile.write(json.dumps({"leads": leads, "metricas": metricas, "rodada_atual": rodada}, ensure_ascii=False).encode("utf-8"))
+            return
+        if path == "/api/metricas":
+            conn = db.get_conn()
+            metricas = db.get_metricas(conn)
+            conn.close()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps(metricas, ensure_ascii=False).encode("utf-8"))
             return
         super().do_GET()
 
@@ -58,11 +61,42 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             body = self.rfile.read(length)
             try:
                 data = json.loads(body.decode("utf-8"))
-                save_status(data)
+                conn = db.get_conn()
+                for lid, dados in data.items():
+                    db.update_status(conn, lid,
+                        status=dados.get("status", "novo"),
+                        data_abordagem=dados.get("data_abordagem"),
+                        data_followup=dados.get("data_followup"),
+                        observacoes=dados.get("observacoes"))
+                conn.close()
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
                 self.end_headers()
                 self.wfile.write(json.dumps({"ok": True}).encode("utf-8"))
+            except Exception as e:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": str(e)}).encode("utf-8"))
+            return
+        if path == "/api/status-single":
+            length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(length)
+            try:
+                data = json.loads(body.decode("utf-8"))
+                conn = db.get_conn()
+                db.update_status(conn,
+                    lead_id=data["lead_id"],
+                    status=data.get("status", "novo"),
+                    data_abordagem=data.get("data_abordagem"),
+                    data_followup=data.get("data_followup"),
+                    observacoes=data.get("observacoes"))
+                metricas = db.get_metricas(conn)
+                conn.close()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps({"ok": True, "metricas": metricas}, ensure_ascii=False).encode("utf-8"))
             except Exception as e:
                 self.send_response(400)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -74,10 +108,11 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
 
 def start():
+    db.init_db()
     with socketserver.TCPServer(("", PORT), Handler) as httpd:
         url = f"http://localhost:{PORT}/index.html"
-        print(f"\n  Painel de Prospeccao rodando em: {url}")
-        print(f"  Status salvo em: {STATUS_FILE}")
+        print(f"\n  Painel de Prospecção rodando em: {url}")
+        print(f"  Banco de dados: {db.DB_PATH}")
         print(f"  Ctrl+C para parar\n")
         webbrowser.open(url)
         try:

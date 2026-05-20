@@ -329,34 +329,36 @@ h1, h2, h3, .hero-title, .section-title {
   display: flex;
   justify-content: center;
   align-items: flex-end;
-  min-height: 520px;
-  overflow: hidden;
+  min-height: 580px;
+  overflow: visible;
   max-width: 100%;
 }
 
 .hero-bg-shape {
   position: absolute;
-  bottom: 0;
-  right: 0;
-  width: 100%;
-  max-width: 100%;
+  bottom: -5%;
+  right: -8%;
+  width: 115%;
+  max-width: 115%;
   z-index: 0;
 }
 
 .hero-bg-shape img {
   width: 100%;
-  opacity: 0.9;
+  opacity: 0.95;
 }
 
 .hero-person {
   position: relative;
   z-index: 1;
-  max-width: 420px;
+  max-width: 480px;
+  transform: scale(1.05);
+  transform-origin: bottom center;
 }
 
 .hero-person img {
   width: 100%;
-  filter: drop-shadow(0 20px 40px rgba(45, 31, 26, 0.15));
+  filter: drop-shadow(0 28px 60px rgba(45, 31, 26, 0.22));
 }
 
 /* ---- Sobre ---- */
