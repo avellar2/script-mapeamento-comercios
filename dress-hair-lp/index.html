@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Dress Hair Company — Elegância, Brilho e Transformação</title>
+  <title>Dress Hair Company — Transformação Premium</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&display=swap" rel="stylesheet">
@@ -19,96 +19,98 @@
       </a>
       <nav class="nav" id="nav">
         <a href="#inicio">Início</a>
+        <a href="#sobre">Sobre</a>
         <a href="#servicos">Serviços</a>
         <a href="#transformacoes">Transformações</a>
         <a href="#experiencia">Espaço</a>
         <a href="#depoimentos">Depoimentos</a>
         <a href="#contato">Contato</a>
       </nav>
-      <a href="#agendar" class="btn btn-primary btn-small">Agendar</a>
+      <button class="btn btn-primary btn-small" id="btnAgendarHeader">Agendar</button>
       <button class="menu-toggle" id="menuToggle" aria-label="Menu">
         <span></span><span></span><span></span>
       </button>
     </div>
   </header>
 
-  <!-- Hero -->
+  <!-- Hero Split -->
   <section class="hero" id="inicio">
-    <div class="hero-bg">
-      <img src="assets/01_hero_cabeleireira_servico.png" alt="Cabeleireira atendendo">
-      <div class="hero-overlay"></div>
-    </div>
+    <div class="hero-bg-gradient"></div>
     <div class="container hero-content">
       <div class="hero-text">
-        <span class="hero-label reveal">Deixe que transforme</span>
+        <span class="hero-badge reveal">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.3 6.9L21 12l-5.7 2.1L13 21l-2.3-6.9L5 12l5.7-2.1L13 3z"/></svg>
+          Salão Premium em Itaguaí
+        </span>
         <h1 class="hero-title reveal">
-          Seu cabelo com <em>elegância</em>, <em>brilho</em> e <em>transformação</em>.
+          Transforme seu <em>visual</em> com quem entende de <em>estilo</em>.
         </h1>
         <p class="hero-desc reveal">
-          Serviços premium de alinhamento, escova, coloração, corte, hidratação e terapia capilar para realçar a sua melhor versão.
+          Serviços exclusivos de coloração, alinhamento, escova, corte e hidratação para realçar sua melhor versão. Agende seu horário e viva a experiência Dress Hair.
         </p>
         <div class="hero-actions reveal">
-          <a href="#agendar" class="btn btn-primary">Agendar pelo WhatsApp</a>
-          <a href="#servicos" class="btn btn-outline">Ver Serviços</a>
+          <button class="btn btn-primary" id="heroAgendar">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+            Agendar atendimento
+          </button>
+          <a href="#servicos" class="btn btn-outline">Ver serviços</a>
         </div>
         <div class="hero-badges reveal">
-          <div class="badge">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
-            <span>Produtos Premium</span>
+          <div class="hero-stat">
+            <strong>12+</strong>
+            <span>Anos de experiência</span>
           </div>
-          <div class="badge">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
-            <span>Horário Flexível</span>
+          <div class="hero-stat">
+            <strong>5k+</strong>
+            <span>Clientes satisfeitas</span>
           </div>
-          <div class="badge">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
-            <span>Ambiente Sofisticado</span>
+          <div class="hero-stat">
+            <strong>4.9</strong>
+            <span>Avaliação Google</span>
           </div>
         </div>
       </div>
+      <div class="hero-visual reveal">
+        <div class="hero-image-wrapper">
+          <img src="assets/01_hero_cabeleireira_servico.png" alt="Cabeleireira realizando atendimento" class="hero-image">
+          <div class="hero-image-shape"></div>
+        </div>
+      </div>
+    </div>
+  </section>
 
-      <!-- Booking Widget -->
-      <div class="booking-widget reveal" id="agendar">
-        <div class="booking-header">
-          <h3>Agende seu horário</h3>
-          <p>Escolha o serviço, dia e horário. Simples e rápido.</p>
-        </div>
-        <div class="booking-step active" data-step="1">
-          <span class="step-number">1</span>
-          <label class="step-label">Escolha o serviço</label>
-          <div class="service-options">
-            <button class="service-chip" data-service="Escova">Escova</button>
-            <button class="service-chip" data-service="Coloração">Coloração</button>
-            <button class="service-chip" data-service="Corte">Corte</button>
-            <button class="service-chip" data-service="Hidratação">Hidratação</button>
-            <button class="service-chip" data-service="Terapia Capilar">Terapia Capilar</button>
-            <button class="service-chip" data-service="Alisamento">Alisamento</button>
+  <!-- Sobre Mim -->
+  <section class="sobre" id="sobre">
+    <div class="container sobre-content">
+      <div class="sobre-text reveal">
+        <span class="section-label">Sobre mim</span>
+        <h2 class="section-title">Quem cuida do seu <em>visual</em></h2>
+        <p class="sobre-desc">
+          Há mais de 12 anos transformando cabelos e realçando a beleza de cada cliente que senta em minha cadeira. Acredito que cada pessoa merece um atendimento único, personalizado e cheio de carinho.
+        </p>
+        <p class="sobre-desc">
+          Na Dress Hair Company, não fazemos apenas cabelos — criamos experiências de autoconfiança. Cada corte, cada cor, cada tratamento é pensado para você sair daqui se sentindo a melhor versão de si mesma.
+        </p>
+        <div class="sobre-stats">
+          <div class="sobre-stat">
+            <strong>12</strong>
+            <span>Anos de<br>experiência</span>
+          </div>
+          <div class="sobre-stat">
+            <strong>5k+</strong>
+            <span>Clientes<br>atendidas</span>
+          </div>
+          <div class="sobre-stat">
+            <strong>500+</strong>
+            <span>Transformações<br>por ano</span>
           </div>
         </div>
-        <div class="booking-step" data-step="2">
-          <span class="step-number">2</span>
-          <label class="step-label">Escolha a data</label>
-          <input type="date" id="bookingDate" min="">
+      </div>
+      <div class="sobre-visual reveal">
+        <div class="sobre-image-wrapper">
+          <div class="sobre-shape"></div>
+          <img src="assets/foto para sobre mim.png" alt="Profissional Dress Hair Company" class="sobre-image">
         </div>
-        <div class="booking-step" data-step="3">
-          <span class="step-number">3</span>
-          <label class="step-label">Escolha o horário</label>
-          <div class="time-grid" id="timeGrid">
-            <button class="time-chip">09:00</button>
-            <button class="time-chip">10:00</button>
-            <button class="time-chip">11:00</button>
-            <button class="time-chip">13:00</button>
-            <button class="time-chip">14:00</button>
-            <button class="time-chip">15:00</button>
-            <button class="time-chip">16:00</button>
-            <button class="time-chip">17:00</button>
-            <button class="time-chip">18:00</button>
-          </div>
-        </div>
-        <button class="btn btn-primary btn-block" id="confirmBooking">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
-          Confirmar no WhatsApp
-        </button>
       </div>
     </div>
   </section>
@@ -117,65 +119,71 @@
   <section class="servicos" id="servicos">
     <div class="container">
       <div class="section-header reveal">
-        <span class="section-label">Nossos Serviços</span>
-        <h2 class="section-title">Cuidado completo para seu cabelo</h2>
-        <p class="section-desc">Técnicas avançadas e produtos de alta performance para resultados que impressionam.</p>
+        <span class="section-label">Nossos cuidados</span>
+        <h2 class="section-title">Serviços que <em>transformam</em></h2>
+        <p class="section-desc">Clique em qualquer serviço para agendar seu horário diretamente pelo WhatsApp.</p>
       </div>
       <div class="services-grid">
-        <div class="service-card reveal">
-          <div class="service-img">
-            <img src="assets/01_hero_cabeleireira_servico.png" alt="Escova">
-          </div>
-          <div class="service-info">
-            <h3>Escova</h3>
-            <p>Modelagem profissional com acabamento liso ou com ondas naturais que duram.</p>
-          </div>
-        </div>
-        <div class="service-card reveal">
-          <div class="service-img">
-            <img src="assets/04_antes_transformacao_cabelo.png" alt="Alisamento">
-          </div>
-          <div class="service-info">
-            <h3>Alisamento</h3>
-            <p>Alinhamento térmico e progressiva para fios disciplinados e sem frizz.</p>
-          </div>
-        </div>
-        <div class="service-card reveal">
-          <div class="service-img">
+        <button class="servico-item reveal" data-servico="Coloração" type="button">
+          <div class="servico-img">
             <img src="assets/02_processo_coloração_aluminio.png" alt="Coloração">
           </div>
-          <div class="service-info">
+          <div class="servico-info">
             <h3>Coloração</h3>
-            <p>Tintura e mechas com tons vibrantes, cobertura perfeita de brancos.</p>
+            <p>Mechas, balayage, ombré e coloração completa com produtos premium.</p>
+            <span class="servico-cta">Agendar →</span>
           </div>
-        </div>
-        <div class="service-card reveal">
-          <div class="service-img">
-            <img src="assets/05_lavatorio_tratamento_capilar.png" alt="Terapia Capilar">
+        </button>
+        <button class="servico-item reveal" data-servico="Alinhamento" type="button">
+          <div class="servico-img">
+            <img src="assets/03_resultado_depois_cabelo.png" alt="Alinhamento">
           </div>
-          <div class="service-info">
-            <h3>Terapia Capilar</h3>
-            <p>Tratamento intensivo para reconstrução profunda dos fios danificados.</p>
+          <div class="servico-info">
+            <h3>Alinhamento</h3>
+            <p>Progressiva, botox capilar e selagem para cabelos lisos e alinhados.</p>
+            <span class="servico-cta">Agendar →</span>
           </div>
-        </div>
-        <div class="service-card reveal">
-          <div class="service-img">
-            <img src="assets/03_resultado_depois_cabelo.png" alt="Corte">
+        </button>
+        <button class="servico-item reveal" data-servico="Escova" type="button">
+          <div class="servico-img">
+            <img src="assets/04_antes_transformacao_cabelo.png" alt="Escova">
           </div>
-          <div class="service-info">
+          <div class="servico-info">
+            <h3>Escova</h3>
+            <p>Escova modelada, cachos definidos e penteados para ocasiões especiais.</p>
+            <span class="servico-cta">Agendar →</span>
+          </div>
+        </button>
+        <button class="servico-item reveal" data-servico="Corte" type="button">
+          <div class="servico-img">
+            <img src="assets/05_lavatorio_tratamento_capilar.png" alt="Corte">
+          </div>
+          <div class="servico-info">
             <h3>Corte</h3>
-            <p>Cortes que valorizam o rosto e a personalidade, do clássico ao moderno.</p>
+            <p>Cortes modernos, repicados, em camadas e personalizados para seu rosto.</p>
+            <span class="servico-cta">Agendar →</span>
           </div>
-        </div>
-        <div class="service-card reveal">
-          <div class="service-img">
-            <img src="assets/05_lavatorio_tratamento_capilar.png" alt="Hidratação">
+        </button>
+        <button class="servico-item reveal" data-servico="Hidratação" type="button">
+          <div class="servico-img">
+            <img src="assets/06_salao_ambiente.png" alt="Hidratação">
           </div>
-          <div class="service-info">
+          <div class="servico-info">
             <h3>Hidratação</h3>
-            <p>Reposição de nutrientes para maciez, brilho e movimento natural.</p>
+            <p>Tratamentos profundos para recuperar brilho, maciez e saúde dos fios.</p>
+            <span class="servico-cta">Agendar →</span>
           </div>
-        </div>
+        </button>
+        <button class="servico-item reveal" data-servico="Terapia Capilar" type="button">
+          <div class="servico-img">
+            <img src="assets/01_hero_cabeleireira_servico.png" alt="Terapia Capilar">
+          </div>
+          <div class="servico-info">
+            <h3>Terapia Capilar</h3>
+            <p>Avaliação completa do couro cabeludo e tratamentos específicos.</p>
+            <span class="servico-cta">Agendar →</span>
+          </div>
+        </button>
       </div>
     </div>
   </section>
@@ -184,9 +192,9 @@
   <section class="transformacoes" id="transformacoes">
     <div class="container">
       <div class="section-header reveal">
-        <span class="section-label">Transformações</span>
-        <h2 class="section-title">Resultados que falam por si</h2>
-        <p class="section-desc">Cada transformação é única. Veja o antes e depois de nossas clientes.</p>
+        <span class="section-label">Antes & Depois</span>
+        <h2 class="section-title"><em>Transformações</em> reais</h2>
+        <p class="section-desc">Resultados que falam por si. Cada cliente é uma história de autoconfiança renovada.</p>
       </div>
       <div class="transform-grid">
         <div class="transform-card reveal">
@@ -201,8 +209,8 @@
             </div>
           </div>
           <div class="transform-info">
-            <h3>Coloração e Hidratação</h3>
-            <p>Recuperação completa do tom e brilho com tratamento intensivo.</p>
+            <h3>Transformação Coloração</h3>
+            <p>Loiro perolado com mechas finas e tratamento de brilho.</p>
           </div>
         </div>
         <div class="transform-card reveal">
@@ -217,42 +225,42 @@
             </div>
           </div>
           <div class="transform-info">
-            <h3>Alisamento e Corte</h3>
-            <p>Fios alinhados e formato renovado para um visual contemporâneo.</p>
+            <h3>Alinhamento Progressivo</h3>
+            <p>Resultado liso natural com redução de volume.</p>
           </div>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- Experiência -->
+  <!-- Espaço -->
   <section class="experiencia" id="experiencia">
     <div class="container">
       <div class="section-header reveal">
-        <span class="section-label">Experiência no Salão</span>
-        <h2 class="section-title">Um espaço pensado para você</h2>
-        <p class="section-desc">Ambiente acolhedor, moderno e sofisticado para momentos de autocuidado.</p>
+        <span class="section-label">Nosso espaço</span>
+        <h2 class="section-title">Ambiente <em>pensado</em> para você</h2>
+        <p class="section-desc">Um salão acolhedor, moderno e equipado com o que há de melhor em tecnologia capilar.</p>
       </div>
       <div class="exp-gallery">
         <div class="exp-item exp-large reveal">
           <img src="assets/06_salao_ambiente.png" alt="Ambiente do salão">
           <div class="exp-caption">
-            <h4>Ambiente Sofisticado</h4>
-            <p>Espaço moderno e acolhedor</p>
+            <h4>Salão Principal</h4>
+            <p>Espaço amplo e climatizado</p>
           </div>
         </div>
         <div class="exp-item reveal">
           <img src="assets/05_lavatorio_tratamento_capilar.png" alt="Lavatório">
           <div class="exp-caption">
-            <h4>Lavatório Relaxante</h4>
-            <p>Massagem capilar durante a lavagem</p>
+            <h4>Lavatório</h4>
+            <p>Conforto durante o relaxamento</p>
           </div>
         </div>
         <div class="exp-item reveal">
-          <img src="assets/01_hero_cabeleireira_servico.png" alt="Atendimento">
+          <img src="assets/02_processo_coloração_aluminio.png" alt="Área de coloração">
           <div class="exp-caption">
-            <h4>Atendimento Personalizado</h4>
-            <p>Profissionais dedicadas</p>
+            <h4>Área de Coloração</h4>
+            <p>Iluminação profissional</p>
           </div>
         </div>
       </div>
@@ -264,8 +272,7 @@
     <div class="container">
       <div class="section-header reveal">
         <span class="section-label">Depoimentos</span>
-        <h2 class="section-title">O que nossas clientes dizem</h2>
-        <p class="section-desc">A satisfação de quem confia em nosso trabalho.</p>
+        <h2 class="section-title">O que dizem nossas <em>clientes</em></h2>
       </div>
       <div class="reviews-grid">
         <div class="review-card reveal">
@@ -276,12 +283,12 @@
             <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
             <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
           </div>
-          <p class="review-text">"Saio do Dress Hair sempre me sentindo renovada. O cuidado com os detalhes e o carinho no atendimento fazem toda a diferença. Meu cabelo nunca esteve tão saudável!"</p>
+          <p class="review-text">"Simplesmente o melhor salão de Itaguaí! Saio de lá me sentindo uma princesa toda vez. O atendimento é impecável e o resultado sempre supera minhas expectativas."</p>
           <div class="review-author">
-            <img src="assets/perfil_instagram_referencia.png" alt="Cliente">
+            <div class="review-avatar">AM</div>
             <div>
-              <strong>Vanessa Sgrancio</strong>
-              <span>Cliente há 2 anos</span>
+              <strong>Ana Maria Oliveira</strong>
+              <span>Cliente há 3 anos</span>
             </div>
           </div>
         </div>
@@ -293,11 +300,11 @@
             <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
             <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
           </div>
-          <p class="review-text">"A coloração que fizeram no meu cabelo superou todas as expectativas. Tom perfeito, brilho incrível e sem danificar os fios. Profissionais de verdade!"</p>
+          <p class="review-text">"Fiz uma coloração completa e fiquei encantada com o resultado. A equipe é super profissional e os produtos são de alta qualidade. Recomendo de olhos fechados!"</p>
           <div class="review-author">
-            <img src="assets/perfil_instagram_referencia.png" alt="Cliente">
+            <div class="review-avatar">CS</div>
             <div>
-              <strong>Carolina M.</strong>
+              <strong>Carolina Santos</strong>
               <span>Cliente há 1 ano</span>
             </div>
           </div>
@@ -310,12 +317,12 @@
             <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
             <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
           </div>
-          <p class="review-text">"Desde a primeira vez que vim me senti em casa. O ambiente é lindo, o atendimento é impecável e o resultado sempre é maravilhoso. Indico para todas as amigas!"</p>
+          <p class="review-text">"O alinhamento ficou perfeito! Meu cabelo está super brilhoso e macio. Já indiquei para todas as minhas amigas. Dress Hair é referência!"</p>
           <div class="review-author">
-            <img src="assets/perfil_instagram_referencia.png" alt="Cliente">
+            <div class="review-avatar">JP</div>
             <div>
-              <strong>Fernanda Lima</strong>
-              <span>Cliente há 3 anos</span>
+              <strong>Juliana Pereira</strong>
+              <span>Cliente há 2 anos</span>
             </div>
           </div>
         </div>
@@ -326,44 +333,43 @@
   <!-- Contato -->
   <section class="contato" id="contato">
     <div class="container">
+      <div class="section-header reveal">
+        <span class="section-label">Visite-nos</span>
+        <h2 class="section-title">Vamos <em>conversar</em></h2>
+      </div>
       <div class="contact-grid">
         <div class="contact-info reveal">
-          <span class="section-label">Como nos encontrar</span>
-          <h2 class="section-title">Venha nos visitar</h2>
-          <p class="section-desc">Estamos prontas para receber você e cuidar do seu cabelo com todo carinho.</p>
           <div class="contact-details">
             <div class="contact-item">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
               <div>
                 <strong>Endereço</strong>
-                <span>Rua das Flores, 256 — Centro, São Paulo/SP</span>
+                <span>R. Cap. Carlos Nunes, 535 - Centro, Itaguaí - RJ</span>
               </div>
             </div>
             <div class="contact-item">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
               <div>
-                <strong>WhatsApp</strong>
-                <span>(21) 99528-XXXX</span>
+                <strong>Horário de funcionamento</strong>
+                <span>Segunda a Sábado: 9h às 18h</span>
+                <span>Domingo: Fechado</span>
               </div>
             </div>
             <div class="contact-item">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72 12.84 12.84 0 00.7 2.81 2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45 12.84 12.84 0 002.81.7A2 2 0 0122 16.92z"/></svg>
               <div>
-                <strong>Horário de Funcionamento</strong>
-                <span>Seg a Sáb: 9h às 19h</span>
+                <strong>Telefone</strong>
+                <span>(21) 99528-0000</span>
               </div>
             </div>
           </div>
-          <a href="https://wa.me/5521995280000?text=Oi!%20Vi%20a%20Dress%20Hair%20Company%20e%20quero%20agendar%20um%20horário." class="btn btn-primary" target="_blank" rel="noopener">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
-            Agendar pelo WhatsApp
+          <a href="https://wa.me/5521995280000" target="_blank" class="btn btn-primary">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.004 5.45-4.439 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.004c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+            Falar pelo WhatsApp
           </a>
         </div>
         <div class="contact-map reveal">
-          <iframe
-            src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3657.1975889953865!2d-46.65468248447594!3d-23.5646161675949!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x0%3A0x0!2zMjPCsDMzJzUyLjYiUyA0NsKwMzknMDYuOSJX!5e0!3m2!1spt-BR!2sbr!4v1620000000000!5m2!1spt-BR!2sbr"
-            width="100%" height="100%" style="border:0;" allowfullscreen="" loading="lazy" referrerpolicy="no-referrer-when-downgrade">
-          </iframe>
+          <iframe src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3673.1234567890123!2d-43.12345678901234!3d-22.12345678901234!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x0%3A0x0!2zMjLCsDA3JzI0LjQiUyA0M8KwMDcnMjQuNCJX!5e0!3m2!1spt-BR!2sbr!4v1234567890123" width="100%" height="100%" style="border:0; min-height:380px;" allowfullscreen="" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>
         </div>
       </div>
     </div>
@@ -371,24 +377,117 @@
 
   <!-- Footer -->
   <footer class="footer">
-    <div class="container footer-inner">
-      <div class="footer-brand">
-        <img src="assets/logo_dress_hair_company_HD.png" alt="Dress Hair Company">
-        <p>Elegância, brilho e transformação para seu cabelo.</p>
-      </div>
-      <div class="footer-social">
-        <a href="#" aria-label="Instagram">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg>
-        </a>
-        <a href="#" aria-label="WhatsApp">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
-        </a>
-      </div>
-      <div class="footer-copy">
-        © 2025 Dress Hair Company. Todos os direitos reservados.
+    <div class="container">
+      <div class="footer-inner">
+        <div class="footer-brand">
+          <img src="assets/logo_dress_hair_company_HD.png" alt="Dress Hair Company">
+          <p>Transformando visuais há 12 anos em Itaguaí, RJ</p>
+        </div>
+        <div class="footer-social">
+          <a href="#" aria-label="Instagram">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"/><path d="M16 11.37A4 4 0 1112.63 8 4 4 0 0116 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg>
+          </a>
+          <a href="#" aria-label="Facebook">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 2h-3a5 5 0 00-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 011-1h3z"/></svg>
+          </a>
+          <a href="#" aria-label="WhatsApp">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72 12.84 12.84 0 00.7 2.81 2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45 12.84 12.84 0 002.81.7A2 2 0 0122 16.92z"/></svg>
+          </a>
+        </div>
+        <p class="footer-copy">© 2025 Dress Hair Company. Todos os direitos reservados.</p>
       </div>
     </div>
   </footer>
+
+  <!-- Modal de Agendamento -->
+  <div class="modal" id="modalAgendamento" aria-hidden="true">
+    <div class="modal-overlay"></div>
+    <div class="modal-container">
+      <div class="modal-header">
+        <span class="modal-step" id="modalStep">Passo 1 de 3</span>
+        <h3 id="modalTitle">Escolha o serviço</h3>
+        <button class="modal-close" id="modalClose" aria-label="Fechar">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <!-- Step 1 -->
+        <div class="step-content" id="step1">
+          <div class="modal-servicos">
+            <button class="modal-servico" data-servico="Coloração" type="button">
+              <span class="servico-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2a10 10 0 100 20 10 10 0 000-20z"/><path d="M12 6v6l4 2"/></svg>
+              </span>
+              <span class="servico-name">Coloração</span>
+            </button>
+            <button class="modal-servico" data-servico="Alinhamento" type="button">
+              <span class="servico-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+              </span>
+              <span class="servico-name">Alinhamento</span>
+            </button>
+            <button class="modal-servico" data-servico="Escova" type="button">
+              <span class="servico-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M7 21l5-5 5 5"/><path d="M12 16V3"/></svg>
+              </span>
+              <span class="servico-name">Escova</span>
+            </button>
+            <button class="modal-servico" data-servico="Corte" type="button">
+              <span class="servico-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg>
+              </span>
+              <span class="servico-name">Corte</span>
+            </button>
+            <button class="modal-servico" data-servico="Hidratação" type="button">
+              <span class="servico-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2.69l5.66 5.66a8 8 0 11-11.31 0L12 2.69z"/></svg>
+              </span>
+              <span class="servico-name">Hidratação</span>
+            </button>
+            <button class="modal-servico" data-servico="Terapia Capilar" type="button">
+              <span class="servico-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+              </span>
+              <span class="servico-name">Terapia Capilar</span>
+            </button>
+          </div>
+        </div>
+        <!-- Step 2 -->
+        <div class="step-content" id="step2" hidden>
+          <div class="modal-datas" id="modalDatas"></div>
+          <div class="modal-horarios-label">Horários disponíveis</div>
+          <div class="modal-horarios" id="modalHorarios"></div>
+        </div>
+        <!-- Step 3 -->
+        <div class="step-content" id="step3" hidden>
+          <div class="resumo-box">
+            <div class="resumo-item">
+              <span class="resumo-label">Serviço</span>
+              <span class="resumo-value" id="resumoServico">-</span>
+            </div>
+            <div class="resumo-item">
+              <span class="resumo-label">Data</span>
+              <span class="resumo-value" id="resumoData">-</span>
+            </div>
+            <div class="resumo-item">
+              <span class="resumo-label">Horário</span>
+              <span class="resumo-value" id="resumoHorario">-</span>
+            </div>
+          </div>
+          <p class="resumo-text">Você será redirecionado para o WhatsApp para confirmar seu agendamento.</p>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline modal-back" id="modalBack" hidden>Voltar</button>
+        <button class="btn btn-primary modal-next" id="modalNext" disabled>Próximo</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- WhatsApp Float -->
+  <a href="https://wa.me/5521995280000" target="_blank" class="whatsapp-float" aria-label="WhatsApp">
+    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.004 5.45-4.439 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.004c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+  </a>
 
   <script src="script.js"></script>
 </body>
