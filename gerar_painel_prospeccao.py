@@ -1398,7 +1398,7 @@ def main():
     print(f"  - Copie a mensagem de cada lead")
     print(f"  - Clique em 'Abrir WhatsApp' para enviar")
     print(f"  - Marque o status após cada contato")
-    print(f"  - Faça follow-up depois de 2 dias")
+    print(f"  - Faça follow-up depois de 7 dias")
     print(f"  - NÃO envie mensagens em massa")
     print(f"  - Personalize quando possível")
     print(f"{'='*60}\n")

@@ -3,9 +3,10 @@ Busca de Leads via Apify - Google Maps + Email
 ===============================================
 Actor: lukaskrivka/google-maps-with-contact-details
 Faz Google Maps scraping + extração de email em uma só chamada.
-Nichos Tier 1 nas 13 cidades da Baixada Fluminense.
+Nichos Tier 1 por regiao (baixada, rio_premium ou todas).
 """
 
+import argparse
 import csv
 import json
 import os
@@ -17,6 +18,8 @@ from pathlib import Path
 from datetime import datetime
 from collections import Counter
 
+from config.regioes import resolve_regiao, get_output_dir, get_locais_busca
+
 # Fix encoding no Windows
 if sys.platform == "win32":
     os.system("chcp 65001 >nul 2>&1")
@@ -25,39 +28,12 @@ if sys.platform == "win32":
 
 APIFY_TOKEN = "apify_api_g35riRIYbexQigTpDwRm4GJ40emppP36z2dc"
 APIFY_API = "https://api.apify.com/v2"
+
+# Diretorio base - sera sobrescrito por regiao em main()
 OUTPUT_DIR = Path(__file__).parent / "output" / "apify"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 ACTOR_ID = "lukaskrivka~google-maps-with-contact-details"
-
-# 6 nichos Tier 1
-NICHOS = [
-    "dentista",
-    "advogado",
-    "clínica estética",
-    "academia",
-    "salão de beleza",
-    "barbearia",
-]
-
-# 13 cidades da Baixada Fluminense
-CIDADES = [
-    "Belford Roxo, RJ",
-    "Duque de Caxias, RJ",
-    "Guapimirim, RJ",
-    "Itaguaí, RJ",
-    "Japeri, RJ",
-    "Magé, RJ",
-    "Mesquita, RJ",
-    "Nilópolis, RJ",
-    "Nova Iguaçu, RJ",
-    "Paracambi, RJ",
-    "Queimados, RJ",
-    "São João de Meriti, RJ",
-    "Seropédica, RJ",
-]
-
-MAX_PLACES_PER_SEARCH = 10
 TARGET_LEADS = 100
 
 FIELDNAMES = [
@@ -75,8 +51,8 @@ EMAIL_BLACKLIST = {
     "mailer-daemon@google.com", "user@domain.com",
 }
 
-# Franquias conhecidas
-FRANQUIAS = [
+# Franquias conhecidas (fallback para compatibilidade)
+FRANQUIAS_FALLBACK = [
     "mcdonald", "burguer king", "subway", "habib", "giraffas",
     "bob's", "kfc", "pizza hut", "domino", "grenal",
     "café do pão de queijo", "o boticário", "americanas",
@@ -165,8 +141,11 @@ def validate_email(email):
     return email
 
 
-def normalize(item, nicho, cidade):
+def normalize(item, nicho, cidade, franquias=None):
     """Normaliza um resultado para o formato padronizado."""
+    if franquias is None:
+        franquias = FRANQUIAS_FALLBACK
+
     nome = item.get("title") or item.get("name") or ""
     telefone = item.get("phone") or item.get("phoneUnformatted") or ""
     website = item.get("website") or ""
@@ -207,7 +186,7 @@ def normalize(item, nicho, cidade):
 
     # Detectar franquia
     nome_lower = nome.lower()
-    is_franchise = any(f in nome_lower for f in FRANQUIAS)
+    is_franchise = any(f in nome_lower for f in franquias)
 
     # Detectar site profissional (heurística simples)
     has_pro_site = False
@@ -300,13 +279,15 @@ def filter_leads(leads, target=100):
     for l in result:
         l.pop("_is_franchise", None)
         l.pop("_has_pro_site", None)
+        l.pop("_regiao", None)
 
     return result, len(unique)
 
 
-def export_csv(leads, filename):
+def export_csv(leads, filename, output_dir=None):
     """Exporta para CSV."""
-    filepath = OUTPUT_DIR / filename
+    out = output_dir or OUTPUT_DIR
+    filepath = out / filename
     with open(filepath, "w", newline="", encoding="utf-8-sig") as f:
         w = csv.DictWriter(f, fieldnames=FIELDNAMES)
         w.writeheader()
@@ -314,8 +295,9 @@ def export_csv(leads, filename):
     return filepath
 
 
-def export_excel(leads, filename):
+def export_excel(leads, filename, output_dir=None):
     """Exporta para Excel com formatação."""
+    out = output_dir or OUTPUT_DIR
     try:
         from openpyxl import Workbook
         from openpyxl.styles import Font, PatternFill, Alignment
@@ -369,7 +351,7 @@ def export_excel(leads, filename):
         for i, w in enumerate(widths[:len(headers)], 1):
             ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = w
 
-        filepath = OUTPUT_DIR / filename
+        filepath = out / filename
         wb.save(filepath)
         return filepath
     except ImportError:
@@ -378,66 +360,106 @@ def export_excel(leads, filename):
 
 
 def main():
-    print("=" * 60)
-    print("BUSCA DE LEADS - BAIXADA FLUMINENSE")
-    print("Apify: google-maps-with-contact-details")
-    print("=" * 60)
-    print(f"Nichos: {len(NICHOS)} | Cidades: {len(CIDADES)}")
-    print(f"Meta: {TARGET_LEADS} leads qualificados")
-    print()
+    parser = argparse.ArgumentParser(description="Busca de Leads via Apify")
+    parser.add_argument(
+        "--regiao",
+        choices=["baixada", "rio_premium", "todas"],
+        default=None,
+        help="Regiao de prospeccao (padrao: baixada)",
+    )
+    args = parser.parse_args()
+
+    regioes = resolve_regiao(args.regiao)
 
     all_leads = []
 
-    # Buscar por nicho (1 run por nicho, todas as cidades juntas)
-    for i, nicho in enumerate(NICHOS, 1):
-        print(f"\n[{i}/{len(NICHOS)}] {nicho.upper()}")
+    for regiao in regioes:
+        # Configurar diretorio de saida por regiao
+        out_dir = get_output_dir(regiao.key, "apify")
 
-        search_strings = [f"{nicho} em {cidade}" for cidade in CIDADES]
+        # Listas da regiao
+        nichos = regiao.nichos_tier1
+        franquias = regiao.franquias_grandes
+        max_places = regiao.max_places_apify
+        locais = get_locais_busca(regiao)
 
-        run_id, dataset_id = run_actor(search_strings, MAX_PLACES_PER_SEARCH)
-        if not run_id:
-            print(f"  Pulando...")
-            continue
+        print("=" * 60)
+        print(f"BUSCA DE LEADS - {regiao.label.upper()}")
+        print("Apify: google-maps-with-contact-details")
+        print("=" * 60)
+        print(f"Nichos: {len(nichos)} | Locais: {len(locais)}")
+        print(f"Max por busca: {max_places}")
+        print(f"Saida: {out_dir}")
+        print()
 
-        # Esperar
-        success = wait_for_run(run_id, timeout=600)
-        if not success:
-            # Pegar logs do erro
-            url = f"{APIFY_API}/actor-runs/{run_id}/log?token={APIFY_TOKEN}"
-            log_resp = requests.get(url, timeout=10)
-            print(f"  Últimas linhas do log:")
-            for line in log_resp.text.strip().split("\n")[-5:]:
-                print(f"    {line[:120].encode('ascii', errors='replace').decode('ascii')}")
-            continue
+        # Buscar por nicho (1 run por nicho, todos os locais juntos)
+        for i, nicho in enumerate(nichos, 1):
+            print(f"\n[{i}/{len(nichos)}] {nicho.upper()}")
 
-        # Baixar resultados
-        results = get_results(dataset_id)
-        print(f"  Resultados brutos: {len(results)}")
+            # Formato de busca: baixada usa "nicho em Cidade", rio_premium usa "nicho no Bairro - Rio de Janeiro, RJ"
+            if regiao.bairros:
+                search_strings = [f"{nicho} no {local}" for local in locais]
+            else:
+                search_strings = [f"{nicho} em {local}" for local in locais]
 
-        # Normalizar e detectar cidade
-        for item in results:
-            cidade_found = ""
-            end = (item.get("address") or "").lower()
-            for c in CIDADES:
-                city_name = c.lower().split(",")[0]
-                if city_name in end:
-                    cidade_found = c
-                    break
-            if not cidade_found:
-                # Tentar pelo campo city
-                item_city = (item.get("city") or "").lower()
-                for c in CIDADES:
+            run_id, dataset_id = run_actor(search_strings, max_places)
+            if not run_id:
+                print(f"  Pulando...")
+                continue
+
+            # Esperar
+            success = wait_for_run(run_id, timeout=600)
+            if not success:
+                # Pegar logs do erro
+                url = f"{APIFY_API}/actor-runs/{run_id}/log?token={APIFY_TOKEN}"
+                log_resp = requests.get(url, timeout=10)
+                print(f"  Últimas linhas do log:")
+                for line in log_resp.text.strip().split("\n")[-5:]:
+                    print(f"    {line[:120].encode('ascii', errors='replace').decode('ascii')}")
+                continue
+
+            # Baixar resultados
+            results = get_results(dataset_id)
+            print(f"  Resultados brutos: {len(results)}")
+
+            # Normalizar e detectar cidade
+            for item in results:
+                cidade_found = ""
+                end = (item.get("address") or "").lower()
+                for c in locais:
                     city_name = c.lower().split(",")[0]
-                    if city_name in item_city:
-                        cidade_found = c
-                        break
-            if not cidade_found:
-                cidade_found = "Baixada Fluminense, RJ"
+                    # Para bairros: "Bairro - Rio de Janeiro" -> usar parte antes do "-"
+                    if " - " in city_name:
+                        bairro_name = city_name.split(" - ")[0]
+                        if bairro_name in end:
+                            cidade_found = c
+                            break
+                    else:
+                        if city_name in end:
+                            cidade_found = c
+                            break
+                if not cidade_found:
+                    # Tentar pelo campo city
+                    item_city = (item.get("city") or "").lower()
+                    for c in locais:
+                        city_name = c.lower().split(",")[0]
+                        if " - " in city_name:
+                            bairro_name = city_name.split(" - ")[0]
+                            if bairro_name in item_city:
+                                cidade_found = c
+                                break
+                        else:
+                            if city_name in item_city:
+                                cidade_found = c
+                                break
+                if not cidade_found:
+                    cidade_found = regiao.label
 
-            lead = normalize(item, nicho, cidade_found)
-            all_leads.append(lead)
+                lead = normalize(item, nicho, cidade_found, franquias)
+                lead["_regiao"] = regiao.key
+                all_leads.append(lead)
 
-        print(f"  Acumulado: {len(all_leads)} leads brutos")
+            print(f"  Acumulado: {len(all_leads)} leads brutos")
 
     print(f"\n{'='*60}")
     print(f"Total bruto: {len(all_leads)} leads")
@@ -452,13 +474,24 @@ def main():
     print(f"  Únicos após filtros: {total_unique}")
     print(f"  Leads finais: {len(filtered)}")
 
-    # Exportar
+    # Limpar campo interno _regiao
+    for l in filtered:
+        l.pop("_regiao", None)
+
+    # Exportar (usar diretorio da primeira regiao se for regiao unica, senao diretorio base)
+    if len(regioes) == 1:
+        export_dir = get_output_dir(regioes[0].key, "apify")
+        prefix = regioes[0].key
+    else:
+        export_dir = OUTPUT_DIR
+        prefix = "todas"
+
     print(f"\nExportando...")
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    csv_file = export_csv(filtered, f"leads_baixada_{timestamp}.csv")
+    csv_file = export_csv(filtered, f"leads_{prefix}_{timestamp}.csv", output_dir=export_dir)
     print(f"  CSV: {csv_file}")
 
-    xlsx_file = export_excel(filtered, f"leads_baixada_{timestamp}.xlsx")
+    xlsx_file = export_excel(filtered, f"leads_{prefix}_{timestamp}.xlsx", output_dir=export_dir)
     if xlsx_file:
         print(f"  Excel: {xlsx_file}")
 
@@ -482,7 +515,7 @@ def main():
     print(f"\nCom telefone: {com_tel}/{len(filtered)}")
     print(f"Com email: {com_email}/{len(filtered)}")
     print(f"Sem site: {sem_site}/{len(filtered)}")
-    print(f"\nArquivos em: {OUTPUT_DIR}")
+    print(f"\nArquivos em: {export_dir}")
 
 
 if __name__ == "__main__":

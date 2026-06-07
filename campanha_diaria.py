@@ -4,13 +4,17 @@ Campanha Diária - Gerador de Planilha de Abordagem
 Lê leads_prospeccao.xlsx e gera uma planilha filtrada e organizada
 para abordagem diária pelo WhatsApp.
 
-Uso: python campanha_diaria.py [--arquivo CAMINHO] [--top N] [--hoje]
+Uso: python campanha_diaria.py [--arquivo CAMINHO] [--top N] [--hoje] [--regiao REGIAO]
 """
 
 import re
 import sys
 from datetime import date, timedelta
 from pathlib import Path
+
+from config.regioes import resolve_regiao, get_output_dir, detectar_regiao_do_lead
+from config.mensagens import gerar_mensagem_whatsapp as gerar_mensagem_whatsapp_config
+from config.franquia import detectar_franquia
 
 try:
     from openpyxl import load_workbook, Workbook
@@ -314,7 +318,7 @@ def ler_excel_prospeccao(caminho):
     return leads
 
 
-def normalizar_lead(lead):
+def normalizar_lead(lead, regiao=None):
     """Normaliza campos para o formato da campanha."""
     saida = {}
 
@@ -359,7 +363,17 @@ def normalizar_lead(lead):
     saida["motivo_prioridade"] = str(lead.get("motivo_prioridade", "")).strip()
 
     # Mensagem WhatsApp melhorada
-    saida["mensagem_whatsapp"] = gerar_mensagem_whatsapp(lead)
+    if regiao is not None:
+        saida["mensagem_whatsapp"] = gerar_mensagem_whatsapp_config(lead, regiao)
+    else:
+        # Detecta regiao do lead para usar tom correto (informal vs consultivo)
+        from config.regioes import get_regiao
+        lead_regiao_key = detectar_regiao_do_lead(lead)
+        try:
+            lead_regiao = get_regiao(lead_regiao_key)
+            saida["mensagem_whatsapp"] = gerar_mensagem_whatsapp_config(lead, lead_regiao)
+        except (ValueError, KeyError):
+            saida["mensagem_whatsapp"] = gerar_mensagem_whatsapp(lead)
 
     # Link WhatsApp
     saida["link_whatsapp"] = gerar_link_whatsapp(lead, saida["mensagem_whatsapp"])
@@ -376,9 +390,9 @@ def normalizar_lead(lead):
     # Data de abordagem (vazio - preencher quando abordar)
     saida["data_abordagem"] = ""
 
-    # Data de follow-up: 2 dias depois de hoje
+    # Data de follow-up: 7 dias depois de hoje
     hoje = date.today()
-    saida["data_followup"] = (hoje + timedelta(days=2)).strftime("%d/%m/%Y")
+    saida["data_followup"] = (hoje + timedelta(days=7)).strftime("%d/%m-%Y")
 
     # Observações (vazio)
     saida["observacoes"] = ""
@@ -388,11 +402,11 @@ def normalizar_lead(lead):
 
 # ── Filtros ───────────────────────────────────────────────────────
 
-def filtrar_leads_campanha(leads):
+def filtrar_leads_campanha(leads, regiao=None):
     """Filtra leads elegíveis para campanha diária."""
     filtrados = []
     for lead in leads:
-        n = normalizar_lead(lead)
+        n = normalizar_lead(lead, regiao=regiao)
 
         # Prioridade Alta e score >= 70
         if n["prioridade"] != "Alta":
@@ -583,7 +597,7 @@ def escrever_aba(ws, leads):
     ws.freeze_panes = "A2"
 
 
-def escrever_resumo(ws, leads_por_aba, total_geral):
+def escrever_resumo(ws, leads_por_aba, total_geral, regiao_labels=""):
     """Escreve a aba Resumo."""
     # Título
     ws.merge_cells("A1:F1")
@@ -592,7 +606,10 @@ def escrever_resumo(ws, leads_por_aba, total_geral):
     title.alignment = Alignment(horizontal="center")
 
     hoje = date.today().strftime("%d/%m/%Y")
-    ws.cell(row=2, column=1, value=f"Data: {hoje}").font = Font(size=11, color="6B7280")
+    info = f"Data: {hoje}"
+    if regiao_labels:
+        info += f"  |  Regiao: {regiao_labels}"
+    ws.cell(row=2, column=1, value=info).font = Font(size=11, color="6B7280")
     ws.merge_cells("A2:F2")
 
     row = 4
@@ -603,7 +620,7 @@ def escrever_resumo(ws, leads_por_aba, total_geral):
         ("Total de leads na campanha", total_geral),
         ("Leads com WhatsApp", sum(1 for l in leads_por_aba.get("Top 50", []) if l.get("whatsapp") or l.get("link_whatsapp"))),
         ("Leads sem site", sum(1 for l in leads_por_aba.get("Top 50", []) if l.get("site") == "Não")),
-        ("Data de follow-up", (date.today() + timedelta(days=2)).strftime("%d/%m/%Y")),
+        ("Data de follow-up", (date.today() + timedelta(days=7)).strftime("%d/%m/%Y")),
     ]
 
     for label, valor in metricas:
@@ -705,6 +722,12 @@ def main():
     parser.add_argument("--arquivo", help="Caminho para o Excel de prospecção (padrão: busca automaticamente)")
     parser.add_argument("--top", type=int, default=50, help="Quantidade de leads na aba Top 50 (padrão: 50)")
     parser.add_argument("--hoje", action="store_true", help="Inclui data de hoje na abordagem")
+    parser.add_argument(
+        "--regiao",
+        choices=["baixada", "rio_premium", "todas"],
+        default=None,
+        help="Regiao de prospeccao (padrao: baixada)",
+    )
     args = parser.parse_args()
 
     if sys.platform == "win32":
@@ -741,8 +764,38 @@ def main():
     leads = ler_excel_prospeccao(caminho)
     print(f"  Leads carregados: {len(leads)}")
 
+    # Resolve regiao
+    regioes = resolve_regiao(args.regiao)
+    regiao_keys = [r.key for r in regioes]
+    regiao_labels = [r.label for r in regioes]
+    print(f"  Regiao: {', '.join(regiao_labels)}")
+
+    # Filtra leads por regiao (quando --regiao especificado)
+    if args.regiao is not None:
+        leads_antes = len(leads)
+        leads = [l for l in leads if detectar_regiao_do_lead(l) in regiao_keys]
+        print(f"  Leads filtrados por regiao: {len(leads)} (removidos: {leads_antes - len(leads)})")
+
+    # Ignora franquias com confianca alta quando regiao=rio_premium
+    if args.regiao in ("rio_premium", "todas"):
+        leads_antes_franquia = len(leads)
+        leads_filtrados_franquia = []
+        for l in leads:
+            resultado = detectar_franquia(
+                l.get("nome", ""),
+                l.get("endereco", ""),
+                l.get("url_site", ""),
+                l.get("instagram", ""),
+            )
+            if resultado.nivel_confianca == "alta":
+                continue
+            leads_filtrados_franquia.append(l)
+        leads = leads_filtrados_franquia
+        if leads_antes_franquia != len(leads):
+            print(f"  Franquias alta confianca removidas: {leads_antes_franquia - len(leads)}")
+
     # Filtra leads elegíveis
-    leads_filtrados = filtrar_leads_campanha(leads)
+    leads_filtrados = filtrar_leads_campanha(leads, regiao=regioes[0] if len(regioes) == 1 else None)
     print(f"  Leads elegíveis (Alta + score≥70 + contato + sem site profissional): {len(leads_filtrados)}")
 
     if not leads_filtrados:
@@ -775,9 +828,10 @@ def main():
     leads_por_aba["Top 50"] = leads_ordenados[:args.top]
 
     # Cria Excel
-    CAMPANHAS_DIR.mkdir(parents=True, exist_ok=True)
+    regiao_key = regioes[0].key if len(regioes) == 1 else "todas"
+    campanhas_dir = get_output_dir(regiao_key, "campanhas")
     hoje_str = date.today().strftime("%Y-%m-%d")
-    caminho_saida = CAMPANHAS_DIR / f"campanha_diaria_{hoje_str}.xlsx"
+    caminho_saida = campanhas_dir / f"campanha_diaria_{regiao_key}_{hoje_str}.xlsx"
 
     wb = Workbook()
     # Remove a aba padrão
@@ -796,14 +850,14 @@ def main():
 
     # Aba Resumo
     ws_resumo = wb.create_sheet("Resumo")
-    escrever_resumo(ws_resumo, leads_por_aba, len(leads_ordenados))
+    escrever_resumo(ws_resumo, leads_por_aba, len(leads_ordenados), regiao_labels=", ".join(regiao_labels))
     print(f"  Resumo: OK")
 
     # Salva
     wb.save(caminho_saida)
 
     # Também salva como campanha_diaria.xlsx (última versão)
-    caminho_padrao = CAMPANHAS_DIR / "campanha_diaria.xlsx"
+    caminho_padrao = campanhas_dir / "campanha_diaria.xlsx"
     wb.save(caminho_padrao)
 
     print(f"\n{'='*60}")
@@ -815,7 +869,7 @@ def main():
     print(f"  - Clique no link WhatsApp de cada lead")
     print(f"  - Envie a mensagem personalizada")
     print(f"  - Anote a data na coluna 'Data Abordagem'")
-    print(f"  - O follow-up está marcado para {(date.today() + timedelta(days=2)).strftime('%d/%m/%Y')}")
+    print(f"  - O follow-up está marcado para {(date.today() + timedelta(days=7)).strftime('%d/%m/%Y')}")
     print(f"{'='*60}\n")
 
 

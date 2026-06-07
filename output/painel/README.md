@@ -57,7 +57,7 @@ output/painel/index.html
 5. Personalize a mensagem quando possível
 6. Copie a mensagem, abra o WhatsApp e envie manualmente
 7. Marque o status após cada contato
-8. Faça follow-up depois de 2 dias
+8. Faça follow-up depois de 7 dias
 9. Volte ao painel para atualizar status
 
 ## Status disponíveis

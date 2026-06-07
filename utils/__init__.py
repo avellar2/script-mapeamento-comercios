@@ -1,0 +1,1 @@
+# Utils - Funções compartilhadas do projeto de prospecção

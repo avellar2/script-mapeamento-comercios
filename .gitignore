@@ -7,6 +7,10 @@ __pycache__/
 # Playwright
 .ms-playwright/
 
+# WhatsApp profiles (sessao do navegador)
+.whatsapp_profile/
+.whatsapp_business_profile/
+
 # Dependencies
 node_modules/
 frontend/node_modules/

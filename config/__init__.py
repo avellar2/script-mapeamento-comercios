@@ -1,0 +1,1 @@
+# Config - Configuracoes centralizadas do projeto de prospeccao

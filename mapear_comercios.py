@@ -1,12 +1,13 @@
 """
-Mapeador de Comércios - Baixada Fluminense, RJ
-===============================================
+Mapeador de Comércios - Google Maps
+===================================
 Busca comércios no Google Maps que NÃO possuem site,
 gerando uma planilha de leads para prospecção.
 
-Uso: python mapear_comercios.py
+Uso: python mapear_comercios.py [--regiao baixada|rio_premium|todas]
 """
 
+import argparse
 import asyncio
 import csv
 import json
@@ -17,81 +18,20 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-OUTPUT_DIR = Path(__file__).parent / "output" / "playwright"
-OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+from config.regioes import resolve_regiao, get_output_dir, get_locais_busca
 
-# Lista de cidades da Baixada Fluminense
-CIDADES = [
-    "Duque de Caxias, RJ",
-    "Nova Iguaçu, RJ",
-    "São João de Meriti, RJ",
-    "Belford Roxo, RJ",
-    "Nilópolis, RJ",
-    "Mesquita, RJ",
-    "Queimados, RJ",
-    "Itaguaí, RJ",
-    "Seropédica, RJ",
-    "Paracambi, RJ",
-    "Japeri, RJ",
-]
-MAX_RESULTS_PER_CATEGORY = 20  # Reduzido para ser mais rápido
 DELAY_MIN = 2.0
 DELAY_MAX = 5.0
-
-CATEGORIAS = [
-    "restaurante",
-    "salão de beleza",
-    "barbearia",
-    "clínica médica",
-    "oficina mecânica",
-    "pet shop",
-    "loja de roupas",
-    "padaria",
-    "pizzaria",
-    "bar",
-    "farmácia",
-    "dentista",
-    "advogado",
-    "contador",
-    "imobiliária",
-    "academia",
-    "lanchonete",
-    "supermercado",
-    "material de construção",
-    "auto escola",
-    "lavanderia",
-    "floricultura",
-    "ótica",
-    "joalheria",
-    "clínica veterinária",
-    "estética",
-    "loja de celulares",
-    "loja de móveis",
-    "papelaria",
-    "loja de bicicleta",
-    "confeitaria",
-    "serralheria",
-    "vidraçaria",
-    "pintor",
-    "eletricista",
-    "encanador",
-    "marcenaria",
-    "escola de idiomas",
-    "curso pré-vestibular",
-    "estúdio de pilates",
-]
-
-PROGRESS_FILE = OUTPUT_DIR / "progresso.json"
-EXISTING_CSV = OUTPUT_DIR / "todos_comercios.csv"
 
 
 # ── Progress / Resume ──────────────────────────────────────────────
 
-def load_nomes_existentes():
+def load_nomes_existentes(output_dir):
     """Carrega nomes+cidade do CSV existente para evitar duplicatas."""
+    existing_csv = output_dir / "todos_comercios.csv"
     existentes = set()
-    if EXISTING_CSV.exists():
-        with open(EXISTING_CSV, encoding="utf-8-sig") as f:
+    if existing_csv.exists():
+        with open(existing_csv, encoding="utf-8-sig") as f:
             for row in csv.DictReader(f):
                 nome = row.get("nome", "").strip().lower()
                 cidade = row.get("cidade", "").strip().lower()
@@ -99,22 +39,24 @@ def load_nomes_existentes():
                     existentes.add(f"{nome}|{cidade}")
     return existentes
 
-def load_progress():
-    if PROGRESS_FILE.exists():
-        with open(PROGRESS_FILE, "r", encoding="utf-8") as f:
+def load_progress(output_dir):
+    progress_file = output_dir / "progresso.json"
+    if progress_file.exists():
+        with open(progress_file, "r", encoding="utf-8") as f:
             return json.load(f)
     return {"categorias_prontas": [], "categorias_em_andamento": {}, "comercios": []}
 
 
-def save_progress(progress):
-    with open(PROGRESS_FILE, "w", encoding="utf-8") as f:
+def save_progress(progress, output_dir):
+    progress_file = output_dir / "progresso.json"
+    with open(progress_file, "w", encoding="utf-8") as f:
         json.dump(progress, f, ensure_ascii=False, indent=2)
 
 
 # ── Export ──────────────────────────────────────────────────────────
 
-def export_csv(businesses, filename):
-    filepath = OUTPUT_DIR / filename
+def export_csv(businesses, filename, output_dir):
+    filepath = output_dir / filename
     fieldnames = [
         "nome", "endereco", "telefone", "whatsapp", "instagram",
         "email", "categoria", "tem_site", "url_site",
@@ -127,7 +69,7 @@ def export_csv(businesses, filename):
     return filepath
 
 
-def export_excel(businesses, filename):
+def export_excel(businesses, filename, output_dir):
     """Exporta para .xlsx (requer openpyxl)."""
     try:
         from openpyxl import Workbook
@@ -177,7 +119,7 @@ def export_excel(businesses, filename):
         for i, w in enumerate(widths, 1):
             ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = w
 
-        filepath = OUTPUT_DIR / filename
+        filepath = output_dir / filename
         wb.save(filepath)
         return filepath
     except ImportError:
@@ -399,7 +341,7 @@ async def extrair_detalhes(page, categoria, cidade=""):
     return dados
 
 
-async def buscar_categoria(page, categoria, cidade, start_index=0, progress=None, nomes_existentes=None):
+async def buscar_categoria(page, categoria, cidade, start_index=0, progress=None, nomes_existentes=None, max_results=20, output_dir=None):
     """Busca uma categoria no Google Maps e retorna lista de comércios."""
     query = f"{categoria} em {cidade}"
     url = f"https://www.google.com/maps/search/{query.replace(' ', '+')}/"
@@ -434,7 +376,7 @@ async def buscar_categoria(page, categoria, cidade, start_index=0, progress=None
         for chave in nomes_existentes:
             if cidade.lower() in chave:
                 vistos.add(chave)
-    limite = min(total, MAX_RESULTS_PER_CATEGORY * 3)  # Tentar até 3x mais que o limite
+    limite = min(total, max_results * 3)  # Tentar até 3x mais que o limite
 
     # Se está continuando de onde parou, carrega já vistos do progresso
     if start_index > 0:
@@ -451,13 +393,13 @@ async def buscar_categoria(page, categoria, cidade, start_index=0, progress=None
     novos_encontrados = 0  # Conta só os novos (não os que já existiam no CSV)
     ja_existentes = len(vistos)
 
-    while i < limite and novos_encontrados < MAX_RESULTS_PER_CATEGORY:
+    while i < limite and novos_encontrados < max_results:
         # Recarrega os itens a cada iteração (o DOM pode mudar)
         items = page.locator('div[role="feed"] > div > div[jsaction], div[role="feed"] > div > a[jsaction]')
         total_itens = await items.count()
 
         if total_itens <= i:
-            print(f"    [{novos_encontrados}/{MAX_RESULTS_PER_CATEGORY}] Itens reduzidos, recarregando pagina...")
+            print(f"    [{novos_encontrados}/{max_results}] Itens reduzidos, recarregando pagina...")
             await scroll_panel(page)
             await asyncio.sleep(1)
             items = page.locator('div[role="feed"] > div > div[jsaction], div[role="feed"] > div > a[jsaction]')
@@ -466,16 +408,16 @@ async def buscar_categoria(page, categoria, cidade, start_index=0, progress=None
                 # Verifica se chegou ao fim da lista
                 fim_lista = page.locator('span:has-text("fim da lista"), span:has-text("end of the list")')
                 if await fim_lista.count() > 0:
-                    print(f"    [{novos_encontrados}/{MAX_RESULTS_PER_CATEGORY}] Fim da lista - Sem mais resultados")
+                    print(f"    [{novos_encontrados}/{max_results}] Fim da lista - Sem mais resultados")
                     break
                 else:
-                    print(f"    [{novos_encontrados}/{MAX_RESULTS_PER_CATEGORY}] Nao ha mais itens disponiveis")
+                    print(f"    [{novos_encontrados}/{max_results}] Nao ha mais itens disponiveis")
                     break
 
         # Verifica se chegou ao fim da lista antes de processar
         fim_lista = page.locator('span:has-text("fim da lista"), span:has-text("end of the list")')
         if await fim_lista.count() > 0 and i >= total_itens - 1:
-            print(f"    [{novos_encontrados}/{MAX_RESULTS_PER_CATEGORY}] Fim da lista atingido")
+            print(f"    [{novos_encontrados}/{max_results}] Fim da lista atingido")
             break
 
         item = items.nth(i)
@@ -483,7 +425,7 @@ async def buscar_categoria(page, categoria, cidade, start_index=0, progress=None
         # Verifica se o elemento está visível antes de tentar clicar
         try:
             if not await item.is_visible():
-                print(f"    [{novos_encontrados+1}/{MAX_RESULTS_PER_CATEGORY}] Elemento não visível, pulando...")
+                print(f"    [{novos_encontrados+1}/{max_results}] Elemento não visível, pulando...")
                 i += 1
                 continue
         except:
@@ -501,10 +443,10 @@ async def buscar_categoria(page, categoria, cidade, start_index=0, progress=None
                 erro_str = str(e).lower()
                 # Se o erro for "not visible", pula este elemento
                 if 'not visible' in erro_str or 'element is not visible' in erro_str:
-                    print(f"    [{novos_encontrados+1}/{MAX_RESULTS_PER_CATEGORY}] Elemento invisível, pulando...")
+                    print(f"    [{novos_encontrados+1}/{max_results}] Elemento invisível, pulando...")
                     break
                 elif tentativa < 2:
-                    print(f"    [{novos_encontrados+1}/{MAX_RESULTS_PER_CATEGORY}] Retry clique {tentativa + 1}/3...")
+                    print(f"    [{novos_encontrados+1}/{max_results}] Retry clique {tentativa + 1}/3...")
                     await asyncio.sleep(1)
                     # Tenta scroll com menor timeout
                     try:
@@ -513,7 +455,7 @@ async def buscar_categoria(page, categoria, cidade, start_index=0, progress=None
                         pass
                     await asyncio.sleep(0.5)
                 else:
-                    print(f"    [{novos_encontrados+1}/{MAX_RESULTS_PER_CATEGORY}] Erro ao clicar: {str(e)[:60]}")
+                    print(f"    [{novos_encontrados+1}/{max_results}] Erro ao clicar: {str(e)[:60]}")
                     break
 
         if not clicou:
@@ -527,14 +469,14 @@ async def buscar_categoria(page, categoria, cidade, start_index=0, progress=None
             # Verifica duplicata por nome + cidade
             chave = f"{dados['nome'].lower()}|{cidade.lower()}"
             if chave in vistos:
-                print(f"    [{novos_encontrados}/{MAX_RESULTS_PER_CATEGORY}] DUPLICATA - {dados['nome'][:40]}")
+                print(f"    [{novos_encontrados}/{max_results}] DUPLICATA - {dados['nome'][:40]}")
             else:
                 vistos.add(chave)
                 comercios.append(dados)
                 novos_encontrados += 1
                 tag = "COM site" if dados["tem_site"] else "SEM site"
                 email_info = f" | Email: {dados['email']}" if dados['email'] else ""
-                print(f"    [{novos_encontrados}/{MAX_RESULTS_PER_CATEGORY}] {tag} - {dados['nome'][:40]}{email_info}")
+                print(f"    [{novos_encontrados}/{max_results}] {tag} - {dados['nome'][:40]}{email_info}")
 
                 # Salva progresso incrementalmente
                 if progress:
@@ -542,7 +484,7 @@ async def buscar_categoria(page, categoria, cidade, start_index=0, progress=None
                     progress["categorias_em_andamento"][chave_progresso] = {"indice": i + 1, "total": limite}
                     progress["comercios"].extend(comercios)
                     comercios.clear()  # Limpa a lista local já que salvou no progress
-                    save_progress(progress)
+                    save_progress(progress, output_dir)
 
         # Volta para resultados - TENTATIVA 1: botão voltar
         voltou = False
@@ -568,7 +510,7 @@ async def buscar_categoria(page, categoria, cidade, start_index=0, progress=None
 
         if not voltou:
             # TENTATIVA 3: recarrega a URL de busca
-            print(f"    [{novos_encontrados}/{MAX_RESULTS_PER_CATEGORY}] Navegacao travada, recarregando...")
+            print(f"    [{novos_encontrados}/{max_results}] Navegacao travada, recarregando...")
             await page.goto(url, wait_until="domcontentloaded", timeout=30000)
             await asyncio.sleep(2)
             await scroll_panel(page, max_scrolls=5)
@@ -578,10 +520,10 @@ async def buscar_categoria(page, categoria, cidade, start_index=0, progress=None
         i += 1
 
     # Mensagem final sobre a categoria
-    if novos_encontrados >= MAX_RESULTS_PER_CATEGORY:
+    if novos_encontrados >= max_results:
         print(f"  > Categoria completa: {novos_encontrados} novos resultados encontrados")
     else:
-        print(f"  > Fim dos resultados: {novos_encontrados}/{MAX_RESULTS_PER_CATEGORY} novos ({ja_existentes} já existiam)")
+        print(f"  > Fim dos resultados: {novos_encontrados}/{max_results} novos ({ja_existentes} já existiam)")
 
     return comercios
 
@@ -589,6 +531,16 @@ async def buscar_categoria(page, categoria, cidade, start_index=0, progress=None
 # ── Main ────────────────────────────────────────────────────────────
 
 async def main():
+    # Argumentos
+    parser = argparse.ArgumentParser(description="Mapeador de Comercios - Google Maps")
+    parser.add_argument(
+        "--regiao",
+        choices=["baixada", "rio_premium", "todas"],
+        default=None,
+        help="Regiao de prospeccao (padrao: baixada)",
+    )
+    args = parser.parse_args()
+
     # Força UTF-8 no Windows
     if sys.platform == "win32":
         import locale
@@ -606,182 +558,199 @@ async def main():
         os.system(f"{sys.executable} -m playwright install chromium")
         from playwright.async_api import async_playwright
 
-    print("=" * 60)
-    print("  MAPEADOR DE COMÉRCIOS — BAIXADA FLUMINENSE, RJ")
-    print("  Buscando comércios SEM site para prospecção")
-    print(f"  {len(CIDADES)} cidades serão mapeadas")
-    print("=" * 60)
+    regioes = resolve_regiao(args.regiao)
 
-    progress = load_progress()
-    feitas = set(progress.get("categorias_prontas", []))
-    em_andamento = progress.get("categorias_em_andamento", {})
-    todos = progress.get("comercios", [])
+    for regiao in regioes:
+        locais = get_locais_busca(regiao)
+        categorias = regiao.categorias
+        max_results = regiao.max_results_per_category
+        output_dir = get_output_dir(regiao.key, "playwright")
 
-    # Carregar nomes já existentes no CSV para evitar duplicatas
-    nomes_existentes = load_nomes_existentes()
-    if nomes_existentes:
-        print(f"\n  {len(nomes_existentes)} comércios já existem no CSV (serão pulados)")
+        print("=" * 60)
+        print(f"  MAPEADOR DE COMÉRCIOS — {regiao.label.upper()}")
+        print("  Buscando comércios SEM site para prospecção")
+        print(f"  {len(locais)} locais serão mapeados | {len(categorias)} categorias")
+        print("=" * 60)
 
-    # Formato antigo de progresso (cidade única) - migra para novo formato
-    if not feitas and not em_andamento and not todos:
-        print("\n[!] Progresso antigo detectado. Resetando para nova estrutura multi-cidade.")
-        print("    Todas as cidades e categorias serão reprocessadas.\n")
+        progress = load_progress(output_dir)
+        feitas = set(progress.get("categorias_prontas", []))
+        em_andamento = progress.get("categorias_em_andamento", {})
+        todos = progress.get("comercios", [])
 
-    # Adiciona categorias em andamento às restantes (para continuar)
-    restantes = [c for c in CATEGORIAS if c not in feitas]
-    print(f"\nCategorias restantes: {len(restantes)}/{len(CATEGORIAS)}")
-    print(f"Cidades a processar: {len(CIDADES)}")
-    print(f"Comércios já mapeados: {len(todos)}")
-    if em_andamento:
-        print(f"Em andamento: {list(em_andamento.keys())}\n")
+        # Carregar nomes já existentes no CSV para evitar duplicatas
+        nomes_existentes = load_nomes_existentes(output_dir)
+        if nomes_existentes:
+            print(f"\n  {len(nomes_existentes)} comércios já existem no CSV (serão pulados)")
 
-    if not restantes and not em_andamento:
-        print("Todas as categorias já foram buscadas!")
-        print("Delete output/playwright/progresso.json para recomeçar.\n")
+        # Formato antigo de progresso (cidade única) - migra para novo formato
+        if not feitas and not em_andamento and not todos:
+            print("\n[!] Progresso antigo detectado. Resetando para nova estrutura multi-cidade.")
+            print("    Todas as cidades e categorias serão reprocessadas.\n")
 
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(
-            headless=False,
-            args=["--disable-blink-features=AutomationControlled"],
-        )
-        ctx = await browser.new_context(
-            viewport={"width": 1366, "height": 768},
-            locale="pt-BR",
-            user_agent=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/122.0.0.0 Safari/537.36"
-            ),
-        )
-        page = await ctx.new_page()
+        # Adiciona categorias em andamento às restantes (para continuar)
+        restantes = [c for c in categorias if c not in feitas]
+        print(f"\nCategorias restantes: {len(restantes)}/{len(categorias)}")
+        print(f"Locais a processar: {len(locais)}")
+        print(f"Comércios já mapeados: {len(todos)}")
+        if em_andamento:
+            print(f"Em andamento: {list(em_andamento.keys())}\n")
 
-        # Abre o Google Maps e aceita cookies iniciais
-        try:
-            await page.goto("https://www.google.com/maps", wait_until="domcontentloaded", timeout=45000)
-        except Exception as e:
-            print(f"[!] Timeout ao carregar Maps. Tentando novamente... ({e})")
-            await page.goto("https://www.google.com/maps", wait_until="commit", timeout=30000)
-        await asyncio.sleep(3)
-        await aceitar_cookies(page)
-        await asyncio.sleep(1)
+        if not restantes and not em_andamento:
+            print("Todas as categorias já foram buscadas!")
+            print(f"Delete {output_dir / 'progresso.json'} para recomeçar.\n")
+            continue
 
-        # Itera sobre cada cidade e cada categoria
-        total_tarefas = len(CIDADES) * len(CATEGORIAS)
-        tarefa_atual = 0
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(
+                headless=False,
+                args=["--disable-blink-features=AutomationControlled"],
+            )
+            ctx = await browser.new_context(
+                viewport={"width": 1366, "height": 768},
+                locale="pt-BR",
+                user_agent=(
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/122.0.0.0 Safari/537.36"
+                ),
+            )
+            page = await ctx.new_page()
 
-        for cidade_idx, cidade in enumerate(CIDADES):
-            print(f"\n{'='*60}")
-            print(f"  CIDADE {cidade_idx+1}/{len(CIDADES)}: {cidade}")
-            print(f"{'='*60}")
+            # Abre o Google Maps e aceita cookies iniciais
+            try:
+                await page.goto("https://www.google.com/maps", wait_until="domcontentloaded", timeout=45000)
+            except Exception as e:
+                print(f"[!] Timeout ao carregar Maps. Tentando novamente... ({e})")
+                await page.goto("https://www.google.com/maps", wait_until="commit", timeout=30000)
+            await asyncio.sleep(3)
+            await aceitar_cookies(page)
+            await asyncio.sleep(1)
 
-            for cat_idx, cat in enumerate(CATEGORIAS):
-                tarefa_atual += 1
+            # Itera sobre cada local e cada categoria
+            total_tarefas = len(locais) * len(categorias)
+            tarefa_atual = 0
 
-                # Pula categorias já concluídas
-                chave_progresso = f"{cidade}::{cat}"
-                if chave_progresso in feitas:
-                    continue
+            for local_idx, local in enumerate(locais):
+                print(f"\n{'='*60}")
+                print(f"  [{regiao.label}] LOCAL {local_idx+1}/{len(locais)}: {local}")
+                print(f"{'='*60}")
 
-                print(f"\n[{tarefa_atual}/{total_tarefas}] {cidade} - {cat}")
+                for cat_idx, cat in enumerate(categorias):
+                    tarefa_atual += 1
 
-                # Verifica se já estava em andamento
-                start_idx = 0
-                if chave_progresso in em_andamento:
-                    start_idx = em_andamento[chave_progresso].get("indice", 0)
-                    print(f"  > Continuando do índice {start_idx}")
+                    # Pula categorias já concluídas
+                    chave_progresso = f"{local}::{cat}"
+                    if chave_progresso in feitas:
+                        continue
 
-                try:
-                    resultados = await buscar_categoria(page, cat, cidade, start_index=start_idx, progress=progress, nomes_existentes=nomes_existentes)
+                    print(f"\n[{tarefa_atual}/{total_tarefas}] [{regiao.key}] {local} - {cat}")
 
-                    # Marca categoria como completa
+                    # Verifica se já estava em andamento
+                    start_idx = 0
                     if chave_progresso in em_andamento:
-                        del em_andamento[chave_progresso]
-                    feitas.add(chave_progresso)
-                    progress["categorias_prontas"] = list(feitas)
-                    progress["categorias_em_andamento"] = em_andamento
-                    save_progress(progress)
+                        start_idx = em_andamento[chave_progresso].get("indice", 0)
+                        print(f"  > Continuando do índice {start_idx}")
 
-                    # Conta sem site (do progresso atualizado)
-                    sem = sum(1 for c in progress["comercios"] if c["categoria"] == cat and c.get("cidade") == cidade and not c["tem_site"])
-                    todos_categoria = [c for c in progress["comercios"] if c["categoria"] == cat and c.get("cidade") == cidade]
-                    print(f"  > {len(todos_categoria)} encontrados | {sem} sem site")
-
-                except Exception as e:
-                    print(f"  X Erro geral: {e}")
-                    # Tenta navegar de volta ao Maps
                     try:
-                        await page.goto("https://www.google.com/maps", wait_until="commit", timeout=15000)
-                    except Exception:
-                        pass
-                    continue
+                        resultados = await buscar_categoria(
+                            page, cat, local,
+                            start_index=start_idx,
+                            progress=progress,
+                            nomes_existentes=nomes_existentes,
+                            max_results=max_results,
+                            output_dir=output_dir,
+                        )
 
-                delay = random.uniform(DELAY_MIN, DELAY_MAX)
-                print(f"  Aguardando {delay:.1f}s...")
-                await asyncio.sleep(delay)
+                        # Marca categoria como completa
+                        if chave_progresso in em_andamento:
+                            del em_andamento[chave_progresso]
+                        feitas.add(chave_progresso)
+                        progress["categorias_prontas"] = list(feitas)
+                        progress["categorias_em_andamento"] = em_andamento
+                        save_progress(progress, output_dir)
 
-        await browser.close()
+                        # Conta sem site (do progresso atualizado)
+                        sem = sum(1 for c in progress["comercios"] if c["categoria"] == cat and c.get("cidade") == local and not c["tem_site"])
+                        todos_categoria = [c for c in progress["comercios"] if c["categoria"] == cat and c.get("cidade") == local]
+                        print(f"  > {len(todos_categoria)} encontrados | {sem} sem site")
 
-    # ── Exporta resultados ──────────────────────────────────────────
-    # Recarrega o progresso para ter dados atualizados
-    progress = load_progress()
-    todos = progress.get("comercios", [])
+                    except Exception as e:
+                        print(f"  X Erro geral: {e}")
+                        # Tenta navegar de volta ao Maps
+                        try:
+                            await page.goto("https://www.google.com/maps", wait_until="commit", timeout=15000)
+                        except Exception:
+                            pass
+                        continue
 
-    if not todos:
-        print("\nNenhum comércio novo encontrado.")
-        return
+                    delay = random.uniform(DELAY_MIN, DELAY_MAX)
+                    print(f"  Aguardando {delay:.1f}s...")
+                    await asyncio.sleep(delay)
 
-    # Mesclar com comércios já existentes no CSV
-    existentes_csv = []
-    if EXISTING_CSV.exists():
-        with open(EXISTING_CSV, encoding="utf-8-sig") as f:
-            existentes_csv = list(csv.DictReader(f))
+            await browser.close()
 
-    # Criar set de chaves dos novos para evitar duplicatas na mesclagem
-    novos_nomes = set()
-    for c in todos:
-        novos_nomes.add(f"{c['nome'].lower().strip()}|{c.get('cidade', '').lower().strip()}")
+        # ── Exporta resultados ──────────────────────────────────────────
+        # Recarrega o progresso para ter dados atualizados
+        progress = load_progress(output_dir)
+        todos = progress.get("comercios", [])
 
-    # Filtrar existentes que não estão nos novos
-    mantidos = [c for c in existentes_csv
-                if f"{c['nome'].lower().strip()}|{c.get('cidade', '').lower().strip()}" not in novos_nomes]
+        if not todos:
+            print("\nNenhum comércio novo encontrado.")
+            continue
 
-    todos_final = mantidos + todos
-    print(f"\n  Mesclando: {len(mantidos)} existentes + {len(todos)} novos = {len(todos_final)} total")
+        # Mesclar com comércios já existentes no CSV
+        existing_csv = output_dir / "todos_comercios.csv"
+        existentes_csv = []
+        if existing_csv.exists():
+            with open(existing_csv, encoding="utf-8-sig") as f:
+                existentes_csv = list(csv.DictReader(f))
 
-    # Todos os comércios
-    export_csv(todos_final, "todos_comercios.csv")
-    print(f"\n✓ CSV completo: output/playwright/todos_comercios.csv")
+        # Criar set de chaves dos novos para evitar duplicatas na mesclagem
+        novos_nomes = set()
+        for c in todos:
+            novos_nomes.add(f"{c['nome'].lower().strip()}|{c.get('cidade', '').lower().strip()}")
 
-    # Leads sem site
-    sem_site = [c for c in todos_final if not c["tem_site"]]
-    if sem_site:
-        export_csv(sem_site, "leads_sem_site.csv")
-        print(f"✓ CSV leads:    output/playwright/leads_sem_site.csv")
+        # Filtrar existentes que não estão nos novos
+        mantidos = [c for c in existentes_csv
+                    if f"{c['nome'].lower().strip()}|{c.get('cidade', '').lower().strip()}" not in novos_nomes]
 
-        xlsx = export_excel(sem_site, "leads_sem_site.xlsx")
-        if xlsx:
-            print(f"✓ Excel leads:  {xlsx}")
+        todos_final = mantidos + todos
+        print(f"\n  Mesclando: {len(mantidos)} existentes + {len(todos)} novos = {len(todos_final)} total")
 
-    # Resumo
-    com_site = len(todos_final) - len(sem_site)
-    taxa = (len(sem_site) / len(todos_final) * 100) if todos_final else 0
-    print(f"\n{'='*50}")
-    print(f"  RESUMO FINAL - BAIXADA FLUMINENSE")
-    print(f"  Total mapeados:     {len(todos_final)}")
-    print(f"  COM site:           {com_site}")
-    print(f"  SEM site (leads):   {len(sem_site)}")
-    print(f"  Taxa de prospecção: {taxa:.1f}%")
-    print(f"{'='*50}")
+        # Todos os comércios
+        export_csv(todos_final, "todos_comercios.csv", output_dir)
+        print(f"\n  CSV completo: {output_dir / 'todos_comercios.csv'}")
 
-    # Estatísticas por cidade
-    print(f"\n  ESTATÍSTICAS POR CIDADE:")
-    print(f"  {'-'*50}")
-    for cidade in CIDADES:
-        da_cidade = [c for c in todos_final if c.get("cidade") == cidade]
-        sem_site_cidade = [c for c in da_cidade if not c["tem_site"]]
-        if da_cidade:
-            print(f"  {cidade.split(',')[0]:20s}: {len(da_cidade):4d} total | {len(sem_site_cidade):4d} sem site")
-    print(f"{'='*50}")
+        # Leads sem site
+        sem_site = [c for c in todos_final if not c["tem_site"]]
+        if sem_site:
+            export_csv(sem_site, "leads_sem_site.csv", output_dir)
+            print(f"  CSV leads:    {output_dir / 'leads_sem_site.csv'}")
+
+            xlsx = export_excel(sem_site, "leads_sem_site.xlsx", output_dir)
+            if xlsx:
+                print(f"  Excel leads:  {xlsx}")
+
+        # Resumo
+        com_site = len(todos_final) - len(sem_site)
+        taxa = (len(sem_site) / len(todos_final) * 100) if todos_final else 0
+        print(f"\n{'='*50}")
+        print(f"  RESUMO FINAL - {regiao.label.upper()}")
+        print(f"  Total mapeados:     {len(todos_final)}")
+        print(f"  COM site:           {com_site}")
+        print(f"  SEM site (leads):   {len(sem_site)}")
+        print(f"  Taxa de prospecção: {taxa:.1f}%")
+        print(f"{'='*50}")
+
+        # Estatísticas por local
+        print(f"\n  ESTATÍSTICAS POR LOCAL:")
+        print(f"  {'-'*50}")
+        for local in locais:
+            da_local = [c for c in todos_final if c.get("cidade") == local]
+            sem_site_local = [c for c in da_local if not c["tem_site"]]
+            if da_local:
+                print(f"  {local.split(',')[0]:20s}: {len(da_local):4d} total | {len(sem_site_local):4d} sem site")
+        print(f"{'='*50}")
 
 
 if __name__ == "__main__":

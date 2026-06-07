@@ -28,12 +28,16 @@ O projeto automatiza todo o funil de prospecção:
 ├── processar_leads.py           # Processa leads do Apify -> CSV/XLSX
 ├── gerar_templates.py           # Gera 40+ templates HTML por categoria
 ├── envio_emails_zoho.py         # Envia campanhas via Zoho Mail SMTP
+├── import_leads_to_supabase.py   # 🔥 Importa leads do Excel para o Supabase
+├── importar_historico_whatsapp.py # 🔥 Importa histórico WhatsApp para o Supabase
+├── marcar_lead_enviado.py       # 🔥 Marca lead como abordado no Supabase
 ├── testar_sistema.py            # Teste geral (env, Supabase, templates)
 ├── testar_templates.py          # Teste dos templates gerados
 ├── teste_email_supabase.py      # Teste de integração email + Supabase
 ├── executar.bat                 # Setup + execução com 1 clique (Windows)
 ├── requirements.txt             # Dependências Python
-├── supabase_schema.sql          # Schema do banco Supabase
+├── supabase_schema.sql          # Schema do banco Supabase (emails)
+├── supabase/schema.sql          # Schema do banco Supabase (leads)
 ├── supabase_edge_function_track.ts  # Edge Function de tracking pixel
 │
 ├── templates/                   # 41 templates HTML de email por categoria
@@ -222,7 +226,7 @@ Lê `output/prospeccao/leads_prospeccao.xlsx` e gera uma planilha filtrada com o
 | Tipo de Material | Vídeo/print de demo para enviar |
 | Status | novo / contatado / respondido / agendado / fechado / perdido |
 | Data Abordagem | Preencher quando abordar |
-| Data Follow-up | 2 dias depois da data atual |
+| Data Follow-up | 7 dias depois da data atual |
 | Observações | Anotações livres |
 
 **Ação recomendada por prioridade:**
@@ -321,6 +325,47 @@ python envio_emails_zoho.py
 ## 40 Categorias
 
 Restaurante, Salão de Beleza, Barbearia, Clínica Médica, Oficina Mecânica, Pet Shop, Loja de Roupas, Padaria, Pizzaria, Bar, Farmácia, Dentista, Advogado, Contador, Imobiliária, Academia, Lanchonete, Supermercado, Material de Construção, Auto Escola, Lavanderia, Floricultura, Ótica, Joalheria, Clínica Veterinária, Estética, Loja de Celulares, Loja de Móveis, Papelaria, Loja de Bicicleta, Confeitaria, Serralheria, Vidraçaria, Pintor, Eletricista, Encanador, Marcenaria, Escola de Idiomas, Curso Pré-Vestibular, Estúdio de Pilates.
+
+## Controle de Leads no Supabase
+
+O Supabase é a fonte da verdade para status e histórico de contato dos leads. Antes de abordar alguém, consulte o Supabase para evitar abordar o mesmo número duas vezes.
+
+### Setup
+
+1. Execute `supabase/schema.sql` no [SQL Editor do Supabase](https://supabase.com/dashboard/project/ivqaccppqcchqshaplao/sql)
+2. Instale dependências: `pip install supabase python-dotenv`
+3. Certifique-se que `.env` tem `SUPABASE_URL` e `SUPABASE_ANON_KEY`
+
+### Importar leads
+
+```bash
+# Da planilha mais recente
+python import_leads_to_supabase.py
+
+# De um arquivo específico
+python import_leads_to_supabase.py --arquivo output/campanhas/campanha_diaria.xlsx
+```
+
+### Importar histórico WhatsApp
+
+```bash
+# Com CSV no formato: telefone,status,observacao
+python importar_historico_whatsapp.py --arquivo historico_whatsapp.csv
+```
+
+### Marcar lead como enviado
+
+```bash
+python marcar_lead_enviado.py --telefone 21999999999 --mensagem "Oi, vi seu salão no Google..."
+```
+
+### Documentação completa
+
+Consulte `docs/SUPABASE_LEADS.md` para detalhes sobre:
+- Criação das tabelas
+- Lógica de deduplicação (telefone_normalizado)
+- Fluxo de status
+- Interações (audit trail)
 
 ## Troubleshooting
 

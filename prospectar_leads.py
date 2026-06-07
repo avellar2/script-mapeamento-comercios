@@ -13,6 +13,10 @@ import sys
 from pathlib import Path
 from urllib.parse import quote
 
+from config.regioes import resolve_regiao, get_output_dir
+from config.franquia import detectar_franquia, classificar_tipo_cliente, score_penalidade_franquia
+from config.mensagens import gerar_mensagem_whatsapp
+
 try:
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -35,115 +39,19 @@ CONSOLIDADO_DIR = OUTPUT_DIR / "consolidado"
 PROSPECCAO_DIR = OUTPUT_DIR / "prospeccao"
 
 
-# ── Franquias conhecidas ──────────────────────────────────────────
-
-FRANQUIAS_GRANDES = [
-    "mcdonald", "burger king", "subway", "habib", "bob's", "kfc",
-    "pizza hut", "domino", "starbucks", "giraffas", "spoleto",
-    "outback", "applebee", "wendy", "taco bell", "baskin robbins",
-    "cold stone", "nutrella", "camarao", "madero", "supermercado zaffari",
-    "pao de acucar", "extra hiper", "carrefour", "assaí atacadista",
-    "atacadao", "big", "mercado livre", "magazine luiza", "americanas",
-    "casas bahia", "pontofrio", "extra", "renner", "riachuelo",
-    "c&a", "marisa", "arezzo", "track&field", "vivolo",
-    "smartfit", "bluefit", "bodytech", "formula academia",
-    "odontoprev", "oral uni", "sorriso", "dentsply",
-    "cabana", "farroupilha", "churrascaria rodizio",
-    "porcao", "fogo de chao", "chama gaucho",
-    "ifood", "rappi", "99food", "ubereats",
-]
-
-NICHOS_BONS_LANDING = [
-    "barbearia", "salao de beleza", "salão de beleza", "estetica", "estética",
-    "manicure", "sobrancelha", "restaurante", "marmitaria", "pizzaria",
-    "açai", "açaí", "lanchonete", "confeitaria", "padaria", "churrascaria",
-    "bar", "igreja", "evento", "advogado", "autônomo", "autonomo",
-    "assistencia tecnica", "assistência técnica", "oficina mecanica",
-    "oficina mecânica", "pet shop", "clinica veterinaria", "clínica veterinária",
-    "auto escola", "academia", "estúdio de pilates", "estudio de pilates",
-    "dentista", "clinica medica", "clínica médica",
-]
-
-OFERTA_POR_NICHO = {
-    # Página de Agendamento
-    "barbearia": "Página de Agendamento",
-    "salão de beleza": "Página de Agendamento",
-    "salao de beleza": "Página de Agendamento",
-    "estética": "Página de Agendamento",
-    "estetica": "Página de Agendamento",
-    "manicure": "Página de Agendamento",
-    "sobrancelha": "Página de Agendamento",
-    "clínica médica": "Página de Agendamento",
-    "clinica medica": "Página de Agendamento",
-    "estúdio de pilates": "Página de Agendamento",
-    "estudio de pilates": "Página de Agendamento",
-    "academia": "Página de Agendamento",
-    # Cardápio Digital
-    "restaurante": "Cardápio Digital",
-    "marmitaria": "Cardápio Digital",
-    "pizzaria": "Cardápio Digital",
-    "açai": "Cardápio Digital",
-    "açaí": "Cardápio Digital",
-    "lanchonete": "Cardápio Digital",
-    "confeitaria": "Cardápio Digital",
-    "padaria": "Cardápio Digital",
-    "churrascaria": "Cardápio Digital",
-    "bar": "Cardápio Digital",
-    # Página de Evento
-    "igreja": "Página de Evento",
-    "evento": "Página de Evento",
-    # Mini Site Profissional
-    "advogado": "Mini Site Profissional",
-    "autônomo": "Mini Site Profissional",
-    "autonomo": "Mini Site Profissional",
-    "assistência técnica": "Mini Site Profissional",
-    "assistencia tecnica": "Mini Site Profissional",
-    "contador": "Mini Site Profissional",
-    "eletricista": "Mini Site Profissional",
-    "encanador": "Mini Site Profissional",
-    "pintor": "Mini Site Profissional",
-    "marcenaria": "Mini Site Profissional",
-    "serralheria": "Mini Site Profissional",
-    "vidraçaria": "Mini Site Profissional",
-    "material de construção": "Mini Site Profissional",
-    # Mini Site Profissional - serviços
-    "oficina mecânica": "Mini Site Profissional",
-    "oficina mecanica": "Mini Site Profissional",
-    "dentista": "Mini Site Profissional",
-    "pet shop": "Mini Site Profissional",
-    "clínica veterinária": "Mini Site Profissional",
-    "clinica veterinaria": "Mini Site Profissional",
-    "auto escola": "Mini Site Profissional",
-    "escola de idiomas": "Mini Site Profissional",
-    "curso pré-vestibular": "Mini Site Profissional",
-    # Página de Agendamento - mais serviços
-    "floricultura": "Mini Site Vendedor",
-    "ótica": "Mini Site Vendedor",
-    "otica": "Mini Site Vendedor",
-    "joalheria": "Mini Site Vendedor",
-    "loja de roupas": "Mini Site Vendedor",
-    "loja de celulares": "Mini Site Vendedor",
-    "loja de móveis": "Mini Site Vendedor",
-    "loja de moveis": "Mini Site Vendedor",
-    "loja de bicicleta": "Mini Site Vendedor",
-    "papelaria": "Mini Site Vendedor",
-    "farmácia": "Mini Site Vendedor",
-    "farmacia": "Mini Site Vendedor",
-    "supermercado": "Mini Site Vendedor",
-    "lavanderia": "Mini Site Vendedor",
-    "imobiliária": "Mini Site Vendedor",
-    "imobiliaria": "Mini Site Vendedor",
-}
-
-
 # ── Funções de Score ──────────────────────────────────────────────
 
-def eh_franquia(nome):
-    nome_lower = nome.lower()
-    for f in FRANQUIAS_GRANDES:
-        if f in nome_lower:
-            return True
-    return False
+def eh_franquia(nome, regiao=None):
+    """Verifica se o nome corresponde a uma franquia usando a lista da regiao ou detectar_franquia."""
+    if regiao is not None:
+        nome_lower = nome.lower()
+        for f in regiao.franquias_grandes:
+            if f in nome_lower:
+                return True
+        return False
+    # Fallback: usa detectar_franquia estruturado
+    resultado = detectar_franquia(nome)
+    return resultado.possivel_franquia
 
 
 def site_profissional(url_site):
@@ -163,7 +71,7 @@ def site_profissional(url_site):
     return False
 
 
-def calcular_score(lead):
+def calcular_score(lead, regiao=None):
     score = 0
 
     # +30 se não tiver site
@@ -198,33 +106,53 @@ def calcular_score(lead):
     if instagram:
         score += 10
 
-    # +10 se for nicho bom para landing page
+    # +10 se for nicho bom para landing page (usa lista da regiao)
     nicho = str(lead.get("categoria", "")).strip().lower()
-    if any(n in nicho for n in NICHOS_BONS_LANDING):
+    nichos_landing = regiao.nichos_bons_landing if regiao else []
+    if any(n in nicho for n in nichos_landing):
         score += 10
 
-    # -30 se for franquia grande
-    nome = str(lead.get("nome", "")).strip()
-    if eh_franquia(nome):
-        score -= 30
+    # Bonus de regiao (0 baixada, +10 rio_premium)
+    if regiao:
+        score += regiao.score_peso_regiao
 
-    # -20 se já tiver site aparentemente profissional
+    # +10 se nicho high-ticket
+    if regiao and any(n in nicho for n in regiao.nichos_high_ticket):
+        score += 10
+
+    # Penalidade variavel por franquia (usando detectar_franquia)
+    nome = str(lead.get("nome", "")).strip()
+    resultado_franquia = detectar_franquia(
+        nome,
+        endereco=str(lead.get("endereco", "")).strip(),
+        site=str(lead.get("url_site", "")).strip(),
+        instagram=str(lead.get("instagram", "")).strip(),
+    )
+    penalidade = score_penalidade_franquia(resultado_franquia.nivel_confianca)
+    score -= penalidade
+
+    # -25 se já tiver site aparentemente profissional
     url_site = str(lead.get("url_site", "")).strip()
     if site_profissional(url_site):
-        score -= 20
+        score -= 25
+
+    # Armazena dados de franquia no lead para uso posterior
+    lead["possivel_franquia"] = resultado_franquia.possivel_franquia
+    lead["confianca_franquia"] = resultado_franquia.nivel_confianca
+    lead["motivos_franquia"] = "; ".join(resultado_franquia.motivos) if resultado_franquia.motivos else ""
 
     return max(0, min(100, score))
 
 
 def classificar_prioridade(score):
-    if score >= 70:
+    if score >= 75:
         return "Alta"
-    elif score >= 40:
+    elif score >= 50:
         return "Média"
     return "Baixa"
 
 
-def gerar_motivo_prioridade(lead, score):
+def gerar_motivo_prioridade(lead, score, regiao=None):
     motivos = []
 
     tem_site = str(lead.get("tem_site", "")).strip().lower()
@@ -261,86 +189,45 @@ def gerar_motivo_prioridade(lead, score):
     if instagram:
         motivos.append("tem Instagram")
 
-    if any(n in nicho for n in NICHOS_BONS_LANDING):
+    nichos_landing = regiao.nichos_bons_landing if regiao else []
+    if any(n in nicho for n in nichos_landing):
         motivos.append("nicho promissor")
 
+    if regiao and any(n in nicho for n in regiao.nichos_high_ticket):
+        motivos.append("nicho high-ticket")
+
     # Pontos negativos
-    if eh_franquia(nome):
-        motivos.append("franquia grande")
+    resultado_franquia = detectar_franquia(
+        nome,
+        endereco=str(lead.get("endereco", "")).strip(),
+        site=url_site,
+        instagram=instagram,
+    )
+    if resultado_franquia.possivel_franquia:
+        motivos.append(f"possivel franquia ({resultado_franquia.nivel_confianca})")
 
     if site_profissional(url_site):
         motivos.append("site profissional")
 
-    if score < 40:
+    if score < 50:
         if not motivos:
             motivos.append("lead fraco sem diferenciais")
-    elif score >= 70:
+    elif score >= 75:
         if not motivos:
             motivos.append("lead qualificado")
 
     return " | ".join(motivos) if motivos else "lead sem dados suficientes"
 
 
-def gerar_oferta_sugerida(lead):
+def gerar_oferta_sugerida(lead, regiao=None):
     nicho = str(lead.get("categoria", "")).strip().lower()
-    if nicho in OFERTA_POR_NICHO:
-        return OFERTA_POR_NICHO[nicho]
+    oferta_map = regiao.oferta_por_nicho if regiao else {}
+    if nicho in oferta_map:
+        return oferta_map[nicho]
+    # Fallback baseado na regiao
+    if regiao and regiao.key == "rio_premium":
+        return "Mini Site Profissional Premium"
     return "Mini Site Vendedor"
-
-
-def gerar_mensagem_whatsapp(lead):
-    nome = str(lead.get("nome", "")).strip()
-    oferta = gerar_oferta_sugerida(lead)
-    tem_site = str(lead.get("tem_site", "")).strip().lower()
-    telefone = str(lead.get("telefone", "")).strip()
-    whatsapp = str(lead.get("whatsapp", "")).strip()
-
-    try:
-        avaliacao = float(str(lead.get("avaliacao", "0")).replace(",", "."))
-    except (ValueError, TypeError):
-        avaliacao = 0
-
-    try:
-        num_avaliacoes = int(re.sub(r"\D", "", str(lead.get("num_avaliacoes", "0"))))
-    except (ValueError, TypeError):
-        num_avaliacoes = 0
-
-    tem_contato = bool(telefone or whatsapp)
-
-    # Constrói a mensagem com base no perfil do lead
-    partes = [f"Oi, tudo bem? Vi a {nome} no Google"]
-
-    if avaliacao >= 4.0 and num_avaliacoes > 5:
-        partes.append(f"e percebi que vocês têm boas avaliações ({avaliacao:.1f} estrelas)")
-    else:
-        partes.append("e notei algo que pode estar afastando clientes")
-
-    sem_site = tem_site in ("false", "f", "0", "", "não", "nao", "n")
-    if sem_site:
-        partes.append(
-            "mas ainda não encontrei uma página simples com serviços, fotos, "
-            "localização e botão direto para WhatsApp"
-        )
-    else:
-        partes.append(
-            "mas a página atual parece não estar trazendo os resultados que vocês merecem"
-        )
-
-    partes.append(
-        "Quando o cliente precisa procurar muito essas informações, "
-        "ele pode acabar chamando outro lugar"
-    )
-
-    if oferta == "Cardápio Digital":
-        partes.append(f"Eu crio {oferta.lower()}s profissionais para negócios como o seu")
-    elif oferta == "Página de Agendamento":
-        partes.append(f"Eu crio {oferta.lower()}s profissionais para negócios locais")
-    else:
-        partes.append("Eu crio páginas profissionais para negócios locais")
-
-    partes.append("Posso te mandar uma prévia visual de como ficaria?")
-
-    return " ".join(partes)
 
 
 def limpar_telefone(telefone):
@@ -562,7 +449,7 @@ FONTES_PRIORIDADE = {
 }
 
 
-def exportar_excel(leads, caminho_saida):
+def exportar_excel(leads, caminho_saida, regiao=None):
     PROSPECCAO_DIR.mkdir(parents=True, exist_ok=True)
 
     wb = Workbook()
@@ -574,6 +461,7 @@ def exportar_excel(leads, caminho_saida):
     colunas = [
         ("Prioridade", 14),
         ("Score", 8),
+        ("Regiao", 14),
         ("Nome", 38),
         ("Nicho", 22),
         ("Cidade", 20),
@@ -588,6 +476,10 @@ def exportar_excel(leads, caminho_saida):
         ("Endereço", 45),
         ("Link Maps", 45),
         ("Oferta Sugerida", 24),
+        ("Possivel Franquia", 18),
+        ("Confianca Franquia", 18),
+        ("Motivos Franquia", 40),
+        ("Tipo Cliente", 20),
         ("Motivo Prioridade", 50),
         ("Mensagem WhatsApp", 80),
         ("Link WhatsApp", 120),
@@ -622,6 +514,7 @@ def exportar_excel(leads, caminho_saida):
         valores = [
             prioridade,
             score,
+            lead.get("regiao", ""),
             lead.get("nome", ""),
             lead.get("categoria", ""),
             lead.get("cidade", ""),
@@ -636,6 +529,10 @@ def exportar_excel(leads, caminho_saida):
             lead.get("endereco", ""),
             lead.get("link_maps", ""),
             lead.get("oferta_sugerida", ""),
+            "Sim" if lead.get("possivel_franquia") else "Nao",
+            lead.get("confianca_franquia", ""),
+            lead.get("motivos_franquia", ""),
+            lead.get("tipo_cliente", ""),
             lead.get("motivo_prioridade", ""),
             lead.get("mensagem_whatsapp", ""),
             lead.get("link_whatsapp", ""),
@@ -645,7 +542,7 @@ def exportar_excel(leads, caminho_saida):
         for col_idx, valor in enumerate(valores, 1):
             cell = ws.cell(row=row_idx, column=col_idx, value=valor)
             cell.border = thin_border
-            cell.alignment = Alignment(vertical="center", wrap_text=(col_idx >= 16))
+            cell.alignment = Alignment(vertical="center", wrap_text=(col_idx >= 18))
 
             # Cor da prioridade na coluna 1
             if col_idx == 1 and prioridade in CORES_PRIORIDADE:
@@ -762,7 +659,7 @@ def exportar_excel(leads, caminho_saida):
         ws_resumo.cell(row=row, column=3, value=len([l for l in do_nicho if l.get("prioridade") == "Alta"]))
         ws_resumo.cell(row=row, column=4, value=len([l for l in do_nicho if l.get("prioridade") == "Média"]))
         ws_resumo.cell(row=row, column=5, value=len([l for l in do_nicho if l.get("prioridade") == "Baixa"]))
-        ws_resumo.cell(row=row, column=6, value=gerar_oferta_sugerida({"categoria": nicho}))
+        ws_resumo.cell(row=row, column=6, value=gerar_oferta_sugerida({"categoria": nicho}, regiao=regiao))
 
     # Por oferta sugerida
     row += 2
@@ -802,16 +699,24 @@ def exportar_excel(leads, caminho_saida):
 
 # ── Processamento Principal ───────────────────────────────────────
 
-def processar_leads(leads):
+def gerar_mensagem_whatsapp_fallback(lead):
+    """Fallback simples quando regiao nao esta disponivel (compatibilidade)."""
+    from config.regioes import BAIXADA
+    return gerar_mensagem_whatsapp(lead, BAIXADA)
+
+
+def processar_leads(leads, regiao=None):
     print(f"\n  Processando {len(leads)} leads...")
+    if regiao:
+        print(f"  Regiao: {regiao.label}")
 
     leads_processados = []
     for lead in leads:
-        score = calcular_score(lead)
+        score = calcular_score(lead, regiao=regiao)
         prioridade = classificar_prioridade(score)
-        motivo = gerar_motivo_prioridade(lead, score)
-        oferta = gerar_oferta_sugerida(lead)
-        mensagem = gerar_mensagem_whatsapp(lead)
+        motivo = gerar_motivo_prioridade(lead, score, regiao=regiao)
+        oferta = gerar_oferta_sugerida(lead, regiao=regiao)
+        mensagem = gerar_mensagem_whatsapp(lead, regiao) if regiao else gerar_mensagem_whatsapp_fallback(lead)
         link = gerar_link_whatsapp(lead, mensagem)
 
         lead["score"] = score
@@ -820,6 +725,8 @@ def processar_leads(leads):
         lead["oferta_sugerida"] = oferta
         lead["mensagem_whatsapp"] = mensagem
         lead["link_whatsapp"] = link
+        lead["regiao"] = regiao.key if regiao else "baixada"
+        lead["tipo_cliente"] = classificar_tipo_cliente(lead)
 
         leads_processados.append(lead)
 
@@ -831,6 +738,8 @@ def main():
     parser = argparse.ArgumentParser(description="Prospecção de Leads - Gerador de Planilha Qualificada")
     parser.add_argument("--arquivo", help="Caminho para o CSV de entrada (padrão: busca automaticamente)")
     parser.add_argument("--saida", default="leads_prospeccao.xlsx", help="Nome do arquivo Excel de saída")
+    parser.add_argument("--regiao", choices=["baixada", "rio_premium", "todas"], default=None,
+                        help="Regiao de prospeccao (padrao: baixada)")
     args = parser.parse_args()
 
     # Força UTF-8 no Windows
@@ -848,10 +757,19 @@ def main():
     print(f"\n  Arquivo: {arquivo}")
     print(f"  Tamanho: {arquivo.stat().st_size / 1024:.1f} KB")
 
+    # Resolve regiao
+    regioes = resolve_regiao(args.regiao)
+    regiao = regioes[0]  # Para processamento, usa a primeira regiao
+
     leads = carregar_dados(arquivo)
     print(f"  Leads carregados: {len(leads)}")
+    print(f"  Regiao: {regiao.label}")
 
-    leads = processar_leads(leads)
+    # Marca origem no lead
+    for lead in leads:
+        lead["origem"] = regiao.key
+
+    leads = processar_leads(leads, regiao=regiao)
 
     # Estatísticas rápidas
     alta = sum(1 for l in leads if l.get("prioridade") == "Alta")
@@ -865,12 +783,12 @@ def main():
     print(f"  Baixa prioridade: {baixa}")
     print(f"  Com link WhatsApp: {com_whatsapp}")
 
-    # Exporta
-    PROSPECCAO_DIR.mkdir(parents=True, exist_ok=True)
-    caminho_saida = PROSPECCAO_DIR / args.saida
-    exportar_excel(leads, caminho_saida)
+    # Exporta para diretorio da regiao
+    output_dir = get_output_dir(regiao.key, "prospeccao")
+    caminho_saida = output_dir / args.saida
+    exportar_excel(leads, caminho_saida, regiao=regiao)
 
-    print(f"\n  ✓ Excel exportado: {caminho_saida}")
+    print(f"\n  Excel exportado: {caminho_saida}")
     print(f"{'=' * 60}")
 
     # Top 10 leads
