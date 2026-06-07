@@ -1,25 +1,7 @@
-# Python
+.env
+.whatsapp_profile
+.whatsapp_business_profile
+fix_discord_env.py
 __pycache__/
 *.pyc
-*.pyo
-*.pyd
-
-# Playwright
-.ms-playwright/
-
-# WhatsApp profiles (sessao do navegador)
-.whatsapp_profile/
-.whatsapp_business_profile/
-
-# Dependencies
-node_modules/
-frontend/node_modules/
-
-# IDE
-.vscode/
-.idea/
-*.swp
-.env
-.gstack/
-.claude/
-.mcp.json
+output/playwright/progresso.json
