@@ -109,6 +109,18 @@ Quando o Hermes perguntar "qual sua memória?", responder os ponteiros abaixo no
 
 ---
 
+## Como usar esse MD com o Hermes
+
+Quando estiver no trabalho, mande esta mensagem no Discord:
+
+```
+@bot1512676735886426262 Leia o arquivo C:\projetos\script-mapeamento-comercios\docs\SETUP_TRABALHO.md e me guie passo a passo
+```
+
+O Hermes vai ler o MD e te orientar em cada etapa. ✅
+
+---
+
 ## Comandos úteis
 
 | Pra quê | Comando |
