@@ -1,0 +1,8 @@
+{"ts":"2026-05-21T14:36:49.301Z","cmd":"status","args":"","origin":"http://127.0.0.1:34567/welcome","durationMs":2,"status":"ok","hasCookies":false,"mode":"headed"}
+{"ts":"2026-05-21T14:36:54.280Z","cmd":"goto","args":"http://localhost:8000/index.html","origin":"http://localhost:8000/index.html","durationMs":385,"status":"ok","hasCookies":false,"mode":"headed"}
+{"ts":"2026-05-21T14:37:03.157Z","cmd":"snapshot","args":"-i","origin":"http://localhost:8000/index.html","durationMs":502,"status":"ok","hasCookies":false,"mode":"headed"}
+{"ts":"2026-05-21T14:38:02.152Z","cmd":"goto","args":"http://localhost:8000/index.html","origin":"http://localhost:8000/index.html","durationMs":351,"status":"ok","hasCookies":false,"mode":"headed"}
+{"ts":"2026-05-21T14:38:13.765Z","cmd":"snapshot","args":"-i","origin":"http://localhost:8000/index.html","durationMs":80,"status":"ok","hasCookies":false,"mode":"headed"}
+{"ts":"2026-05-21T14:38:18.834Z","cmd":"screenshot","args":"--path C:/Users/Vanderson/painel-grid-fix.png","origin":"http://localhost:8000/index.html","durationMs":1,"status":"error","hasCookies":false,"mode":"headed","error":"Unknown screenshot flag: --path"}
+{"ts":"2026-05-21T14:38:23.221Z","cmd":"screenshot","args":"C:/Users/Vanderson/painel-grid-fix.png","origin":"http://localhost:8000/index.html","durationMs":1,"status":"error","hasCookies":false,"mode":"headed","error":"Path must be within: C:\\Users\\VANDER~1\\AppData\\Local\\Temp, C:\\Users\\Vanderson\\Documents\\script-mapeamento-comercios"}
+{"ts":"2026-05-21T14:38:27.931Z","cmd":"screenshot","args":"C:\\Users\\Vanderson\\Documents\\script-mapeamento-comercios\\painel-grid-fix.png","origin":"http://localhost:8000/index.html","durationMs":732,"status":"ok","hasCookies":false,"mode":"headed"}

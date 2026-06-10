@@ -1,0 +1,1554 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dra. Helena Moreira | Psicologia Clínica</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=Manrope:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --creme: #FAF8F5;
+            --linho: #F0EBE3;
+            --terra: #C8956C;
+            --terra-escuro: #A67B5B;
+            --verde-sage: #8FA395;
+            --verde-profundo: #4A5D52;
+            --carvao: #2C2C2C;
+            --grafite: #5A5A5A;
+            --branco: #FFFFFF;
+            --dourado: #D4AF37;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html {
+            scroll-behavior: smooth;
+            font-size: 16px;
+        }
+
+        body {
+            font-family: 'Manrope', sans-serif;
+            background: var(--creme);
+            color: var(--carvao);
+            overflow-x: hidden;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        /* === NOISE TEXTURE OVERLAY === */
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            opacity: 0.03;
+            z-index: 9999;
+            pointer-events: none;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+        }
+
+        /* === ANIMATED BLOBS BACKGROUND === */
+        .blob-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100vh;
+            overflow: hidden;
+            z-index: -1;
+            pointer-events: none;
+        }
+
+        .blob {
+            position: absolute;
+            border-radius: 50%;
+            filter: blur(80px);
+            opacity: 0.4;
+            animation: float 20s infinite ease-in-out;
+        }
+
+        .blob-1 {
+            width: 500px;
+            height: 500px;
+            background: linear-gradient(135deg, var(--terra), var(--dourado));
+            top: -10%;
+            right: -10%;
+            animation-delay: 0s;
+        }
+
+        .blob-2 {
+            width: 400px;
+            height: 400px;
+            background: linear-gradient(135deg, var(--verde-sage), #B8C9B8);
+            bottom: 10%;
+            left: -10%;
+            animation-delay: -5s;
+            animation-duration: 25s;
+        }
+
+        .blob-3 {
+            width: 300px;
+            height: 300px;
+            background: linear-gradient(135deg, #E6D5C3, var(--terra));
+            top: 40%;
+            right: 20%;
+            animation-delay: -10s;
+            animation-duration: 30s;
+            opacity: 0.3;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translate(0, 0) scale(1); }
+            25% { transform: translate(50px, -50px) scale(1.1); }
+            50% { transform: translate(-30px, 30px) scale(0.9); }
+            75% { transform: translate(20px, 40px) scale(1.05); }
+        }
+
+        /* === NAVIGATION === */
+        nav {
+            position: fixed;
+            top: 0;
+            width: 100%;
+            z-index: 1000;
+            padding: 1.5rem 5%;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: all 0.4s ease;
+        }
+
+        nav.scrolled {
+            background: rgba(250, 248, 245, 0.85);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            padding: 1rem 5%;
+            box-shadow: 0 2px 30px rgba(0,0,0,0.05);
+        }
+
+        .logo {
+            font-family: 'Cormorant Garamond', serif;
+            font-size: 1.8rem;
+            font-weight: 300;
+            color: var(--carvao);
+            text-decoration: none;
+            letter-spacing: -0.5px;
+        }
+
+        .logo span {
+            font-weight: 600;
+            color: var(--terra-escuro);
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 2.5rem;
+            list-style: none;
+            align-items: center;
+        }
+
+        .nav-links a {
+            text-decoration: none;
+            color: var(--grafite);
+            font-size: 0.9rem;
+            font-weight: 500;
+            transition: color 0.3s;
+            position: relative;
+        }
+
+        .nav-links a::after {
+            content: '';
+            position: absolute;
+            bottom: -5px;
+            left: 0;
+            width: 0;
+            height: 2px;
+            background: var(--terra);
+            transition: width 0.3s ease;
+        }
+
+        .nav-links a:hover::after {
+            width: 100%;
+        }
+
+        .nav-links a:hover {
+            color: var(--terra-escuro);
+        }
+
+        .btn-agendar {
+            background: var(--carvao);
+            color: var(--branco) !important;
+            padding: 0.8rem 1.8rem;
+            border-radius: 50px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+
+        .btn-agendar::after {
+            display: none !important;
+        }
+
+        .btn-agendar:hover {
+            background: var(--terra);
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px rgba(200, 149, 108, 0.3);
+        }
+
+        .hamburger {
+            display: none;
+            flex-direction: column;
+            gap: 5px;
+            cursor: pointer;
+            z-index: 1001;
+        }
+
+        .hamburger span {
+            display: block;
+            width: 28px;
+            height: 2px;
+            background: var(--carvao);
+            transition: all 0.3s;
+        }
+
+        /* === HERO SECTION === */
+        .hero {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            padding: 0 5%;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .hero-content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 4rem;
+            max-width: 1400px;
+            margin: 0 auto;
+            width: 100%;
+            align-items: center;
+        }
+
+        .hero-text {
+            z-index: 2;
+        }
+
+        .hero-eyebrow {
+            font-family: 'Cormorant Garamond', serif;
+            font-size: 1.2rem;
+            font-style: italic;
+            color: var(--terra-escuro);
+            margin-bottom: 1.5rem;
+            opacity: 0;
+            animation: fadeInUp 1s ease forwards;
+        }
+
+        .hero-title {
+            font-family: 'Cormorant Garamond', serif;
+            font-size: clamp(2.8rem, 5vw, 4.5rem);
+            font-weight: 300;
+            line-height: 1.1;
+            color: var(--carvao);
+            margin-bottom: 1.5rem;
+        }
+
+        .hero-title .line {
+            display: block;
+            overflow: hidden;
+        }
+
+        .hero-title .line span {
+            display: block;
+            transform: translateY(100%);
+            animation: revealText 1.2s ease forwards;
+        }
+
+        .hero-title .line:nth-child(2) span {
+            animation-delay: 0.2s;
+        }
+
+        .hero-title .line:nth-child(3) span {
+            animation-delay: 0.4s;
+            font-style: italic;
+            color: var(--terra);
+        }
+
+        .hero-subtitle {
+            font-size: 1.1rem;
+            line-height: 1.7;
+            color: var(--grafite);
+            max-width: 480px;
+            margin-bottom: 2.5rem;
+            opacity: 0;
+            animation: fadeInUp 1s ease 0.6s forwards;
+        }
+
+        .hero-cta {
+            display: flex;
+            gap: 1.5rem;
+            align-items: center;
+            opacity: 0;
+            animation: fadeInUp 1s ease 0.8s forwards;
+        }
+
+        .btn-primary {
+            background: var(--carvao);
+            color: var(--branco);
+            padding: 1rem 2.5rem;
+            border-radius: 50px;
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 0.95rem;
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            display: inline-block;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .btn-primary::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+            transition: left 0.5s;
+        }
+
+        .btn-primary:hover::before {
+            left: 100%;
+        }
+
+        .btn-primary:hover {
+            background: var(--terra);
+            transform: translateY(-3px);
+            box-shadow: 0 15px 40px rgba(200, 149, 108, 0.35);
+        }
+
+        .btn-ghost {
+            color: var(--carvao);
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 0.95rem;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            transition: gap 0.3s;
+        }
+
+        .btn-ghost:hover {
+            gap: 1rem;
+            color: var(--terra-escuro);
+        }
+
+        /* === HERO IMAGE === */
+        .hero-image-wrapper {
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .hero-image-container {
+            position: relative;
+            width: 420px;
+            height: 520px;
+        }
+
+        .hero-image-bg {
+            position: absolute;
+            top: -20px;
+            left: -20px;
+            right: 20px;
+            bottom: 20px;
+            background: linear-gradient(135deg, var(--terra), var(--dourado));
+            border-radius: 200px 200px 100px 100px;
+            opacity: 0.2;
+            animation: pulseBg 4s ease-in-out infinite;
+        }
+
+        @keyframes pulseBg {
+            0%, 100% { transform: scale(1); opacity: 0.2; }
+            50% { transform: scale(1.05); opacity: 0.3; }
+        }
+
+        .hero-image {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            border-radius: 200px 200px 100px 100px;
+            filter: contrast(1.05) saturate(0.95);
+            box-shadow: 0 30px 60px rgba(0,0,0,0.15);
+            z-index: 2;
+            opacity: 0;
+            animation: fadeInScale 1.5s ease 0.4s forwards;
+        }
+
+        .hero-badge {
+            position: absolute;
+            bottom: 40px;
+            left: -30px;
+            background: var(--branco);
+            padding: 1rem 1.5rem;
+            border-radius: 20px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+            z-index: 3;
+            opacity: 0;
+            animation: floatIn 1s ease 1s forwards;
+        }
+
+        .hero-badge p {
+            font-family: 'Cormorant Garamond', serif;
+            font-size: 1.3rem;
+            font-weight: 600;
+            color: var(--terra-escuro);
+        }
+
+        .hero-badge span {
+            font-size: 0.8rem;
+            color: var(--grafite);
+            display: block;
+            margin-top: 0.2rem;
+        }
+
+        .floating-element {
+            position: absolute;
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, var(--verde-sage), var(--verde-profundo));
+            opacity: 0.6;
+            z-index: 1;
+            animation: floatElement 6s ease-in-out infinite;
+        }
+
+        .floating-element.fe-1 {
+            top: 10%;
+            right: 0;
+            width: 40px;
+            height: 40px;
+            animation-delay: 0s;
+        }
+
+        .floating-element.fe-2 {
+            bottom: 20%;
+            right: -20px;
+            width: 80px;
+            height: 80px;
+            background: linear-gradient(135deg, var(--terra), var(--dourado));
+            opacity: 0.3;
+            animation-delay: -2s;
+        }
+
+        /* === STATS BAR === */
+        .stats-section {
+            padding: 3rem 5%;
+            background: var(--branco);
+            position: relative;
+            z-index: 2;
+            border-radius: 40px 40px 0 0;
+            margin-top: -40px;
+            box-shadow: 0 -20px 40px rgba(0,0,0,0.03);
+        }
+
+        .stats-grid {
+            max-width: 1000px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 2rem;
+            text-align: center;
+        }
+
+        .stat-item h3 {
+            font-family: 'Cormorant Garamond', serif;
+            font-size: 2.5rem;
+            font-weight: 600;
+            color: var(--terra-escuro);
+            line-height: 1;
+        }
+
+        .stat-item p {
+            font-size: 0.85rem;
+            color: var(--grafite);
+            margin-top: 0.5rem;
+        }
+
+        /* === REVEAL ON SCROLL === */
+        .reveal {
+            opacity: 0;
+            transform: translateY(60px);
+            transition: all 1s cubic-bezier(0.5, 0, 0, 1);
+        }
+
+        .reveal.active {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        /* === SECTIONS GENERAL === */
+        section {
+            padding: 6rem 5%;
+            position: relative;
+        }
+
+        .section-header {
+            text-align: center;
+            max-width: 600px;
+            margin: 0 auto 4rem;
+        }
+
+        .section-eyebrow {
+            font-family: 'Cormorant Garamond', serif;
+            font-size: 1.1rem;
+            font-style: italic;
+            color: var(--terra);
+            margin-bottom: 1rem;
+        }
+
+        .section-title {
+            font-family: 'Cormorant Garamond', serif;
+            font-size: clamp(2rem, 4vw, 3rem);
+            font-weight: 300;
+            color: var(--carvao);
+            line-height: 1.2;
+        }
+
+        /* === ESPECIALIDADES (3D CARDS) === */
+        .especialidades {
+            background: var(--linho);
+        }
+
+        .cards-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 2rem;
+            max-width: 1200px;
+            margin: 0 auto;
+            perspective: 1000px;
+        }
+
+        .card-3d {
+            background: var(--branco);
+            border-radius: 24px;
+            padding: 2.5rem;
+            transition: all 0.5s cubic-bezier(0.23, 1, 0.32, 1);
+            position: relative;
+            overflow: hidden;
+            cursor: pointer;
+            transform-style: preserve-3d;
+        }
+
+        .card-3d::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 4px;
+            background: linear-gradient(90deg, var(--terra), var(--dourado));
+            transform: scaleX(0);
+            transform-origin: left;
+            transition: transform 0.5s ease;
+        }
+
+        .card-3d:hover::before {
+            transform: scaleX(1);
+        }
+
+        .card-3d:hover {
+            transform: translateY(-10px) rotateX(5deg);
+            box-shadow: 0 30px 60px rgba(0,0,0,0.1);
+        }
+
+        .card-icon {
+            width: 60px;
+            height: 60px;
+            border-radius: 16px;
+            background: linear-gradient(135deg, var(--linho), var(--creme));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .card-3d h3 {
+            font-family: 'Cormorant Garamond', serif;
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin-bottom: 0.8rem;
+            color: var(--carvao);
+        }
+
+        .card-3d p {
+            font-size: 0.9rem;
+            line-height: 1.7;
+            color: var(--grafite);
+        }
+
+        /* === COMO FUNCIONA (TIMELINE) === */
+        .timeline {
+            max-width: 800px;
+            margin: 0 auto;
+            position: relative;
+        }
+
+        .timeline::before {
+            content: '';
+            position: absolute;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 2px;
+            height: 100%;
+            background: linear-gradient(to bottom, var(--terra), var(--verde-sage));
+            opacity: 0.3;
+        }
+
+        .timeline-item {
+            display: flex;
+            justify-content: flex-end;
+            padding-right: 50%;
+            position: relative;
+            margin-bottom: 4rem;
+        }
+
+        .timeline-item:nth-child(even) {
+            justify-content: flex-start;
+            padding-right: 0;
+            padding-left: 50%;
+        }
+
+        .timeline-content {
+            background: var(--branco);
+            padding: 2rem;
+            border-radius: 20px;
+            max-width: 350px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.05);
+            position: relative;
+            margin-right: 2rem;
+        }
+
+        .timeline-item:nth-child(even) .timeline-content {
+            margin-right: 0;
+            margin-left: 2rem;
+        }
+
+        .timeline-number {
+            position: absolute;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 50px;
+            height: 50px;
+            background: linear-gradient(135deg, var(--terra), var(--dourado));
+            color: var(--branco);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'Cormorant Garamond', serif;
+            font-weight: 600;
+            font-size: 1.3rem;
+            box-shadow: 0 5px 20px rgba(200, 149, 108, 0.3);
+        }
+
+        .timeline-content h3 {
+            font-family: 'Cormorant Garamond', serif;
+            font-size: 1.4rem;
+            margin-bottom: 0.5rem;
+            color: var(--carvao);
+        }
+
+        .timeline-content p {
+            font-size: 0.9rem;
+            color: var(--grafite);
+            line-height: 1.6;
+        }
+
+        /* === DEPOIMENTOS === */
+        .depoimentos {
+            background: var(--verde-profundo);
+            color: var(--branco);
+            overflow: hidden;
+        }
+
+        .depoimentos .section-title,
+        .depoimentos .section-eyebrow {
+            color: var(--branco);
+        }
+
+        .depoimentos-carousel {
+            display: flex;
+            gap: 2rem;
+            overflow-x: auto;
+            scroll-snap-type: x mandatory;
+            -webkit-overflow-scrolling: touch;
+            padding: 2rem 0;
+            scrollbar-width: none;
+        }
+
+        .depoimentos-carousel::-webkit-scrollbar {
+            display: none;
+        }
+
+        .depoimento-card {
+            flex: 0 0 350px;
+            background: rgba(255,255,255,0.08);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 24px;
+            padding: 2.5rem;
+            scroll-snap-align: center;
+            transition: all 0.4s;
+        }
+
+        .depoimento-card:hover {
+            background: rgba(255,255,255,0.12);
+            transform: translateY(-5px);
+        }
+
+        .depoimento-text {
+            font-family: 'Cormorant Garamond', serif;
+            font-size: 1.3rem;
+            font-style: italic;
+            line-height: 1.5;
+            margin-bottom: 2rem;
+            opacity: 0.9;
+        }
+
+        .depoimento-author {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .depoimento-avatar {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            object-fit: cover;
+            border: 2px solid var(--terra);
+        }
+
+        .depoimento-info h4 {
+            font-size: 0.95rem;
+            font-weight: 600;
+        }
+
+        .depoimento-info span {
+            font-size: 0.8rem;
+            opacity: 0.7;
+        }
+
+        .carousel-dots {
+            display: flex;
+            justify-content: center;
+            gap: 0.5rem;
+            margin-top: 2rem;
+        }
+
+        .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: rgba(255,255,255,0.3);
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .dot.active {
+            background: var(--terra);
+            width: 24px;
+            border-radius: 4px;
+        }
+
+        /* === FAQ ACCORDION === */
+        .faq-container {
+            max-width: 700px;
+            margin: 0 auto;
+        }
+
+        .faq-item {
+            background: var(--branco);
+            border-radius: 16px;
+            margin-bottom: 1rem;
+            overflow: hidden;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.04);
+            transition: all 0.3s;
+        }
+
+        .faq-item:hover {
+            box-shadow: 0 8px 30px rgba(0,0,0,0.08);
+        }
+
+        .faq-question {
+            padding: 1.5rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 1rem;
+            color: var(--carvao);
+        }
+
+        .faq-icon {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            background: var(--linho);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s;
+            font-size: 1.2rem;
+            color: var(--terra);
+        }
+
+        .faq-item.active .faq-icon {
+            background: var(--terra);
+            color: var(--branco);
+            transform: rotate(45deg);
+        }
+
+        .faq-answer {
+            max-height: 0;
+            overflow: hidden;
+            transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .faq-answer-inner {
+            padding: 0 2rem 1.5rem;
+            color: var(--grafite);
+            line-height: 1.7;
+            font-size: 0.95rem;
+        }
+
+        .faq-item.active .faq-answer {
+            max-height: 300px;
+        }
+
+        /* === CTA SECTION === */
+        .cta-section {
+            background: linear-gradient(135deg, var(--terra-escuro), var(--terra));
+            border-radius: 40px;
+            margin: 4rem 5%;
+            padding: 5rem;
+            text-align: center;
+            color: var(--branco);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .cta-section::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle, rgba(255,255,255,0.1) 1px, transparent 1px);
+            background-size: 50px 50px;
+            opacity: 0.3;
+            animation: drift 20s linear infinite;
+        }
+
+        @keyframes drift {
+            0% { transform: translate(0, 0); }
+            100% { transform: translate(50px, 50px); }
+        }
+
+        .cta-content {
+            position: relative;
+            z-index: 2;
+        }
+
+        .cta-title {
+            font-family: 'Cormorant Garamond', serif;
+            font-size: clamp(2rem, 4vw, 3rem);
+            font-weight: 300;
+            margin-bottom: 1rem;
+        }
+
+        .cta-subtitle {
+            font-size: 1.1rem;
+            opacity: 0.9;
+            margin-bottom: 2.5rem;
+            max-width: 500px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .btn-cta {
+            background: var(--branco);
+            color: var(--terra-escuro);
+            padding: 1.2rem 3rem;
+            border-radius: 50px;
+            text-decoration: none;
+            font-weight: 700;
+            font-size: 1rem;
+            display: inline-block;
+            transition: all 0.4s;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            animation: breathe 3s ease-in-out infinite;
+        }
+
+        @keyframes breathe {
+            0%, 100% { transform: scale(1); box-shadow: 0 10px 40px rgba(0,0,0,0.2); }
+            50% { transform: scale(1.05); box-shadow: 0 15px 50px rgba(0,0,0,0.3); }
+        }
+
+        .btn-cta:hover {
+            background: var(--carvao);
+            color: var(--branco);
+            animation: none;
+            transform: scale(1.08);
+        }
+
+        /* === FOOTER === */
+        footer {
+            background: var(--carvao);
+            color: var(--branco);
+            padding: 3rem 5%;
+            text-align: center;
+        }
+
+        footer p {
+            opacity: 0.6;
+            font-size: 0.85rem;
+        }
+
+        /* === KEYFRAMES === */
+        @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(30px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes revealText {
+            from { transform: translateY(100%); }
+            to { transform: translateY(0); }
+        }
+
+        @keyframes fadeInScale {
+            from { opacity: 0; transform: scale(0.9); }
+            to { opacity: 1; transform: scale(1); }
+        }
+
+        @keyframes floatIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes floatElement {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-20px); }
+        }
+
+        /* === MOBILE RESPONSIVE === */
+        @media (max-width: 1024px) {
+            .hero {
+                padding-top: 6rem;
+            }
+
+            .hero-content {
+                grid-template-columns: 1fr;
+                text-align: center;
+                gap: 3rem;
+            }
+
+            .hero-text {
+                order: 2;
+            }
+
+            .hero-image-wrapper {
+                order: 1;
+            }
+
+            .hero-subtitle {
+                margin-left: auto;
+                margin-right: auto;
+            }
+
+            .hero-cta {
+                justify-content: center;
+                flex-wrap: wrap;
+            }
+
+            .hero-image-container {
+                width: 300px;
+                height: 380px;
+            }
+
+            .hero-badge {
+                left: -10px;
+                bottom: 20px;
+                padding: 0.8rem 1.2rem;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .nav-links {
+                position: fixed;
+                top: 0;
+                right: -100%;
+                width: 80%;
+                max-width: 300px;
+                height: 100vh;
+                background: var(--creme);
+                flex-direction: column;
+                padding: 6rem 2rem 2rem;
+                transition: right 0.4s ease;
+                box-shadow: -10px 0 40px rgba(0,0,0,0.1);
+            }
+
+            .nav-links.active {
+                right: 0;
+            }
+
+            .hamburger {
+                display: flex;
+            }
+
+            .hamburger.active span:nth-child(1) {
+                transform: rotate(45deg) translate(5px, 5px);
+            }
+
+            .hamburger.active span:nth-child(2) {
+                opacity: 0;
+            }
+
+            .hamburger.active span:nth-child(3) {
+                transform: rotate(-45deg) translate(5px, -5px);
+            }
+
+            .stats-grid {
+                grid-template-columns: repeat(2, 1fr);
+                gap: 1.5rem;
+            }
+
+            .timeline::before {
+                left: 20px;
+            }
+
+            .timeline-item,
+            .timeline-item:nth-child(even) {
+                justify-content: flex-start;
+                padding-left: 60px;
+                padding-right: 0;
+            }
+
+            .timeline-item:nth-child(even) .timeline-content,
+            .timeline-content {
+                margin-left: 0;
+                margin-right: 0;
+                max-width: 100%;
+            }
+
+            .timeline-number {
+                left: 20px;
+                transform: translateX(-50%);
+            }
+
+            .cta-section {
+                padding: 3rem 2rem;
+                margin: 2rem;
+            }
+
+            .depoimento-card {
+                flex: 0 0 300px;
+            }
+
+            .floating-element {
+                display: none;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .hero-title {
+                font-size: 2.2rem;
+            }
+
+            .hero-image-container {
+                width: 260px;
+                height: 340px;
+            }
+
+            .hero-cta {
+                flex-direction: column;
+                gap: 1rem;
+            }
+
+            .btn-primary,
+            .btn-ghost {
+                width: 100%;
+                text-align: center;
+                justify-content: center;
+            }
+
+            section {
+                padding: 4rem 5%;
+            }
+
+            .card-3d {
+                padding: 1.8rem;
+            }
+
+            .timeline-content {
+                padding: 1.5rem;
+            }
+
+            .faq-question {
+                padding: 1.2rem 1.5rem;
+                font-size: 0.9rem;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Animated Background Blobs -->
+    <div class="blob-container">
+        <div class="blob blob-1"></div>
+        <div class="blob blob-2"></div>
+        <div class="blob blob-3"></div>
+    </div>
+
+    <!-- Navigation -->
+    <nav id="navbar">
+        <a href="#" class="logo">Dra. Helena <span>Moreira</span></a>
+        <ul class="nav-links" id="navLinks">
+            <li><a href="#sobre">Sobre</a></li>
+            <li><a href="#especialidades">Especialidades</a></li>
+            <li><a href="#como-funciona">Como Funciona</a></li>
+            <li><a href="#depoimentos">Depoimentos</a></li>
+            <li><a href="#faq">FAQ</a></li>
+            <li><a href="#agendar" class="btn-agendar">Agendar Sessão</a></li>
+        </ul>
+        <div class="hamburger" id="hamburger">
+            <span></span>
+            <span></span>
+            <span></span>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section class="hero">
+        <div class="hero-content">
+            <div class="hero-text">
+                <p class="hero-eyebrow">Psicologia Clínica · CRP 06/123456</p>
+                <h1 class="hero-title">
+                    <span class="line"><span>Reencontre sua</span></span>
+                    <span class="line"><span>melhor versão</span></span>
+                    <span class="line"><span>com acolhimento</span></span>
+                </h1>
+                <p class="hero-subtitle">
+                    Terapia online e presencial para quem busca mais leveza, clareza e bem-estar emocional. Um espaço seguro para você se reconectar consigo mesmo.
+                </p>
+                <div class="hero-cta">
+                    <a href="#agendar" class="btn-primary">Começar minha jornada</a>
+                    <a href="#como-funciona" class="btn-ghost">Como funciona →</a>
+                </div>
+            </div>
+            <div class="hero-image-wrapper">
+                <div class="hero-image-container">
+                    <div class="hero-image-bg"></div>
+                    <!-- SUBSTITUA PELA FOTO DA PSICÓLOGA -->
+                    <img src="https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=600&h=800&fit=crop&crop=face"
+                         alt="Dra. Helena Moreira - Psicóloga"
+                         class="hero-image"
+                         id="heroImg">
+                    <div class="hero-badge">
+                        <p>+500</p>
+                        <span>vidas transformadas</span>
+                    </div>
+                    <div class="floating-element fe-1"></div>
+                    <div class="floating-element fe-2"></div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Stats Section -->
+    <section class="stats-section">
+        <div class="stats-grid">
+            <div class="stat-item reveal">
+                <h3>8+</h3>
+                <p>Anos de experiência</p>
+            </div>
+            <div class="stat-item reveal">
+                <h3>500+</h3>
+                <p>Pacientes atendidos</p>
+            </div>
+            <div class="stat-item reveal">
+                <h3>98%</h3>
+                <p>Taxa de satisfação</p>
+            </div>
+            <div class="stat-item reveal">
+                <h3>100%</h3>
+                <p>Sigilo garantido</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Especialidades -->
+    <section class="especialidades" id="especialidades">
+        <div class="section-header reveal">
+            <p class="section-eyebrow">Áreas de atuação</p>
+            <h2 class="section-title">Especialidades que transformam vidas</h2>
+        </div>
+        <div class="cards-grid">
+            <div class="card-3d reveal">
+                <div class="card-icon">🧠</div>
+                <h3>Ansiedade e Estresse</h3>
+                <p>Aprenda a manejar a ansiedade de forma saudável. Desenvolva ferramentas práticas para lidar com o estresse do dia a dia e recuperar sua tranquilidade.</p>
+            </div>
+            <div class="card-3d reveal">
+                <div class="card-icon">💔</div>
+                <h3>Relacionamentos</h3>
+                <p>Entenda padrões emocionais que afetam seus vínculos. Trabalhe a autoestima, limites saudáveis e comunicação assertiva.</p>
+            </div>
+            <div class="card-3d reveal">
+                <div class="card-icon">🌱</div>
+                <h3>Desenvolvimento Pessoal</h3>
+                <p>Descubra seu potencial e supere crenças limitantes. Um processo de autoconhecimento para quem quer crescer e viver com mais propósito.</p>
+            </div>
+            <div class="card-3d reveal">
+                <div class="card-icon">😔</div>
+                <h3>Depressão e Luto</h3>
+                <p>Acolhimento especializado para momentos de perda e tristeza. Encontre apoio para ressignificar dores e reencontrar sentido na vida.</p>
+            </div>
+            <div class="card-3d reveal">
+                <div class="card-icon">🎯</div>
+                <h3>TDAH Adulto</h3>
+                <p>Avaliação e acompanhamento especializado para TDAH. Estratégias práticas para organização, foco e produtividade no dia a dia.</p>
+            </div>
+            <div class="card-3d reveal">
+                <div class="card-icon">🏢</div>
+                <h3>Burnout Profissional</h3>
+                <p>Recupere o equilíbrio entre vida pessoal e profissional. Trabalhe a exaustão emocional e reconstrua sua relação com o trabalho.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Como Funciona -->
+    <section id="como-funciona">
+        <div class="section-header reveal">
+            <p class="section-eyebrow">O processo terapêutico</p>
+            <h2 class="section-title">Como funciona a terapia</h2>
+        </div>
+        <div class="timeline">
+            <div class="timeline-item reveal">
+                <div class="timeline-number">1</div>
+                <div class="timeline-content">
+                    <h3>Primeiro Contato</h3>
+                    <p>Envie uma mensagem pelo WhatsApp ou preencha o formulário. Responderei em até 24h para conversarmos sobre suas necessidades.</p>
+                </div>
+            </div>
+            <div class="timeline-item reveal">
+                <div class="timeline-number">2</div>
+                <div class="timeline-content">
+                    <h3>Avaliação Inicial</h3>
+                    <p>Na primeira sessão, farei uma anamnese detalhada para entender sua história, queixas e objetivos com a terapia.</p>
+                </div>
+            </div>
+            <div class="timeline-item reveal">
+                <div class="timeline-number">3</div>
+                <div class="timeline-content">
+                    <h3>Plano Terapêutico</h3>
+                    <p>Definiremos juntos os objetivos do tratamento e a frequência ideal das sessões, personalizando para sua realidade.</p>
+                </div>
+            </div>
+            <div class="timeline-item reveal">
+                <div class="timeline-number">4</div>
+                <div class="timeline-content">
+                    <h3>Acompanhamento</h3>
+                    <p>Sessões semanais de 50 minutos, online ou presencial, com acompanhamento contínuo do seu progresso e evolução.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Depoimentos -->
+    <section class="depoimentos" id="depoimentos">
+        <div class="section-header reveal">
+            <p class="section-eyebrow">Palavras de quem passou por aqui</p>
+            <h2 class="section-title">Depoimentos</h2>
+        </div>
+        <div class="depoimentos-carousel" id="carousel">
+            <div class="depoimento-card reveal">
+                <p class="depoimento-text">"A Dra. Helena me ajudou a entender minha ansiedade de uma forma que ninguém havia feito antes. Hoje durmo melhor e lido com o estresse de outra maneira."</p>
+                <div class="depoimento-author">
+                    <img src="https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=100&h=100&fit=crop&crop=face" alt="" class="depoimento-avatar">
+                    <div class="depoimento-info">
+                        <h4>Mariana S.</h4>
+                        <span>Atendida há 1 ano</span>
+                    </div>
+                </div>
+            </div>
+            <div class="depoimento-card reveal">
+                <p class="depoimento-text">"O acolhimento é imediato. Me senti segura desde a primeira sessão. A terapia online é prática e não perde em nada para o presencial."</p>
+                <div class="depoimento-author">
+                    <img src="https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&h=100&fit=crop&crop=face" alt="" class="depoimento-avatar">
+                    <div class="depoimento-info">
+                        <h4>Carlos Eduardo</h4>
+                        <span>Atendido há 8 meses</span>
+                    </div>
+                </div>
+            </div>
+            <div class="depoimento-card reveal">
+                <p class="depoimento-text">"Descobri o TDAH aos 32 anos e a avaliação da Dra. Helena mudou minha vida. Finalmente entendo meu cérebro e sei como lidar com ele."</p>
+                <div class="depoimento-author">
+                    <img src="https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100&h=100&fit=crop&crop=face" alt="" class="depoimento-avatar">
+                    <div class="depoimento-info">
+                        <h4>Juliana F.</h4>
+                        <span>Atendida há 6 meses</span>
+                    </div>
+                </div>
+            </div>
+            <div class="depoimento-card reveal">
+                <p class="depoimento-text">"Passei por um luto muito difícil. O acolhimento e a forma delicada como conduziu minha terapia foi fundamental para eu conseguir seguir em frente."</p>
+                <div class="depoimento-author">
+                    <img src="https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&h=100&fit=crop&crop=face" alt="" class="depoimento-avatar">
+                    <div class="depoimento-info">
+                        <h4>Roberto M.</h4>
+                        <span>Atendido há 10 meses</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="carousel-dots">
+            <span class="dot active" data-index="0"></span>
+            <span class="dot" data-index="1"></span>
+            <span class="dot" data-index="2"></span>
+            <span class="dot" data-index="3"></span>
+        </div>
+    </section>
+
+    <!-- FAQ -->
+    <section id="faq">
+        <div class="section-header reveal">
+            <p class="section-eyebrow">Dúvidas comuns</p>
+            <h2 class="section-title">Perguntas Frequentes</h2>
+        </div>
+        <div class="faq-container">
+            <div class="faq-item reveal">
+                <div class="faq-question">
+                    <span>Como funciona a terapia online?</span>
+                    <div class="faq-icon">+</div>
+                </div>
+                <div class="faq-answer">
+                    <div class="faq-answer-inner">
+                        As sessões online acontecem por vídeo chamada em plataforma segura. Você precisa apenas de um celular ou computador com internet, fones de ouvido e um ambiente privado. A eficácia é a mesma do presencial, com a praticidade de estar onde você se sentir mais confortável.
+                    </div>
+                </div>
+            </div>
+            <div class="faq-item reveal">
+                <div class="faq-question">
+                    <span>Qual o valor da sessão?</span>
+                    <div class="faq-icon">+</div>
+                </div>
+                <div class="faq-answer">
+                    <div class="faq-answer-inner">
+                        O investimento por sessão individual de 50 minutos é consultado diretamente, pois varia conforme a modalidade (online ou presencial). Ofereço pacotes com desconto para sessões semanais. Entre em contato para valores atualizados.
+                    </div>
+                </div>
+            </div>
+            <div class="faq-item reveal">
+                <div class="faq-question">
+                    <span>Quanto tempo dura o tratamento?</span>
+                    <div class="faq-icon">+</div>
+                </div>
+                <div class="faq-answer">
+                    <div class="faq-answer-inner">
+                        A duração varia conforme cada pessoa e seus objetivos. Alguns buscam a terapia para questões pontuais (alguns meses), enquanto outros preferem um acompanhamento mais longo para desenvolvimento pessoal. Isso é conversado e revisado juntos durante o processo.
+                    </div>
+                </div>
+            </div>
+            <div class="faq-item reveal">
+                <div class="faq-question">
+                    <span>A terapia é confidencial?</span>
+                    <div class="faq-icon">+</div>
+                </div>
+                <div class="faq-answer">
+                    <div class="faq-answer-inner">
+                        Absolutamente. O sigilo é um dos pilares éticos da psicologia. Nada do que você compartilhar será revelado, exceto em situações excepcionais previstas por lei (risco de vida). Seus dados e histórico são protegidos.
+                    </div>
+                </div>
+            </div>
+            <div class="faq-item reveal">
+                <div class="faq-question">
+                    <span>Posso fazer terapia se estiver tomando remédio?</span>
+                    <div class="faq-icon">+</div>
+                </div>
+                <div class="faq-answer">
+                    <div class="faq-answer-inner">
+                        Sim. A terapia e a medicação (quando indicada por um psiquiatra) podem andar juntas e se complementam. Muitos pacientes fazem ambos tratamentos simultaneamente com excelentes resultados. A psicoterapia trabalha as causas e comportamentos, enquanto a medicação atua bioquimicamente.
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- CTA Section -->
+    <section class="cta-section" id="agendar">
+        <div class="cta-content">
+            <h2 class="cta-title">Dê o primeiro passo hoje</h2>
+            <p class="cta-subtitle">Você não precisa carregar tudo sozinho. Agende uma sessão e descubra como a terapia pode transformar sua vida.</p>
+            <a href="https://wa.me/5511999999999?text=Olá!%20Gostaria%20de%20agendar%20uma%20sessão." class="btn-cta" target="_blank">Agendar pelo WhatsApp</a>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer>
+        <p>© 2026 Dra. Helena Moreira · Psicologia Clínica · CRP 06/123456</p>
+        <p style="margin-top: 0.5rem; font-size: 0.75rem;">Atendimento online e presencial · Sigilo garantido</p>
+    </footer>
+
+    <script>
+        // === NAVBAR SCROLL EFFECT ===
+        const navbar = document.getElementById('navbar');
+        window.addEventListener('scroll', () => {
+            if (window.scrollY > 50) {
+                navbar.classList.add('scrolled');
+            } else {
+                navbar.classList.remove('scrolled');
+            }
+        });
+
+        // === MOBILE MENU ===
+        const hamburger = document.getElementById('hamburger');
+        const navLinks = document.getElementById('navLinks');
+
+        hamburger.addEventListener('click', () => {
+            hamburger.classList.toggle('active');
+            navLinks.classList.toggle('active');
+        });
+
+        // Close mobile menu when clicking a link
+        navLinks.querySelectorAll('a').forEach(link => {
+            link.addEventListener('click', () => {
+                hamburger.classList.remove('active');
+                navLinks.classList.remove('active');
+            });
+        });
+
+        // === SCROLL REVEAL ===
+        const reveals = document.querySelectorAll('.reveal');
+
+        const revealOnScroll = () => {
+            reveals.forEach(element => {
+                const windowHeight = window.innerHeight;
+                const elementTop = element.getBoundingClientRect().top;
+                const revealPoint = 150;
+
+                if (elementTop < windowHeight - revealPoint) {
+                    element.classList.add('active');
+                }
+            });
+        };
+
+        window.addEventListener('scroll', revealOnScroll);
+        window.addEventListener('load', revealOnScroll);
+
+        // === FAQ ACCORDION ===
+        const faqItems = document.querySelectorAll('.faq-item');
+
+        faqItems.forEach(item => {
+            const question = item.querySelector('.faq-question');
+            question.addEventListener('click', () => {
+                const isActive = item.classList.contains('active');
+
+                // Close all others
+                faqItems.forEach(other => other.classList.remove('active'));
+
+                // Toggle current
+                if (!isActive) {
+                    item.classList.add('active');
+                }
+            });
+        });
+
+        // === CAROUSEL DOTS ===
+        const carousel = document.getElementById('carousel');
+        const dots = document.querySelectorAll('.dot');
+
+        carousel.addEventListener('scroll', () => {
+            const scrollLeft = carousel.scrollLeft;
+            const cardWidth = carousel.querySelector('.depoimento-card').offsetWidth + 32; // gap
+            const index = Math.round(scrollLeft / cardWidth);
+
+            dots.forEach((dot, i) => {
+                dot.classList.toggle('active', i === index);
+            });
+        });
+
+        dots.forEach(dot => {
+            dot.addEventListener('click', () => {
+                const index = parseInt(dot.dataset.index);
+                const cardWidth = carousel.querySelector('.depoimento-card').offsetWidth + 32;
+                carousel.scrollTo({
+                    left: index * cardWidth,
+                    behavior: 'smooth'
+                });
+            });
+        });
+
+        // === PARALLAX FLOATING ELEMENTS ===
+        document.addEventListener('mousemove', (e) => {
+            const mouseX = e.clientX / window.innerWidth - 0.5;
+            const mouseY = e.clientY / window.innerHeight - 0.5;
+
+            document.querySelectorAll('.floating-element').forEach((el, index) => {
+                const speed = (index + 1) * 20;
+                el.style.transform = `translate(${mouseX * speed}px, ${mouseY * speed}px)`;
+            });
+        });
+
+        // === 3D CARD TILT EFFECT (desktop only) ===
+        if (window.innerWidth > 768) {
+            document.querySelectorAll('.card-3d').forEach(card => {
+                card.addEventListener('mousemove', (e) => {
+                    const rect = card.getBoundingClientRect();
+                    const x = e.clientX - rect.left;
+                    const y = e.clientY - rect.top;
+
+                    const centerX = rect.width / 2;
+                    const centerY = rect.height / 2;
+
+                    const rotateX = (y - centerY) / 20;
+                    const rotateY = (centerX - x) / 20;
+
+                    card.style.transform = `perspective(1000px) rotateX(${rotateX}deg) rotateY(${rotateY}deg) translateY(-10px)`;
+                });
+
+                card.addEventListener('mouseleave', () => {
+                    card.style.transform = 'perspective(1000px) rotateX(0) rotateY(0) translateY(0)';
+                });
+            });
+        }
+
+        // === SMOOTH SCROLL FOR ANCHOR LINKS ===
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                e.preventDefault();
+                const target = document.querySelector(this.getAttribute('href'));
+                if (target) {
+                    target.scrollIntoView({
+                        behavior: 'smooth',
+                        block: 'start'
+                    });
+                }
+            });
+        });
+    </script>
+</body>
+</html>
