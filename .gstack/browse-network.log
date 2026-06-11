@@ -1,0 +1,2 @@
+[2026-05-22T18:07:49.929Z] GET http://localhost:8000/index.html → pending (?ms, ?B)
+[2026-05-22T18:11:24.187Z] GET http://localhost:8000/api/leads → 200 (320ms, 30390B)
