@@ -4,10 +4,10 @@ Copiar skills de hermes-config/skills/ para ~/AppData/Local/hermes/skills/
 
 ## Memória (apontamentos)
 1. Discord: bot1512676735886426262, server 1512676518856364122, @menção, minimax-m2.7 minúsculo. Skill: local-sales-prospecting
-2. Supabase ~6.487 + 1.707 (rio_premium) leads. Skill: local-sales-prospecting
-3. Preços: Baixada R$149, Rio Premium R$247-297. Chrome visível (headless=False). Skill: local-sales-prospecting
+2. Supabase ~8.194 leads (6.487 Baixada + 1.707 Rio Premium). Skill: local-sales-prospecting
+3. Preços: Baixada R$197 (LP) / R$297 (com teste) / R$496 (com tráfego). Rio Premium R$297 / R$397 / R$596. Skill: local-sales-prospecting
 4. Skill: llm-model-selection — qual modelo usar pra cada tarefa
-5. Regra ouro: cliente só paga quando a página estiver no ar. Skill: local-sales-prospecting
+5. Skill: local-sales-prospecting — fluxo vendas, preços, setup trabalho
 
 ## Perfil de usuário
 - Vanderson, TI do trabalho, PC ligado 24h. Prefere respostas PT-BR curtas.
@@ -20,3 +20,4 @@ Copiar skills de hermes-config/skills/ para ~/AppData/Local/hermes/skills/
 - model.default: minimax-m2.7
 - model.provider: ollama-cloud
 - headless=False (NUNCA mudar sem perguntar)
+- Cliente só paga LP depois de pronta no ar

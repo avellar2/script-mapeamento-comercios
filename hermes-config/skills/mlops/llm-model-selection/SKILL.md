@@ -58,6 +58,7 @@ Ordem de economia: deepseek-v4-flash → minimax-m2.7 → kimi-k2.6 → glm-5.1 
 - Tarefas sem risco alto
 - Importação de CSV/planilha com deduplicação por telefone (INSERT puro, sem alterar status existentes)
 - Rotina normal quando minimax estiver lento (ok substituir) — se minimax está demorando, usar deepseek-v4-flash como fallback
+- **Importação de CSV com upsert e dedup** funcionou perfeitamente (validado: 1.707 leads importados sem erros)
 
 ### glm-5.1 (importante)
 - Mudanças estruturais no projeto
