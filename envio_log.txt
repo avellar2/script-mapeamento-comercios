@@ -1,0 +1,80 @@
+============================================================
+  🚗 Envio Automático AVGESTÃO
+  23/06/2026 12:16
+============================================================
+
+📡 Buscando leads no Supabase...
+   Total disponíveis: 500
+   Com WhatsApp: 394
+
+📋 Total para hoje: 30
+⏱  Ritmo: 1 msg a cada 7min
+📦 Blocos de 10, pausa de 60min entre blocos
+
+
+============================================================
+  🟢 BLOCO 1-10 (10 leads)
+  12:16
+============================================================
+
+🔍 Verificando sessão WhatsApp...
+
+[1/30] Resolve Centro Automotivo
+   📍 Seropédica - Fazenda Caxias
+   📞 5521996350799
+   ✅ Mensagem enviada!
+  ✅ Marcado como abordado no Supabase
+   ⏳ Aguardando 7min...
+      7min 00s      6min 00s      5min 00s      4min 00s      3min 00s      2min 00s      1min 00s      0min 10s      0min 09s      0min 08s      0min 07s      0min 06s      0min 05s      0min 04s      0min 03s      0min 02s      0min 01s
+
+[2/30] BOX3 Auto Mecânica
+   📍 Nilópolis - Centro
+   📞 5521970065925
+   ❌ Erro: Page.goto: Target page, context or browser has been closed
+Call log:
+  - navigating to "https://web.
+
+[3/30] R2 Tavares eletricista
+   📍 Paracambi - Lages
+   📞 5521987926203
+   ❌ Erro: Page.goto: Target page, context      3min 00s      2min 00s      1min 00s      0min 10s      0min 09s      0min 08s      0min 07s      0min 06s      0min 05s      0min 04s      0min 03s      0min 02s      0min 01s
+[3/30] Mc2 Serralheria e Letreiros
+   📍 Nova Iguaçu - Vila Sueli
+   📞 5521992891869
+   ❌ Erro: Page.inner_text: Target page, context or browser has been closed
+Call log:
+  - waiting for locator("
+   ⏳ Aguardando 7min...
+      7min 00s      6min 00s      5min 00s      4min 00s      3min 00s      2min 00s      1min 00s      0min 10s      0min 09s      0min 08s      0min 07s      0min 06s      0min 05s      0min 04s      0min 03s      0min 02s      0min 01s
+[4/30] Lopes soluções metálicas
+   📍 Itaguaí - Chapero
+   📞 5521975428662
+   ✅ Mensagem enviada!
+  ✅ Marcado como abordado no Supabase
+   ⏳ Aguardando 7min...
+      7min 00s      6min 00s      5min 00s      4min 00s      3min 00s      2min 00s      1min 00s      0min 10s      0min 09s      0min 08s      0min 07s      0min 06s      0min 05s      0min 04s      0min 03s      0min 02s      0min 01s
+[5/30] Jmw Oficina Curso De Lanternagem E Pintura
+   📍 São João de Meriti - Éden
+   📞 5521982647415
+   ✅ Mensagem enviada!
+  ✅ Marcado como abordado no Supabase
+   ⏳ Aguardando 7min...
+      7min 00s      6min 00s       5min 00s      35min restantes   30min restantes   25min restantes   20min restantes   15min restantesin 08s      0min 07s      0min 06s      0min 05s      0min 04s      0min 03s      0min 02s      0min 01s
+[6/30] NOVA Líder Auto    20min restantes   15min restantes   10min restantes   5min restantes� Mensagem enviada!
+  ✅ Marcado como abordado no Supabase
+   ⏳ Aguardando 7min...
+      7min 00s      6min 00s      5min 00s      4min 00s      3min 00s      2min 00s      1min 00s      0min 10s      0min 09s      0min 08s      0min 07s      0min 06s      0min 05s      0min 04s      0m   10min restantes   5min restantes
+[7/30] Serralheria's Thiago
+   📍 Mesquita - Jacutinga
+   📞 5521964857802
+   ✅ Mensagem enviada!
+  ✅ Marcado como abordado no Supabase
+   ⏳ Aguardando 7min...
+      7min 00s      6min 00s      5min 00s      4min 00s      3min 00s      2min 00s      1min 00s      0min 10s      0min 09s      0min 08s      0min 07s      0min 06s      0min 05s      0min 04s      0min 03s      0min 02s      0min 01s
+[8/30] Art Metal Funilaria e Pintura Automotiva.
+   📍 Seropédica - Boa Esperança
+   📞 5521997672408
+   ⚠️ Campo de texto não apareceu. Tentando Enter...
+   ❌ Falha ao abrir conversa
+   ⏳ Aguardando 7min...
+      7min 00s      6min 00s      5min 00s      4min 00s      3min 00s
