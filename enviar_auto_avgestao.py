@@ -3,19 +3,23 @@
 # INSTRUCOES PARA O HERMES (agente executor)
 # -----------------------------------------------------------------------------
 # Comando para rodar:
-#   python enviar_auto_avgestao.py
+#   python enviar_auto_avgestao.py            (padrao: 30 leads)
+#   python enviar_auto_avgestao.py 100        (envia 100 leads hoje)
 #
 # O que o script faz:
 #   - Abre o Chrome JA LOGADO no WhatsApp Business (perfil .whatsapp_business_profile)
-#   - Envia 30 mensagens hoje (7 min entre cada, bloco de 10 + 1h de pausa)
+#   - Envia N mensagens (escolhido via argumento; padrao 30) com 7 min entre cada
+#   - SEM pausa de bloco — vai direto do primeiro ao ultimo, 7 min entre cada
 #   - Marca cada lead como "abordado" no Supabase apos envio
 #   - Marca como "perdido" se for telefone fixo (DDD 21 sem o 9) ou numero invalido
 #   - Mantem UM unico navegador aberto pra todos os leads (nao abre/fecha a cada lead)
-#   - Consulta o campo "categoria" do Supabase (NAO "nicho" — esse esta vazio em todos os leads)
-#   - Categorias cobertas: oficina mecanica, serralheria, marcenaria, eletricista, pintor,
-#     encanador, loja de celulares (assistencia tecnica), material de construcao,
-#     loja de moveis, vidracaria, restaurante, pizzaria, lanchonete, confeitaria,
-#     padaria (cardapio digital), otica (orcamento)
+#   - Consulta os campos "categoria" E "nicho" do Supabase (busca unificada OR — usa o que estiver preenchido)
+#   - Categorias cobertas: oficina mecanica/autoeletrica, serralheria, marcenaria,
+#     eletricista, pintor, encanador, loja de celulares (assistencia tecnica),
+#     material de construcao, loja de moveis/moveis planejados, vidracaria,
+#     restaurante, pizzaria, lanchonete (cardapio digital),
+#     confeitaria, padaria (encomendas/cardapio),
+#     otica (orcamento), refrigeracao/ar-condicionado (chamado)
 #
 # Regras IMPORTANTES:
 #   - NAO rode o script mais de uma vez ao mesmo tempo. Ele tem lock de instancia
@@ -25,8 +29,7 @@
 #   - headless=False: o navegador fica visivel de proposito. Nao altere.
 #   - Se o navegador fechar sozinho, nao tente reabrir. Avise o Vanderson com o
 #     erro exato e o PID que aparece no console.
-#   - NAO altere ENVIAR_HOJE, INTERVALO_SEG, BLOCO_TAMANHO ou PAUSA_BLOCO_SEG sem
-#     ordem explicita do Vanderson.
+#   - NAO altere INTERVALO_SEG (7 min) sem ordem explicita do Vanderson.
 #
 # Diagnostico do bug anterior (resolvido em 23/06/2026):
 #   O navegador fechava apos a 1a mensagem porque havia 5 instancias do script
@@ -36,7 +39,7 @@
 #   Correcao: lock de instancia unica + channel="chrome" (Chrome 149 instalado)
 #   + navegador unico mantido aberto durante toda a sessao.
 #
-# Assinatura: opencode/glm-5.2 — 23/06/2026
+# Assinatura: opencode/glm-5.2 — 24/06/2026 (novas frases + sem pausa de bloco + qtd via argumento)
 # =============================================================================
 """
 Envio automatico WhatsApp - AVGESTAO
@@ -44,7 +47,7 @@ Um unico navegador mantido aberto para todos os leads da sessao.
 Lock de instancia unica via PID file. Usa Chrome instalado (channel=chrome)
 para evitar incompatibilidade de versao do perfil.
 """
-import os, json, urllib.request, ssl, time, random, sys, atexit, signal, ctypes
+import os, json, urllib.request, ssl, time, random, sys, atexit, signal, ctypes, argparse
 from ctypes import wintypes
 from pathlib import Path
 from urllib.parse import quote
@@ -52,8 +55,6 @@ from datetime import datetime, timedelta
 
 ENVIAR_HOJE = 30
 INTERVALO_SEG = 420
-BLOCO_TAMANHO = 10
-PAUSA_BLOCO_SEG = 3600
 
 BASE_DIR = Path(__file__).parent
 PROFILE_DIR = BASE_DIR / ".whatsapp_business_profile"
@@ -111,149 +112,158 @@ def release_lock():
 
 def msg_oficina(lead):
     nome = lead.get("nome") or ""
-    cidade = lead.get("cidade") or ""
-    local = f" Atendo empresas em {cidade} e região." if cidade else ""
     return (
         f"Boa tarde, pessoal da {nome}! Tudo bem?\n\n"
-        f"Aqui é o Vanderson, criador do AVGESTÃO.{local}\n\n"
-        f"Em uma oficina, perder o controle do que foi autorizado, do que já foi feito e do que o cliente ainda deve gera retrabalho e discussão na entrega.\n\n"
-        f"No AVGESTÃO vocês abrem a ordem de serviço, registram peças e valores, e enviam um link para o cliente aprovar o orçamento antes de começar.\n\n"
-        f"O teste é gratuito por 15 dias. Posso liberar o acesso de vocês?"
+        f"Aqui é o Vanderson, criador do AVGESTÃO, um sistema feito para organizar oficinas e serviços automotivos.\n\n"
+        f"Com ele vocês registram o veículo, abrem a ordem de serviço, enviam o orçamento para aprovação e acompanham os serviços, peças e valores até a entrega.\n\n"
+        f"Para facilitar, eu mesmo configuro a conta e deixo tudo pronto para vocês testarem com um veículo real durante 15 dias.\n\n"
+        f"Posso liberar e configurar o acesso de vocês?"
     )
 
 def msg_producao(lead):
     nome = lead.get("nome") or ""
-    cidade = lead.get("cidade") or ""
-    local = f" Atendo empresas em {cidade} e região." if cidade else ""
     return (
         f"Boa tarde, pessoal da {nome}! Tudo bem?\n\n"
-        f"Aqui é o Vanderson, criador do AVGESTÃO.{local}\n\n"
-        f"Uma medida, alteração ou observação perdida no WhatsApp pode gerar orçamento errado, retrabalho e prejuízo no material.\n\n"
-        f"No AVGESTÃO vocês registram cada medida e observação, montam o orçamento e enviam um link para o cliente aprovar antes da produção.\n\n"
-        f"São 15 dias grátis para testar. Posso criar o acesso?"
+        f"Aqui é o Vanderson, criador do AVGESTÃO, um sistema feito para organizar serviços sob medida.\n\n"
+        f"Com ele vocês registram medidas, materiais e alterações, montam o orçamento e enviam um link para o cliente aprovar antes de iniciar o trabalho.\n\n"
+        f"Para facilitar, eu mesmo configuro a conta e deixo tudo pronto para vocês testarem com um serviço real durante 15 dias.\n\n"
+        f"Posso liberar e configurar o acesso de vocês?"
     )
 
 def msg_prestador(lead):
     nome = lead.get("nome") or ""
-    cidade = lead.get("cidade") or ""
-    local = f" Atendo empresas em {cidade} e região." if cidade else ""
     return (
         f"Boa tarde, pessoal da {nome}! Tudo bem?\n\n"
-        f"Aqui é o Vanderson, criador do AVGESTÃO.{local}\n\n"
-        f"Quem pediu orçamento, quem aprovou e quem ainda não pagou — perder esse controle custa dinheiro e gera trabalho dobrado.\n\n"
-        f"No AVGESTÃO vocês organizam os clientes, criam orçamento, abrem ordem de serviço e acompanham num painel o que tá pendente e o que já foi pago.\n\n"
-        f"O teste é gratuito por 15 dias. Posso liberar o acesso?"
+        f"Aqui é o Vanderson, criador do AVGESTÃO, um sistema feito para organizar clientes, orçamentos e serviços.\n\n"
+        f"Com ele vocês montam o orçamento, enviam um link para aprovação e acompanham quais serviços estão pendentes, em andamento, concluídos ou aguardando pagamento.\n\n"
+        f"Para facilitar, eu mesmo configuro a conta e deixo tudo pronto para vocês testarem com um serviço real durante 15 dias.\n\n"
+        f"Posso liberar e configurar o acesso de vocês?"
     )
 
 def msg_assistencia(lead):
     nome = lead.get("nome") or ""
-    cidade = lead.get("cidade") or ""
-    local = f" Atendo empresas em {cidade} e região." if cidade else ""
     return (
         f"Boa tarde, pessoal da {nome}! Tudo bem?\n\n"
-        f"Aqui é o Vanderson, criador do AVGESTÃO.{local}\n\n"
-        f"Quando entram aparelhos para reparo, pode ficar difícil controlar o defeito informado, o orçamento aprovado e a etapa de cada serviço.\n\n"
-        f"No AVGESTÃO vocês abrem a ordem de serviço, registram o aparelho e enviam um link para o cliente aprovar o orçamento e acompanhar o andamento.\n\n"
-        f"São 15 dias grátis. Posso criar o acesso de vocês?"
+        f"Aqui é o Vanderson, criador do AVGESTÃO, um sistema feito para organizar assistências técnicas.\n\n"
+        f"Com ele vocês registram o aparelho, abrem a ordem de serviço, enviam o orçamento para aprovação e o cliente acompanha o reparo pelo próprio link.\n\n"
+        f"Para facilitar, eu mesmo configuro a conta e deixo tudo pronto para vocês testarem com um atendimento real durante 15 dias.\n\n"
+        f"Posso liberar e configurar o acesso de vocês?"
     )
 
 def msg_material_construcao(lead):
     nome = lead.get("nome") or ""
-    cidade = lead.get("cidade") or ""
-    local = f" Atendo empresas em {cidade} e região." if cidade else ""
     return (
         f"Boa tarde, pessoal da {nome}! Tudo bem?\n\n"
-        f"Aqui é o Vanderson, criador do AVGESTÃO.{local}\n\n"
-        f"Em orçamentos grandes, um item, quantidade ou valor anotado errado pode gerar retrabalho e problema com o cliente.\n\n"
-        f"No AVGESTÃO vocês montam o orçamento item por item e enviam um link para o cliente conferir e aprovar.\n\n"
-        f"O teste é gratuito por 15 dias. Posso liberar o acesso de vocês?"
+        f"Aqui é o Vanderson, criador do AVGESTÃO, um sistema feito para organizar clientes e orçamentos.\n\n"
+        f"Com ele vocês montam orçamentos com todos os produtos, quantidades e valores e enviam um link para o cliente conferir e aprovar.\n\n"
+        f"Para facilitar, eu mesmo configuro a conta e deixo tudo pronto para vocês testarem com um orçamento real durante 15 dias.\n\n"
+        f"Posso liberar e configurar o acesso de vocês?"
     )
 
 def msg_moveis(lead):
     nome = lead.get("nome") or ""
-    cidade = lead.get("cidade") or ""
-    local = f" Atendo empresas em {cidade} e região." if cidade else ""
     return (
         f"Boa tarde, pessoal da {nome}! Tudo bem?\n\n"
-        f"Aqui é o Vanderson, criador do AVGESTÃO.{local}\n\n"
-        f"Uma medida, acabamento ou alteração esquecida pode gerar atraso, retrabalho e prejuízo com material.\n\n"
-        f"No AVGESTÃO vocês registram as informações, montam o orçamento e enviam um link para o cliente conferir e aprovar.\n\n"
-        f"São 15 dias grátis para testar. Posso criar o acesso?"
+        f"Aqui é o Vanderson, criador do AVGESTÃO, um sistema feito para organizar orçamentos e serviços personalizados.\n\n"
+        f"Com ele vocês registram medidas, acabamentos e observações, montam o orçamento e enviam um link para o cliente conferir e aprovar antes da produção.\n\n"
+        f"Para facilitar, eu mesmo configuro a conta e deixo tudo pronto para vocês testarem com um pedido real durante 15 dias.\n\n"
+        f"Posso liberar e configurar o acesso de vocês?"
     )
 
 def msg_vidracaria(lead):
     nome = lead.get("nome") or ""
-    cidade = lead.get("cidade") or ""
-    local = f" Atendo empresas em {cidade} e região." if cidade else ""
     return (
         f"Boa tarde, pessoal da {nome}! Tudo bem?\n\n"
-        f"Aqui é o Vanderson, criador do AVGESTÃO.{local}\n\n"
-        f"Uma medida ou alteração perdida no WhatsApp pode resultar em vidro produzido errado e desperdício de material.\n\n"
-        f"No AVGESTÃO vocês registram o serviço, montam o orçamento e enviam um link para o cliente visualizar e aprovar.\n\n"
-        f"O teste é gratuito por 15 dias. Posso liberar o acesso?"
+        f"Aqui é o Vanderson, criador do AVGESTÃO, um sistema feito para organizar serviços e orçamentos.\n\n"
+        f"Com ele vocês registram as medidas e observações, montam o orçamento e enviam um link para o cliente aprovar e acompanhar o andamento do serviço.\n\n"
+        f"Para facilitar, eu mesmo configuro a conta e deixo tudo pronto para vocês testarem com um serviço real durante 15 dias.\n\n"
+        f"Posso liberar e configurar o acesso de vocês?"
     )
 
 def msg_cardapio(lead):
     nome = lead.get("nome") or ""
-    cidade = lead.get("cidade") or ""
-    local = f" Atendo empresas em {cidade} e região." if cidade else ""
     return (
         f"Boa tarde, pessoal da {nome}! Tudo bem?\n\n"
-        f"Aqui é o Vanderson, criador do AVGESTÃO.{local}\n\n"
-        f"Pedidos espalhados pelo WhatsApp podem causar itens esquecidos, anotações erradas e demora no atendimento.\n\n"
-        f"Com o AVGESTÃO, o cliente escolhe pelo cardápio digital e o pedido entra organizado no sistema, com controle do andamento e pagamento.\n\n"
-        f"São 15 dias grátis. Posso criar o acesso de vocês?"
+        f"Aqui é o Vanderson, criador do AVGESTÃO, um sistema feito para organizar pedidos e pagamentos.\n\n"
+        f"Com o cardápio digital, o cliente escolhe os produtos pelo link e o pedido entra organizado no sistema para vocês acompanharem o preparo, a entrega e o pagamento.\n\n"
+        f"Para facilitar, eu mesmo configuro o cardápio inicial e deixo tudo pronto para vocês testarem com pedidos reais durante 15 dias.\n\n"
+        f"Posso liberar e configurar o acesso de vocês?"
+    )
+
+def msg_confeitaria(lead):
+    nome = lead.get("nome") or ""
+    return (
+        f"Boa tarde, pessoal da {nome}! Tudo bem?\n\n"
+        f"Aqui é o Vanderson, criador do AVGESTÃO, um sistema feito para organizar pedidos e encomendas.\n\n"
+        f"Com ele vocês disponibilizam o cardápio digital, recebem os pedidos organizados e acompanham o andamento e o pagamento em um só lugar.\n\n"
+        f"Para facilitar, eu mesmo configuro os primeiros produtos e deixo tudo pronto para vocês testarem com pedidos reais durante 15 dias.\n\n"
+        f"Posso liberar e configurar o acesso de vocês?"
     )
 
 def msg_otica(lead):
     nome = lead.get("nome") or ""
-    cidade = lead.get("cidade") or ""
-    local = f" Atendo empresas em {cidade} e região." if cidade else ""
     return (
         f"Boa tarde, pessoal da {nome}! Tudo bem?\n\n"
-        f"Aqui é o Vanderson, criador do AVGESTÃO.{local}\n\n"
-        f"Quando modelos, lentes, valores e observações ficam espalhados, aumenta o risco de erro e fica difícil encontrar o histórico do cliente.\n\n"
-        f"No AVGESTÃO vocês organizam as informações, montam o orçamento e enviam um link para o cliente visualizar e aprovar.\n\n"
-        f"O teste é gratuito por 15 dias. Posso liberar o acesso?"
+        f"Aqui é o Vanderson, criador do AVGESTÃO, um sistema feito para organizar clientes, orçamentos e pedidos.\n\n"
+        f"Com ele vocês registram as informações do atendimento, montam o orçamento e enviam um link para o cliente visualizar e aprovar.\n\n"
+        f"Para facilitar, eu mesmo configuro a conta e deixo tudo pronto para vocês testarem com um atendimento real durante 15 dias.\n\n"
+        f"Posso liberar e configurar o acesso de vocês?"
+    )
+
+def msg_refrigeracao(lead):
+    nome = lead.get("nome") or ""
+    return (
+        f"Boa tarde, pessoal da {nome}! Tudo bem?\n\n"
+        f"Aqui é o Vanderson, criador do AVGESTÃO, um sistema feito para organizar empresas de manutenção e refrigeração.\n\n"
+        f"Com ele vocês registram o cliente e o equipamento, abrem a ordem de serviço, enviam o orçamento para aprovação e mantêm todo o histórico do atendimento.\n\n"
+        f"Para facilitar, eu mesmo configuro a conta e deixo tudo pronto para vocês testarem com um chamado real durante 15 dias.\n\n"
+        f"Posso liberar e configurar o acesso de vocês?"
     )
 
 CAT_MAP = {
     "oficina mecânica": msg_oficina,
+    "autoelétrica": msg_oficina,
     "serralheria": msg_producao,
     "marcenaria": msg_producao,
     "eletricista": msg_prestador,
     "pintor": msg_prestador,
     "encanador": msg_prestador,
     "loja de celulares": msg_assistencia,
+    "assistência técnica": msg_assistencia,
     "material de construção": msg_material_construcao,
     "loja de móveis": msg_moveis,
+    "móveis planejados": msg_moveis,
     "vidraçaria": msg_vidracaria,
     "restaurante": msg_cardapio,
     "pizzaria": msg_cardapio,
     "lanchonete": msg_cardapio,
-    "confeitaria": msg_cardapio,
-    "padaria": msg_cardapio,
+    "confeitaria": msg_confeitaria,
+    "padaria": msg_confeitaria,
     "ótica": msg_otica,
+    "refrigeração": msg_refrigeracao,
+    "ar-condicionado": msg_refrigeracao,
 }
 
 
 def fetch_leads():
     categorias = [
-        "oficina mecânica", "serralheria", "marcenaria",
+        "oficina mecânica", "autoelétrica", "serralheria", "marcenaria",
         "eletricista", "pintor", "encanador",
-        "loja de celulares",
-        "material de construção", "loja de móveis", "vidraçaria",
+        "loja de celulares", "assistência técnica",
+        "material de construção", "loja de móveis", "móveis planejados", "vidraçaria",
         "restaurante", "pizzaria", "lanchonete", "confeitaria", "padaria",
-        "ótica",
+        "ótica", "refrigeração", "ar-condicionado",
     ]
     all_leads = []
+    seen_ids = set()
     for categoria in categorias:
         offset = 0
         while True:
             cat_enc = quote(categoria)
             req = urllib.request.Request(
-                f"{API_URL}?categoria=ilike.*{cat_enc}*&status=in.(novo,pronto_para_enviar)"
-                f"&select=id,nome,telefone,telefone_normalizado,cidade,bairro,categoria,status"
+                f"{API_URL}?or=(categoria.ilike.*{cat_enc}*,nicho.ilike.*{cat_enc}*)"
+                f"&status=in.(novo,pronto_para_enviar)"
+                f"&select=id,nome,telefone,telefone_normalizado,cidade,bairro,categoria,nicho,status"
                 f"&limit=1000&offset={offset}",
                 headers=HEADERS,
             )
@@ -261,7 +271,11 @@ def fetch_leads():
                 data = json.loads(r.read().decode())
                 if not data:
                     break
-                all_leads.extend(data)
+                for lead in data:
+                    lid = lead.get("id")
+                    if lid and lid not in seen_ids:
+                        seen_ids.add(lid)
+                        all_leads.append(lead)
                 if len(data) < 1000:
                     break
                 offset += 1000
@@ -314,15 +328,27 @@ def _wait_qr(page):
     return False
 
 
+def _escolher_msg(lead):
+    valor = (lead.get("categoria") or lead.get("nicho") or "").strip().lower()
+    if not valor:
+        return msg_prestador(lead)
+    fn = CAT_MAP.get(valor)
+    if fn:
+        return fn(lead)
+    for chave, func in CAT_MAP.items():
+        if chave in valor:
+            return func(lead)
+    return msg_prestador(lead)
+
+
 def enviar_um(page, lead):
     nome = lead["nome"]
     tel = lead.get("telefone_normalizado") or lead.get("telefone") or ""
-    categoria = lead.get("categoria", "")
     if not is_celular(tel):
         print("   ⏭️ Fixo - pulando")
         marcar(lead["id"], "perdido", "Telefone fixo")
         return False
-    msg = CAT_MAP.get(categoria, msg_prestador)(lead)
+    msg = _escolher_msg(lead)
     url = f"https://web.whatsapp.com/send?phone={tel}&text={quote(msg)}"
     try:
         page.goto(url, wait_until="domcontentloaded", timeout=120000)
@@ -376,6 +402,15 @@ def _countdown(segundos, label):
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Envio automatico WhatsApp AVGESTAO")
+    parser.add_argument("quantidade", nargs="?", type=int, default=ENVIAR_HOJE,
+                        help=f"Quantos leads enviar hoje (padrao: {ENVIAR_HOJE})")
+    parser.add_argument("--excluir", type=str, default="",
+                        help="Nichos/categorias para excluir (separados por virgula). Ex: --excluir \"oficina mecânica,refrigeração\"")
+    args = parser.parse_args()
+    qtd = max(1, args.quantidade)
+    excluir = [e.strip().lower() for e in args.excluir.split(",") if e.strip()]
+
     acquire_lock()
     atexit.register(release_lock)
 
@@ -387,9 +422,22 @@ def main():
 
     print("=" * 60)
     print(f"  🚗 Envio Automatico AVGESTAO - {datetime.now().strftime('%d/%m/%Y %H:%M')}")
+    print(f"  📋 Meta de hoje: {qtd} leads | 7min entre cada (sem pausa de bloco)")
+    if excluir:
+        print(f"  🚫 Excluindo nichos: {', '.join(excluir)}")
     print("=" * 60)
     print("\n📡 Buscando leads...")
     all_leads = fetch_leads()
+    if excluir:
+        antes = len(all_leads)
+        all_leads = [
+            l for l in all_leads
+            if not any(
+                e in (l.get("categoria") or "").lower() or e in (l.get("nicho") or "").lower()
+                for e in excluir
+            )
+        ]
+        print(f"   ⚠️ Filtrados: {antes - len(all_leads)} leads excluidos por nicho")
     cels = [l for l in all_leads if is_celular(l.get("telefone_normalizado") or l.get("telefone") or "")]
     print(f"   Disponiveis: {len(all_leads)} | Com WhatsApp (cel 21 c/ 9): {len(cels)}")
     if not cels:
@@ -397,8 +445,8 @@ def main():
         release_lock()
         return
     random.shuffle(cels)
-    leads = cels[:ENVIAR_HOJE]
-    print(f"\n📋 {len(leads)} leads hoje | 7min cada | bloco de 10 + 1h pausa\n")
+    leads = cels[:qtd]
+    print(f"\n📋 {len(leads)} leads hoje | 7min cada | sem pausa de bloco\n")
 
     for lock in ["SingletonLock", "SingletonCookie", "SingletonSocket"]:
         p = PROFILE_DIR / lock
@@ -419,7 +467,7 @@ def main():
                     user_data_dir=str(PROFILE_DIR),
                     channel="chrome",
                     headless=False,
-                    args=["--no-sandbox", "--disable-blink-features=AutomationControlled"],
+                    args=["--no-sandbox", "--disable-blink-features=AutomationControlled", "--new-instance"],
                     viewport={"width": 800, "height": 900},
                     locale="pt-BR",
                 )
@@ -428,7 +476,7 @@ def main():
                 browser = pw.chromium.launch_persistent_context(
                     user_data_dir=str(PROFILE_DIR),
                     headless=False,
-                    args=["--no-sandbox", "--disable-blink-features=AutomationControlled"],
+                    args=["--no-sandbox", "--disable-blink-features=AutomationControlled", "--new-instance"],
                     viewport={"width": 800, "height": 900},
                     locale="pt-BR",
                 )
@@ -446,13 +494,8 @@ def main():
                     total_ok += 1
 
                 if i < len(leads) - 1:
-                    if (i + 1) % BLOCO_TAMANHO == 0:
-                        prox = (datetime.now() + timedelta(seconds=PAUSA_BLOCO_SEG)).strftime("%H:%M")
-                        print(f"\n⏸️  Bloco feito. Pausa 1h. Proximo: {prox}")
-                        _countdown(PAUSA_BLOCO_SEG, "pausa")
-                    else:
-                        print(f"   ⏳ 7min...")
-                        _countdown(INTERVALO_SEG, "proximo")
+                    print(f"   ⏳ 7min...")
+                    _countdown(INTERVALO_SEG, "proximo")
 
             try:
                 browser.close()
