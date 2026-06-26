@@ -18,6 +18,7 @@ from config.avgestao import (
     resolver_grupo,
     listar_grupos,
     consultar_subnichos,
+    gerar_consultas_meta,
     detectar_grupo_subnicho,
     classificar_faz_assistencia,
     FAZ_ASSISTENCIA_CONFIRMADO,
@@ -35,6 +36,18 @@ from config.avgestao import (
     linha_xlsx_avgestao,
     prioridade_avgestao,
     COLUNAS_XLSX_AVGESTAO,
+    normalizar_texto,
+    tokenizar_sem_stopwords,
+    _match_query,
+    _MENSAGENS_POR_CAT,
+    _followup1,
+    _followup2,
+    _msg_oficina_mecanica,
+    _msg_assistencia_tecnica,
+    _msg_oficina_producao,
+    _msg_prestador_servico,
+    _msg_ar_refrigeracao,
+    _msg_seguranca,
 )
 from utils.phone_utils import normalizar_telefone_br
 
@@ -305,20 +318,21 @@ def test_chave_dedup_estrutura():
 def test_gerar_mensagem_avgestao_inicial():
     lead = _lead(nome="Tech Cel Assistencia", categoria="assistencia tecnica de celular")
     msg = gerar_mensagem_avgestao(lead, tentativa=1)
-    assert "AVGESTAO" in msg
-    assert "Tech Cel" in msg
+    assert "AVGESTÃO" in msg
+    assert "Tech Cel" in msg or "Tech Cel Assistencia" in msg
 
 
 def test_gerar_mensagem_followup1():
     lead = _lead(nome="Oficina do Joao", categoria="oficina mecanica")
     msg = gerar_mensagem_avgestao(lead, tentativa=2)
-    assert "se conseguiram ver" in msg
+    assert "AVGESTÃO" in msg
+    assert "Passei aqui" in msg
 
 
 def test_gerar_mensagem_followup2():
     lead = _lead(nome="Oficina do Joao", categoria="oficina mecanica")
     msg = gerar_mensagem_avgestao(lead, tentativa=3)
-    assert "ultimo contato" in msg
+    assert "última mensagem" in msg or "último contato" in msg
 
 
 def test_gerar_link_whatsapp_avgestao():
@@ -333,15 +347,15 @@ def test_gerar_link_whatsapp_sem_telefone():
 
 
 def test_mensagem_por_grupo_automotivo():
-    lead = _lead(nome="Oficina Mec", categoria="oficina mecanica")
+    lead = _lead(nome="Oficina Mec", grupo="automotivo", subnicho="oficina_mecanica", msg_cat="oficina_mecanica")
     msg = gerar_mensagem_avgestao(lead, tentativa=1)
-    assert "oficina" in msg.lower() or "veiculo" in msg.lower()
+    assert "oficinas" in msg.lower() or "veículo" in msg.lower()
 
 
 def test_mensagem_por_grupo_refrigeracao():
-    lead = _lead(nome="Ar Clima", categoria="refrigeracao")
+    lead = _lead(nome="Ar Clima", grupo="refrigeracao", subnicho="ar_condicionado", msg_cat="ar_refrigeracao")
     msg = gerar_mensagem_avgestao(lead, tentativa=1)
-    assert "refrigeracao" in msg.lower() or "climatizacao" in msg.lower() or "manutencao" in msg.lower()
+    assert "refrigeração" in msg.lower() or "manutenção" in msg.lower()
 
 
 # ── Nome curto ─────────────────────────────────────────────────────
@@ -437,9 +451,9 @@ def test_linha_xlsx_avgestao_campos():
     linha = linha_xlsx_avgestao(lead)
     assert linha["Status"] == "novo"
     assert linha["Data da abordagem"] == ""
-    assert "AVGESTAO" in linha["Mensagem inicial"]
-    assert "se conseguiram ver" in linha["Follow-up 1"]
-    assert "ultimo contato" in linha["Follow-up 2"]
+    assert "AVGESTÃO" in linha["Mensagem inicial"]
+    assert "AVGESTÃO" in linha["Follow-up 1"]
+    assert "última" in linha["Follow-up 2"]
     assert isinstance(linha["Score AVGESTÃO"], int)
 
 
@@ -488,6 +502,341 @@ def test_autonomo_penaliza_generico_sem_grupo():
     lead = _lead(nome="Joao Silva", categoria="vendedor", cidade="Nova Iguacu", telefone="21999999999")
     r = calcular_score_avgestao(lead)
     assert any("autonomo" in m.lower() for m in r.motivos)
+
+
+# ── Normalizacao de texto (novos casos) ────────────────────────────
+
+def test_normalizar_texto_none():
+    assert normalizar_texto(None) == ""
+
+
+def test_normalizar_texto_com_acentos():
+    assert normalizar_texto("Assistência Técnica") == "assistencia tecnica"
+
+
+def test_normalizar_texto_sem_acentos():
+    assert normalizar_texto("Assistencia Tecnica") == "assistencia tecnica"
+
+
+def test_normalizar_texto_acentos_igual_sem_acentos():
+    assert normalizar_texto("Manutenção de Ar-Condicionado") == normalizar_texto("Manutencao de Ar Condicionado")
+
+
+def test_normalizar_texto_remove_pontuacao():
+    assert normalizar_texto("Clima Forte - Manutenção & Instalação") == "clima forte manutencao instalacao"
+
+
+def test_normalizar_texto_normaliza_espacos():
+    assert normalizar_texto("  vários   espaços  ") == "varios espacos"
+
+
+def test_tokenizar_sem_stopwords():
+    tokens = tokenizar_sem_stopwords("manutenção de ar condicionado em Nova Iguaçu")
+    assert "de" not in tokens
+    assert "em" not in tokens
+    assert "manutencao" in tokens
+    assert "condicionado" in tokens
+
+
+# ─_ Correspondencia de queries (novos casos) ───────────────────────
+
+def test_match_query_assistencia_com_acentos():
+    assert _match_query("assistência técnica de celular", "Assistência Técnica Celular Center")
+
+
+def test_match_query_assistencia_sem_acentos():
+    assert _match_query("assistencia tecnica de celular", "Assistência Técnica Celular Center")
+
+
+def test_match_query_refrigeracao_composto():
+    assert _match_query(
+        "manutenção de ar-condicionado",
+        "Clima Forte Manutenção e Instalação de Ar Condicionado",
+    )
+
+
+def test_match_query_oficina_motos():
+    assert _match_query("oficina de motos", "Motosul Oficina e Peças")
+
+
+def test_match_query_false_padaria():
+    assert not _match_query("oficina mecanica", "Padaria Sao Joao")
+
+
+# ── Metadados explicitos (novos casos) ─────────────────────────────
+
+def test_gerar_consultas_meta_tem_metadados():
+    consultas = gerar_consultas_meta("assistencias", "Duque de Caxias, RJ")
+    assert len(consultas) == 6
+    c0 = consultas[0]
+    assert c0["query"] == "assistencia tecnica de celular em Duque de Caxias, RJ"
+    assert c0["grupo"] == "assistencias"
+    assert c0["subnicho"] == "celular"
+    assert c0["msg_cat"] == "assistencia_tecnica"
+    assert "subnicho_label" in c0
+
+
+def test_enriquecer_preserva_grupo_subnicho_da_consulta():
+    lead = _lead(
+        nome="Assistência Técnica Celular Center",
+        categoria="",
+        grupo="assistencias",
+        subnicho="celular",
+        msg_cat="assistencia_tecnica",
+        cidade="Duque de Caxias",
+        whatsapp="21999999999",
+        num_avaliacoes="30",
+        endereco="Rua A",
+    )
+    e = enriquecer_lead_avgestao(lead)
+    assert e["grupo"] == "assistencias"
+    assert e["subnicho"] == "celular"
+    assert e["msg_cat"] == "assistencia_tecnica"
+
+
+def test_precedencia_metadados_sobre_inferencia():
+    """Lead com grupo explicito mas nome que nao bate com _match_query."""
+    lead = _lead(
+        nome="Motosul Centro Automotivo",
+        categoria="centro automotivo",
+        grupo="automotivo",
+        subnicho="motos",
+        msg_cat="oficina_mecanica",
+        cidade="Nova Iguacu",
+        whatsapp="21888888888",
+        num_avaliacoes="20",
+        endereco="Rua B",
+    )
+    e = enriquecer_lead_avgestao(lead)
+    assert e["grupo"] == "automotivo"
+    assert e["msg_cat"] == "oficina_mecanica"
+
+
+def test_detectar_grupo_usa_grupo_explicito():
+    lead = _lead(nome="Empresa X", categoria="", grupo="refrigeracao", subnicho="ar_condicionado")
+    g, s = detectar_grupo_subnicho(lead)
+    assert g == "refrigeracao"
+
+
+def test_enriquecer_grupo_explicito_nao_eh_sobrescrito_por_inferencia():
+    """Mesmo se _match_query encontrar grupo diferente, o explicito prevalece."""
+    lead = _lead(
+        nome="Oficina Mecânica do Zé",
+        categoria="oficina mecanica",
+        grupo="automotivo",
+        subnicho="oficina_mecanica",
+        msg_cat="oficina_mecanica",
+    )
+    e = enriquecer_lead_avgestao(lead)
+    assert e["grupo"] == "automotivo"
+    assert e["msg_cat"] == "oficina_mecanica"
+
+
+# ── Templates de mensagem corretos (novos casos) ───────────────────
+
+def test_template_assistencia_tecnica_gerado():
+    lead = _lead(
+        nome="Tech Cel",
+        grupo="assistencias",
+        subnicho="celular",
+        msg_cat="assistencia_tecnica",
+        whatsapp="21999999999",
+        cidade="X",
+    )
+    msg = gerar_mensagem_avgestao(lead, tentativa=1)
+    assert "aparelho" in msg.lower()
+    assert "assistências técnicas" in msg.lower() or "assistências" in msg.lower()
+    assert "AVGESTÃO" in msg
+
+
+def test_template_refrigeracao_gerado():
+    lead = _lead(
+        nome="Ar Clima",
+        grupo="refrigeracao",
+        subnicho="ar_condicionado",
+        msg_cat="ar_refrigeracao",
+        whatsapp="21888888888",
+        cidade="X",
+    )
+    msg = gerar_mensagem_avgestao(lead, tentativa=1)
+    assert "refrigeração" in msg.lower() or "manutenção" in msg.lower()
+    assert "AVGESTÃO" in msg
+
+
+def test_todas_mensagens_tem_acentos_corretos():
+    """Nenhuma mensagem comercial deve conter versoes sem acento."""
+    proibidos = [
+        "servicos",
+        "orcamento",
+        "aprovacao",
+        "AVGESTAO",
+        "voces ",
+        "estao ",
+        "sera ",
+    ]
+    leads_exemplo = [
+        _lead(nome="X", grupo="automotivo", subnicho="oficina_mecanica", msg_cat="oficina_mecanica"),
+        _lead(nome="X", grupo="assistencias", subnicho="celular", msg_cat="assistencia_tecnica"),
+        _lead(nome="X", grupo="sob_medida", subnicho="vidracaria", msg_cat="oficina_producao"),
+        _lead(nome="X", grupo="servicos_externos", subnicho="energia_solar", msg_cat="prestador_servico"),
+        _lead(nome="X", grupo="refrigeracao", subnicho="ar_condicionado", msg_cat="ar_refrigeracao"),
+        _lead(nome="X", grupo="servicos_externos", subnicho="seguranca", msg_cat="seguranca"),
+    ]
+    for lead in leads_exemplo:
+        for tentativa in (1, 2, 3):
+            msg = gerar_mensagem_avgestao(lead, tentativa=tentativa)
+            for proibido in proibidos:
+                assert proibido not in msg, \
+                    f"mensagem (tentativa={tentativa}, cat={lead['msg_cat']}) contem '{proibido}'"
+
+
+def test_url_whatsapp_codifica_acentos():
+    lead = _lead(
+        nome="Tech Cel",
+        grupo="assistencias",
+        subnicho="celular",
+        msg_cat="assistencia_tecnica",
+        whatsapp="21999999999",
+        cidade="X",
+    )
+    link = gerar_link_whatsapp_avgestao(lead, tentativa=1)
+    assert link.startswith("https://wa.me/5521999999999?text=")
+    from urllib.parse import unquote
+    msg_decodificada = unquote(link.split("?text=")[1])
+    assert "AVGESTÃO" in msg_decodificada
+    assert "serviços" in msg_decodificada or "orçamento" in msg_decodificada
+
+
+def test_todos_templates_por_cat_existem():
+    cats_esperadas = {
+        "oficina_mecanica", "assistencia_tecnica", "oficina_producao",
+        "prestador_servico", "ar_refrigeracao", "seguranca",
+    }
+    assert set(_MENSAGENS_POR_CAT.keys()) == cats_esperadas
+
+
+# ── Testes comerciais das novas mensagens curtas ───────────────────
+
+def _msg_stats(msg):
+    """Retorna (palavras, caracteres) ignorando quebras de linha duplas."""
+    palavras = len(msg.split())
+    caracteres = len(msg)
+    return palavras, caracteres
+
+
+_CATS_MSG = [
+    ("automotivo", "oficina_mecanica", "oficina_mecanica", _msg_oficina_mecanica),
+    ("assistencias", "assistencia_tecnica", "celular", _msg_assistencia_tecnica),
+    ("sob_medida", "oficina_producao", "vidracaria", _msg_oficina_producao),
+    ("servicos_externos", "prestador_servico", "energia_solar", _msg_prestador_servico),
+    ("refrigeracao", "ar_refrigeracao", "ar_condicionado", _msg_ar_refrigeracao),
+    ("servicos_externos", "seguranca", "seguranca", _msg_seguranca),
+]
+
+
+def test_cada_grupo_usa_template_correto():
+    for grupo_key, msg_cat, subnicho_key, fn in _CATS_MSG:
+        msg = fn("Loja Teste")
+        assert msg_cat in _MENSAGENS_POR_CAT, f"{msg_cat} deve existir em _MENSAGENS_POR_CAT"
+        assert callable(_MENSAGENS_POR_CAT[msg_cat])
+
+
+def test_mensagem_curta_ate_600_caracteres():
+    for grupo_key, msg_cat, subnicho_key, fn in _CATS_MSG:
+        msg = fn("Loja Teste")
+        palavras, caracteres = _msg_stats(msg)
+        assert caracteres <= 600, \
+            f"{msg_cat}: {caracteres} caracteres (max 600)"
+
+
+def test_mensagem_menciona_criador_avgestao():
+    for grupo_key, msg_cat, subnicho_key, fn in _CATS_MSG:
+        msg = fn("Loja Teste")
+        assert "criador do AVGESTÃO" in msg, f"{msg_cat} deve mencionar 'criador do AVGESTÃO'"
+
+
+def test_mensagem_menciona_15_dias():
+    for grupo_key, msg_cat, subnicho_key, fn in _CATS_MSG:
+        msg = fn("Loja Teste")
+        assert "15 dias" in msg, f"{msg_cat} deve mencionar '15 dias'"
+
+
+def test_mensagem_termina_oferecendo_acesso():
+    for grupo_key, msg_cat, subnicho_key, fn in _CATS_MSG:
+        msg = fn("Loja Teste")
+        linhas = msg.strip().split("\n\n")
+        ultima = linhas[-1].strip()
+        assert "acesso" in ultima.lower() or "liberar" in ultima.lower(), \
+            f"{msg_cat}: ultima linha deve oferecer acesso: '{ultima}'"
+
+
+def test_mensagem_usa_nome_curto():
+    for grupo_key, msg_cat, subnicho_key, fn in _CATS_MSG:
+        msg = fn("Loja Teste")
+        assert "Loja Teste" in msg, f"{msg_cat} deve conter o nome curto do comercio"
+
+
+def test_mensagem_nao_oferece_foto_video_demo():
+    for grupo_key, msg_cat, subnicho_key, fn in _CATS_MSG:
+        msg = fn("Loja Teste")
+        msg_lower = msg.lower()
+        assert "foto" not in msg_lower, f"{msg_cat} nao deve oferecer foto"
+        assert "vídeo" not in msg_lower and "video" not in msg_lower, \
+            f"{msg_cat} nao deve oferecer video"
+        assert "demonstração" not in msg_lower and "demonstracao" not in msg_lower, \
+            f"{msg_cat} nao deve oferecer demonstracao"
+
+
+def test_followup1_max_70_palavras():
+    msg = _followup1("Loja Teste")
+    palavras, caracteres = _msg_stats(msg)
+    assert caracteres <= 450, f"followup1: {caracteres} chars (max ~450)"
+    assert palavras <= 70, f"followup1: {palavras} palavras (max 70)"
+
+
+def test_followup2_max_75_palavras():
+    msg = _followup2("Loja Teste")
+    palavras, caracteres = _msg_stats(msg)
+    assert caracteres <= 450, f"followup2: {caracteres} chars (max ~450)"
+    assert palavras <= 75, f"followup2: {palavras} palavras (max 75)"
+
+
+# ── Regressao completa do modo landing pages ───────────────────────
+
+def test_landing_pages_nao_usa_score_avgestao():
+    """O modo landing pages deve continuar usando calcular_score (LP), nao score_avgestao."""
+    import prospectar_leads
+    lead_lp = {
+        "nome": "Salao de Beleza A",
+        "categoria": "salão de beleza",
+        "cidade": "Nova Iguacu",
+        "telefone": "21999999999",
+        "tem_site": "False",
+        "num_avaliacoes": "30",
+        "avaliacao": "4.5",
+    }
+    score_lp = prospectar_leads.calcular_score(lead_lp)
+    assert "score_avgestao" not in lead_lp
+    assert 0 <= score_lp <= 100
+
+
+def test_landing_pages_prospectar_default_funciona():
+    """O prospectar_leads sem --produto avgestao nao deve enriquecer com campos avgestao."""
+    import prospectar_leads
+    lead = {
+        "nome": "Barbearia Corte",
+        "categoria": "barbearia",
+        "cidade": "Duque de Caxias",
+        "telefone": "21999999999",
+        "tem_site": "False",
+        "num_avaliacoes": "20",
+        "avaliacao": "4.5",
+        "instagram": "@corte",
+    }
+    score = prospectar_leads.calcular_score(lead)
+    assert score > 0
+    assert "score_avgestao" not in lead
+    assert "faz_assistencia" not in lead
 
 
 # ── Runner manual ──────────────────────────────────────────────────

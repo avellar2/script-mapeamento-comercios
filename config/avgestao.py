@@ -13,11 +13,49 @@ Funcoes puras e testaveis (sem I/O nem rede).
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import dataclass, field
 from typing import Optional
 
 from config.franquia import detectar_franquia
 from utils.phone_utils import normalizar_telefone_br, gerar_link_whatsapp
+
+
+# ══════════════════════════════════════════════════════════════════
+# NORMALIZACAO DE TEXTO (central)
+# ══════════════════════════════════════════════════════════════════
+
+_STOP_WORDS = {
+    "de", "da", "do", "das", "dos", "em", "no", "na", "nos", "nas",
+    "para", "por", "com", "e", "a", "o", "as", "os", "que", "ao",
+    "aos", "pelo", "pela", "num", "numa", "dum", "duma",
+}
+
+
+def normalizar_texto(valor) -> str:
+    """
+    Normaliza um texto para comparacao:
+    1. trata None -> string vazia
+    2. converte para string
+    3. aplica lowercase/casefold
+    4. remove acentos com unicodedata.normalize (NFKD)
+    5. remove pontuacao
+    6. normaliza espacos
+    """
+    if valor is None:
+        return ""
+    s = str(valor).casefold()
+    s = unicodedata.normalize("NFKD", s)
+    s = s.encode("ASCII", "ignore").decode("ASCII")
+    s = re.sub(r"[^\w\s]", " ", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+
+def tokenizar_sem_stopwords(valor) -> list[str]:
+    """Normaliza e tokeniza removendo stop words."""
+    tokens = normalizar_texto(valor).split()
+    return [t for t in tokens if t and t not in _STOP_WORDS]
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -29,6 +67,7 @@ class Subnicho:
     query: str
     label: str
     msg_cat: str
+    subnicho_key: str
 
 
 @dataclass
@@ -43,45 +82,45 @@ class GrupoConfig:
 
 
 _ASSISTENCIAS = [
-    Subnicho("assistencia tecnica de celular", "Assistência técnica de celular", "assistencia_tecnica"),
-    Subnicho("conserto de celular", "Conserto de celular", "assistencia_tecnica"),
-    Subnicho("assistencia de computadores e notebooks", "Assistência de computadores e notebooks", "assistencia_tecnica"),
-    Subnicho("assistencia de impressoras", "Assistência de impressoras", "assistencia_tecnica"),
-    Subnicho("assistencia de eletrodomesticos", "Assistência de eletrodomésticos", "assistencia_tecnica"),
-    Subnicho("assistencia de eletronicos e videogames", "Assistência de eletrônicos e videogames", "assistencia_tecnica"),
+    Subnicho("assistencia tecnica de celular", "Assistência técnica de celular", "assistencia_tecnica", "celular"),
+    Subnicho("conserto de celular", "Conserto de celular", "assistencia_tecnica", "celular"),
+    Subnicho("assistencia de computadores e notebooks", "Assistência de computadores e notebooks", "assistencia_tecnica", "computadores"),
+    Subnicho("assistencia de impressoras", "Assistência de impressoras", "assistencia_tecnica", "impressoras"),
+    Subnicho("assistencia de eletrodomesticos", "Assistência de eletrodomésticos", "assistencia_tecnica", "eletrodomesticos"),
+    Subnicho("assistencia de eletronicos e videogames", "Assistência de eletrônicos e videogames", "assistencia_tecnica", "eletronicos"),
 ]
 
 _REFRIGERACAO = [
-    Subnicho("refrigeracao", "Refrigeração", "ar_refrigeracao"),
-    Subnicho("climatizacao", "Climatização", "ar_refrigeracao"),
-    Subnicho("instalacao de ar condicionado", "Instalação de ar-condicionado", "ar_refrigeracao"),
-    Subnicho("manutencao de ar condicionado", "Manutenção de ar-condicionado", "ar_refrigeracao"),
-    Subnicho("conserto de geladeiras e freezers", "Conserto de geladeiras e freezers", "ar_refrigeracao"),
+    Subnicho("refrigeracao", "Refrigeração", "ar_refrigeracao", "refrigeracao"),
+    Subnicho("climatizacao", "Climatização", "ar_refrigeracao", "climatizacao"),
+    Subnicho("instalacao de ar condicionado", "Instalação de ar-condicionado", "ar_refrigeracao", "ar_condicionado"),
+    Subnicho("manutencao de ar condicionado", "Manutenção de ar-condicionado", "ar_refrigeracao", "ar_condicionado"),
+    Subnicho("conserto de geladeiras e freezers", "Conserto de geladeiras e freezers", "ar_refrigeracao", "geladeiras"),
 ]
 
 _AUTOMOTIVO = [
-    Subnicho("oficina mecanica", "Oficina mecânica", "oficina_mecanica"),
-    Subnicho("autoeletrica", "Autoelétrica", "oficina_mecanica"),
-    Subnicho("oficina de motos", "Oficina de motos", "oficina_mecanica"),
-    Subnicho("centro automotivo", "Centro automotivo", "oficina_mecanica"),
-    Subnicho("injecao eletronica", "Injeção eletrônica", "oficina_mecanica"),
+    Subnicho("oficina mecanica", "Oficina mecânica", "oficina_mecanica", "oficina_mecanica"),
+    Subnicho("autoeletrica", "Autoelétrica", "oficina_mecanica", "autoeletrica"),
+    Subnicho("oficina de motos", "Oficina de motos", "oficina_mecanica", "motos"),
+    Subnicho("centro automotivo", "Centro automotivo", "oficina_mecanica", "centro_automotivo"),
+    Subnicho("injecao eletronica", "Injeção eletrônica", "oficina_mecanica", "injecao_eletronica"),
 ]
 
 _SOB_MEDIDA = [
-    Subnicho("vidracaria", "Vidraçaria", "oficina_producao"),
-    Subnicho("marcenaria", "Marcenaria", "oficina_producao"),
-    Subnicho("moveis planejados", "Móveis planejados", "oficina_producao"),
-    Subnicho("serralheria", "Serralheria", "oficina_producao"),
-    Subnicho("portoes automaticos", "Portões automáticos", "oficina_producao"),
+    Subnicho("vidracaria", "Vidraçaria", "oficina_producao", "vidracaria"),
+    Subnicho("marcenaria", "Marcenaria", "oficina_producao", "marcenaria"),
+    Subnicho("moveis planejados", "Móveis planejados", "oficina_producao", "moveis_planejados"),
+    Subnicho("serralheria", "Serralheria", "oficina_producao", "serralheria"),
+    Subnicho("portoes automaticos", "Portões automáticos", "oficina_producao", "portoes"),
 ]
 
 _SERVICOS_EXTERNOS = [
-    Subnicho("energia solar", "Energia solar", "prestador_servico"),
-    Subnicho("seguranca eletronica", "Segurança eletrônica", "seguranca"),
-    Subnicho("cameras e alarmes", "Câmeras e alarmes", "seguranca"),
-    Subnicho("dedetizacao", "Dedetização", "prestador_servico"),
-    Subnicho("manutencao de piscinas", "Manutenção de piscinas", "prestador_servico"),
-    Subnicho("manutencao predial", "Manutenção predial", "prestador_servico"),
+    Subnicho("energia solar", "Energia solar", "prestador_servico", "energia_solar"),
+    Subnicho("seguranca eletronica", "Segurança eletrônica", "seguranca", "seguranca"),
+    Subnicho("cameras e alarmes", "Câmeras e alarmes", "seguranca", "cameras_alarmes"),
+    Subnicho("dedetizacao", "Dedetização", "prestador_servico", "dedetizacao"),
+    Subnicho("manutencao de piscinas", "Manutenção de piscinas", "prestador_servico", "piscinas"),
+    Subnicho("manutencao predial", "Manutenção predial", "prestador_servico", "predial"),
 ]
 
 
@@ -114,6 +153,7 @@ def consultar_subnichos(grupo_key: str, cidade: str) -> list[tuple[str, str, str
     """
     Retorna lista de (query_google_maps, subnicho_label, msg_cat) para o grupo e cidade.
     As consultas sao especificas por nicho e cidade.
+    Mantida por compatibilidade. Prefira gerar_consultas_meta().
     """
     grupo = get_grupo(grupo_key)
     cidade_clean = (cidade or "").strip()
@@ -123,17 +163,66 @@ def consultar_subnichos(grupo_key: str, cidade: str) -> list[tuple[str, str, str
     ]
 
 
+def gerar_consultas_meta(grupo_key: str, cidade: str) -> list[dict]:
+    """
+    Gera consultas com metadados explicitos para o Google Maps.
+
+    Cada item contem:
+        query:        termo de busca completo (ex: "assistência técnica de celular em Duque de Caxias, RJ")
+        grupo:        chave do grupo (ex: "assistencias")
+        subnicho:     chave curta do subnicho (ex: "celular")
+        subnicho_label: label legivel (ex: "Assistência técnica de celular")
+        msg_cat:      categoria da mensagem (ex: "assistencia_tecnica")
+
+    Durante a captacao, cada lead deve preservar source_query + grupo + subnicho.
+    """
+    grupo = get_grupo(grupo_key)
+    cidade_clean = (cidade or "").strip()
+    return [
+        {
+            "query": f"{s.query} em {cidade_clean}",
+            "grupo": grupo.key,
+            "subnicho": s.subnicho_key,
+            "subnicho_label": s.label,
+            "msg_cat": s.msg_cat,
+        }
+        for s in grupo.subnichos
+    ]
+
+
+def _validar_grupo_existe(grupo_key: str) -> bool:
+    """Verifica se uma chave de grupo existe no registro."""
+    return grupo_key in GRUPOS
+
+
 def detectar_grupo_subnicho(lead: dict) -> tuple[str, str]:
     """
     Detecta (grupo_key, subnicho_label) a partir dos dados do lead.
+
+    Precedencia:
+    1. grupo/subnicho explicitos do lead (metadados da consulta de origem)
+    2. source_query com metadados (quando o lead traz source_query_id)
+    3. inferencia por _match_query (fallback para dados antigos/importacoes manuais)
+
     Retorna ("", "") se nao encaixar em nenhum grupo.
     """
+    grupo_explicito = str(lead.get("grupo") or "").strip().lower()
+    subnicho_explicito = str(lead.get("subnicho") or "").strip()
+
+    if grupo_explicito and _validar_grupo_existe(grupo_explicito):
+        grupo = GRUPOS[grupo_explicito]
+        if subnicho_explicito:
+            for sub in grupo.subnichos:
+                if sub.subnicho_key == subnicho_explicito or sub.label == subnicho_explicito:
+                    return grupo_explicito, sub.label
+        return grupo_explicito, subnicho_explicito or grupo.subnichos[0].label
+
     texto = " ".join([
         str(lead.get("nome") or ""),
         str(lead.get("categoria") or ""),
         str(lead.get("nicho") or ""),
         str(lead.get("subnicho") or ""),
-    ]).lower()
+    ])
 
     for grupo_key, grupo in GRUPOS.items():
         for sub in grupo.subnichos:
@@ -143,9 +232,29 @@ def detectar_grupo_subnicho(lead: dict) -> tuple[str, str]:
 
 
 def _match_query(query: str, texto: str) -> bool:
-    padrao = re.sub(r"\s+", " ", query.lower()).strip()
-    tokens = [t for t in padrao.split() if len(t) > 2 or t in ("de", "ar")]
-    return all(t in texto for t in tokens) if tokens else False
+    """
+    Verifica se os tokens significativos da query aparecem no texto.
+    Usa normalizar_texto() (remove acentos, pontuacao, lowercase) e
+    remove stop words de ambos os lados.
+
+    A comparacao nao depende da frase completa: cada token significativo
+    da query deve aparecer como substring de algum token do texto (ou vice-versa
+    para tokens curtos como "ar").
+    """
+    tokens_query = tokenizar_sem_stopwords(query)
+    if not tokens_query:
+        return False
+
+    tokens_texto = tokenizar_sem_stopwords(texto)
+    texto_joined = " ".join(tokens_texto)
+
+    for tq in tokens_query:
+        if tq in texto_joined:
+            continue
+        if any(tq in tt or tt in tq for tt in tokens_texto if len(tt) >= 2):
+            continue
+        return False
+    return True
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -423,66 +532,60 @@ def deduplicar_leads(leads: list[dict]) -> list[dict]:
 def _msg_oficina_mecanica(nome: str) -> str:
     return (
         f"Boa tarde, pessoal da {nome}! Tudo bem?\n\n"
-        f"Meu nome e Vanderson e desenvolvi o AVGESTAO para empresas que trabalham com servicos, veiculos e orcamentos.\n\n"
-        f"Um dos maiores problemas de uma oficina e perder o controle de qual servico foi autorizado, o que ja foi feito e quanto o cliente ainda precisa pagar. Isso pode causar atraso, retrabalho e ate discussao na hora da entrega.\n\n"
-        f"No AVGESTAO voces conseguem abrir a ordem de servico, registrar tudo que sera feito, enviar o orcamento para aprovacao do cliente e acompanhar cada etapa do veiculo.\n\n"
-        f"Estou liberando 15 dias gratuitos para teste.\n\n"
-        f"Posso criar um acesso para voces entrarem no sistema e testarem na propria oficina?"
+        f"Aqui é o Vanderson, criador do AVGESTÃO, um sistema feito para organizar oficinas e serviços automotivos.\n\n"
+        f"Com ele vocês registram o veículo, abrem a ordem de serviço, controlam peças e serviços e enviam o orçamento para aprovação do cliente.\n\n"
+        f"Eu mesmo configuro a conta para vocês testarem com um veículo real durante 15 dias.\n\n"
+        f"Posso liberar o acesso de vocês?"
     )
 
 
 def _msg_assistencia_tecnica(nome: str) -> str:
     return (
         f"Boa tarde, pessoal da {nome}! Tudo bem?\n\n"
-        f"Meu nome e Vanderson e desenvolvi o AVGESTAO para ajudar assistencias tecnicas a controlar os aparelhos recebidos e o andamento dos servicos.\n\n"
-        f"Uma das situacoes mais complicadas desse ramo e o cliente deixar um aparelho e depois ninguem encontrar rapidamente o diagnostico, o orcamento, as pecas utilizadas ou em qual etapa o servico esta. Alem da perda de tempo, isso pode prejudicar a confianca do cliente.\n\n"
-        f"No AVGESTAO voces conseguem abrir a ordem de servico, registrar o aparelho, montar o orcamento e enviar um link para o cliente acompanhar e aprovar.\n\n"
-        f"Estou oferecendo 15 dias gratuitos para teste.\n\n"
-        f"Posso liberar um login para voces entrarem e testarem com um atendimento real?"
+        f"Aqui é o Vanderson, criador do AVGESTÃO, um sistema feito para organizar assistências técnicas.\n\n"
+        f"Com ele vocês registram o aparelho, abrem a ordem de serviço, enviam o orçamento para aprovação e o cliente acompanha o reparo pelo próprio link.\n\n"
+        f"Eu mesmo configuro a conta e deixo tudo pronto para vocês testarem com um atendimento real durante 15 dias.\n\n"
+        f"Posso liberar e configurar o acesso de vocês?"
     )
 
 
 def _msg_oficina_producao(nome: str) -> str:
     return (
         f"Boa tarde, pessoal da {nome}! Tudo bem?\n\n"
-        f"Meu nome e Vanderson e desenvolvi o AVGESTAO para empresas que trabalham com servicos personalizados e orcamentos.\n\n"
-        f"Um dos maiores riscos desse segmento e uma medida, alteracao ou observacao importante ficar perdida entre varias conversas no WhatsApp. Um detalhe esquecido pode gerar orcamento errado, retrabalho e prejuizo no material.\n\n"
-        f"No AVGESTAO voces conseguem registrar o cliente, organizar as informacoes do servico, montar o orcamento e enviar um link para o cliente aprovar antes da producao.\n\n"
-        f"O sistema esta disponivel para teste gratuito durante 15 dias.\n\n"
-        f"Posso criar um acesso para voces entrarem e testarem no proprio negocio?"
+        f"Aqui é o Vanderson, criador do AVGESTÃO, um sistema feito para organizar serviços sob medida.\n\n"
+        f"Com ele vocês registram medidas e observações, montam o orçamento e enviam um link para o cliente conferir, aprovar e acompanhar o serviço.\n\n"
+        f"Eu mesmo configuro a conta para vocês testarem com um serviço real durante 15 dias.\n\n"
+        f"Posso liberar o acesso de vocês?"
     )
 
 
 def _msg_prestador_servico(nome: str) -> str:
     return (
         f"Boa tarde, pessoal da {nome}! Tudo bem?\n\n"
-        f"Meu nome e Vanderson e desenvolvi o AVGESTAO para empresas e profissionais que trabalham com atendimentos e servicos externos.\n\n"
-        f"Um dos maiores problemas nessa rotina e perder o controle de quem pediu orcamento, quem aprovou, qual servico ainda esta pendente e qual cliente ainda nao pagou.\n\n"
-        f"No AVGESTAO voces conseguem organizar os clientes, criar orcamentos, abrir ordens de servico e acompanhar os valores recebidos e pendentes em um so lugar.\n\n"
-        f"Estou liberando 15 dias gratuitos para teste.\n\n"
-        f"Posso criar um login para voces entrarem no sistema e testarem com os proprios servicos?"
+        f"Aqui é o Vanderson, criador do AVGESTÃO, um sistema feito para organizar clientes, orçamentos e serviços.\n\n"
+        f"Com ele vocês montam o orçamento, enviam para aprovação e acompanham os atendimentos pendentes, em andamento e concluídos.\n\n"
+        f"Eu mesmo configuro a conta para vocês testarem com um serviço real durante 15 dias.\n\n"
+        f"Posso liberar o acesso de vocês?"
     )
 
 
 def _msg_ar_refrigeracao(nome: str) -> str:
     return (
         f"Boa tarde, pessoal da {nome}! Tudo bem?\n\n"
-        f"Meu nome e Vanderson e desenvolvi o AVGESTAO para empresas de manutencao, refrigeracao e climatizacao.\n\n"
-        f"Uma das maiores dificuldades desse ramo e controlar varios chamados ao mesmo tempo e depois nao encontrar rapidamente o historico do equipamento, o orcamento aprovado, o que foi trocado ou se o servico ainda esta na garantia.\n\n"
-        f"No AVGESTAO voces conseguem registrar o cliente e o equipamento, abrir a ordem de servico, enviar o orcamento para aprovacao e manter todo o historico do atendimento organizado.\n\n"
-        f"Estou oferecendo 15 dias gratuitos para teste.\n\n"
-        f"Posso liberar um acesso para voces entrarem e usarem o sistema em um atendimento real?"
+        f"Aqui é o Vanderson, criador do AVGESTÃO, um sistema feito para organizar empresas de manutenção e refrigeração.\n\n"
+        f"Com ele vocês registram o cliente e o equipamento, abrem a ordem de serviço, enviam o orçamento para aprovação e mantêm o histórico do atendimento.\n\n"
+        f"Eu mesmo configuro a conta para vocês testarem com um chamado real durante 15 dias.\n\n"
+        f"Posso liberar o acesso de vocês?"
     )
 
 
 def _msg_seguranca(nome: str) -> str:
     return (
         f"Boa tarde, pessoal da {nome}! Tudo bem?\n\n"
-        f"Meu nome e Vanderson e desenvolvi o AVGESTAO para empresas que trabalham com servicos e orcamentos.\n\n"
-        f"Quando entram varios orcamentos e servicos ao mesmo tempo, controlar tudo pelo WhatsApp ou caderno pode gerar confusao e retrabalho.\n\n"
-        f"No AVGESTAO voces conseguem registrar o cliente, abrir a ordem de servico, enviar orcamento para aprovacao e acompanhar cada etapa.\n\n"
-        f"Estou liberando 15 dias gratuitos para teste.\n\n"
-        f"Posso criar um acesso para voces entrarem no sistema e testarem?"
+        f"Aqui é o Vanderson, criador do AVGESTÃO, um sistema feito para organizar clientes, orçamentos e serviços.\n\n"
+        f"Com ele vocês montam o orçamento, enviam para aprovação e acompanham os atendimentos pendentes, em andamento e concluídos.\n\n"
+        f"Eu mesmo configuro a conta para vocês testarem com um serviço real durante 15 dias.\n\n"
+        f"Posso liberar o acesso de vocês?"
     )
 
 
@@ -499,22 +602,19 @@ _MENSAGENS_POR_CAT = {
 def _followup1(nome: str) -> str:
     return (
         f"Boa tarde, pessoal da {nome}! Tudo bem?\n\n"
-        f"Passando para saber se conseguiram ver minha mensagem sobre o AVGESTAO.\n\n"
-        f"O sistema reune clientes, orcamentos, ordens de servico, andamento dos atendimentos, valores e historico em um so lugar.\n\n"
-        f"Alem disso, o cliente pode receber um link para visualizar e aprovar o orcamento e acompanhar o servico sem precisar perguntar toda hora pelo WhatsApp.\n\n"
-        f"O acesso fica liberado gratuitamente por 15 dias, para voces testarem com atendimentos reais e decidirem somente depois.\n\n"
-        f"Posso criar o login de teste para voces?"
+        f"Passei aqui para saber se vocês chegaram a ver minha mensagem sobre o AVGESTÃO.\n\n"
+        f"O sistema organiza os clientes, orçamentos e ordens de serviço em um só lugar, com link para o cliente aprovar e acompanhar tudo pelo celular.\n\n"
+        f"A conta fica pronta rapidinho e vocês testam gratuitamente por 15 dias.\n\n"
+        f"Posso liberar o acesso de vocês?"
     )
 
 
 def _followup2(nome: str) -> str:
     return (
         f"Boa tarde, pessoal da {nome}!\n\n"
-        f"Esse sera meu ultimo contato para nao incomodar.\n\n"
-        f"Acredito que o AVGESTAO pode ajudar voces a economizar tempo e evitar informacoes perdidas entre conversas, papel e planilhas.\n\n"
-        f"No sistema ficam organizados o cadastro do cliente, orcamento, aprovacao, ordem de servico, andamento, valores e historico de cada atendimento.\n\n"
-        f"O teste e gratuito por 15 dias, sem compromisso, e voces podem conhecer o sistema por dentro usando na propria rotina.\n\n"
-        f"Quer que eu deixe um acesso preparado para voces?"
+        f"Esta é minha última mensagem para não incomodar.\n\n"
+        f"Se mudarem de ideia sobre o AVGESTÃO, é só me procurar. Deixo o convite em aberto para testarem o sistema gratuitamente por 15 dias, sem compromisso.\n\n"
+        f"Posso liberar o acesso de vocês?"
     )
 
 
@@ -524,6 +624,13 @@ def gerar_mensagem_avgestao(lead: dict, tentativa: int = 1) -> str:
     tentativa=1: abordagem inicial
     tentativa=2: follow-up 1
     tentativa=3: follow-up 2
+
+    A categoria da mensagem (msg_cat) e definida nesta ordem:
+    1. msg_cat explicito do lead
+    2. grupo/subnicho explicitos do lead -> msg_cat do subnicho
+    3. classificacao por sinais do lead (detectar_grupo_subnicho)
+    4. _match_query como fallback
+    5. template generico (prestador_servico) como ultimo recurso
     """
     nome = str(lead.get("nome") or "").strip() or "empresa"
     nome_curto = gerar_nome_curto(lead)
@@ -534,11 +641,23 @@ def gerar_mensagem_avgestao(lead: dict, tentativa: int = 1) -> str:
         return _followup2(nome_curto)
 
     msg_cat = str(lead.get("msg_cat") or "").strip()
+
+    if not msg_cat:
+        grupo_explicito = str(lead.get("grupo") or "").strip().lower()
+        subnicho_explicito = str(lead.get("subnicho") or "").strip()
+        if grupo_explicito and _validar_grupo_existe(grupo_explicito):
+            grupo = GRUPOS[grupo_explicito]
+            for sub in grupo.subnichos:
+                if sub.label == subnicho_explicito or sub.subnicho_key == subnicho_explicito:
+                    msg_cat = sub.msg_cat
+                    break
+            if not msg_cat:
+                msg_cat = grupo.subnichos[0].msg_cat
+
     if not msg_cat:
         grupo_key, _ = detectar_grupo_subnicho(lead)
         if grupo_key:
-            grupo = GRUPOS[grupo_key]
-            msg_cat = grupo.subnichos[0].msg_cat
+            msg_cat = GRUPOS[grupo_key].subnichos[0].msg_cat
 
     geradora = _MENSAGENS_POR_CAT.get(msg_cat, _msg_prestador_servico)
     return geradora(nome_curto)
@@ -572,15 +691,44 @@ def enriquecer_lead_avgestao(lead: dict) -> dict:
     Adiciona ao lead os campos do modo AVGESTAO:
     grupo, subnicho, msg_cat, faz_assistencia, score_avgestao,
     motivos_score, nome_curto, mensagem_inicial, link_whatsapp.
+
+    Precedencia de grupo/subnicho:
+    1. grupo/subnicho explicitos do lead (metadados da consulta de origem)
+    2. grupo/subnicho da source_query (quando disponivel)
+    3. classificacao por sinais do lead
+    4. _match_query como fallback
+
+    NUNCA sobrescreve grupo/subnicho explicitos vindos da captacao.
     """
     lead = dict(lead)
-    grupo_key, subnicho = detectar_grupo_subnicho(lead)
-    lead["grupo"] = grupo_key
-    lead["subnicho"] = lead.get("subnicho") or subnicho
 
-    if not lead.get("msg_cat"):
+    grupo_explicito = str(lead.get("grupo") or "").strip().lower()
+    subnicho_explicito = str(lead.get("subnicho") or "").strip()
+    msg_cat_explicito = str(lead.get("msg_cat") or "").strip()
+
+    if grupo_explicito and _validar_grupo_existe(grupo_explicito):
+        grupo_key = grupo_explicito
+        if not subnicho_explicito:
+            subnicho_explicito = GRUPOS[grupo_key].subnichos[0].label
+    else:
+        grupo_key, subnicho_detectado = detectar_grupo_subnicho(lead)
+        if not subnicho_explicito:
+            subnicho_explicito = subnicho_detectado
+
+    lead["grupo"] = grupo_key
+    lead["subnicho"] = subnicho_explicito
+
+    if not msg_cat_explicito:
         if grupo_key:
-            lead["msg_cat"] = GRUPOS[grupo_key].subnichos[0].msg_cat
+            grupo = GRUPOS[grupo_key]
+            sub_match = None
+            for sub in grupo.subnichos:
+                if sub.label == subnicho_explicito or sub.subnicho_key == subnicho_explicito:
+                    sub_match = sub
+                    break
+            lead["msg_cat"] = sub_match.msg_cat if sub_match else grupo.subnichos[0].msg_cat
+    else:
+        lead["msg_cat"] = msg_cat_explicito
 
     lead["faz_assistencia"] = classificar_faz_assistencia(lead)
 
@@ -596,17 +744,27 @@ def enriquecer_lead_avgestao(lead: dict) -> dict:
 
 
 def filtrar_por_grupo(leads: list[dict], grupo_key: str) -> list[dict]:
-    """Filtra leads pertencentes a um grupo."""
+    """
+    Filtra leads pertencentes a um grupo.
+
+    Precedencia:
+    1. campo 'grupo' explicito do lead (metadados da consulta de origem)
+    2. _match_query nos textos (nome/categoria/nicho/subnicho)
+    """
     grupo = get_grupo(grupo_key)
     palavras = [s.query for s in grupo.subnichos]
     filtrados = []
     for lead in leads:
+        lead_grupo = str(lead.get("grupo") or "").strip().lower()
+        if lead_grupo == grupo_key:
+            filtrados.append(lead)
+            continue
         texto = " ".join([
             str(lead.get("nome") or ""),
             str(lead.get("categoria") or ""),
             str(lead.get("nicho") or ""),
             str(lead.get("subnicho") or ""),
-        ]).lower()
+        ])
         if any(_match_query(p, texto) for p in palavras):
             filtrados.append(lead)
     return filtrados

@@ -22,6 +22,7 @@ from config.regioes import resolve_regiao, get_output_dir, get_locais_busca
 from config.avgestao import (
     resolver_grupo,
     consultar_subnichos,
+    gerar_consultas_meta,
     deduplicar_leads,
     enriquecer_lead_avgestao,
     GRUPOS,
@@ -916,9 +917,13 @@ async def main_avgestao(args, async_playwright):
 
             for cidade in cidades:
                 print(f"\n  CIDADE: {cidade}")
-                consultas = consultar_subnichos(grupo.key, cidade)
+                consultas = gerar_consultas_meta(grupo.key, cidade)
 
-                for sub_idx, (query, subnicho_label, msg_cat) in enumerate(consultas, 1):
+                for sub_idx, consulta in enumerate(consultas, 1):
+                    query = consulta["query"]
+                    subnicho_label = consulta["subnicho_label"]
+                    subnicho_key = consulta["subnicho"]
+                    msg_cat = consulta["msg_cat"]
                     print(f"\n  [{sub_idx}/{len(consultas)}] {subnicho_label} em {cidade}")
 
                     try:
@@ -935,7 +940,9 @@ async def main_avgestao(args, async_playwright):
 
                         for r in resultados:
                             r["grupo"] = grupo.key
+                            r["subnicho"] = subnicho_key
                             r["msg_cat"] = msg_cat
+                            r["source_query"] = query
                             chave = f"{r.get('nome','').lower()}|{r.get('cidade','').lower()}|{r.get('subnicho','').lower()}"
                             if chave not in vistos_chaves:
                                 vistos_chaves.add(chave)
