@@ -19,7 +19,14 @@ from datetime import datetime
 from pathlib import Path
 
 from config.regioes import resolve_regiao, get_output_dir, get_locais_busca
-
+from config.avgestao import (
+    resolver_grupo,
+    consultar_subnichos,
+    deduplicar_leads,
+    enriquecer_lead_avgestao,
+    GRUPOS,
+    get_grupo,
+)
 DELAY_MIN = 2.0
 DELAY_MAX = 5.0
 
@@ -127,6 +134,71 @@ def export_excel(businesses, filename, output_dir):
         return None
 
 
+def export_csv_avgestao(businesses, filename, output_dir):
+    """Exporta comércios do modo AVGESTAO para CSV (inclui place_id e subnicho)."""
+    filepath = output_dir / filename
+    fieldnames = [
+        "nome", "endereco", "telefone", "whatsapp", "instagram",
+        "email", "categoria", "subnicho", "tem_site", "url_site",
+        "avaliacao", "num_avaliacoes", "cidade", "bairro", "link_maps",
+        "place_id",
+    ]
+    with open(filepath, "w", newline="", encoding="utf-8-sig") as f:
+        w = csv.DictWriter(f, fieldnames=fieldnames)
+        w.writeheader()
+        w.writerows(businesses)
+    return filepath
+
+
+def export_excel_avgestao_raw(businesses, filename, output_dir):
+    """Exporta comércios do modo AVGESTAO para XLSX bruto (com place_id e subnicho)."""
+    try:
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill, Alignment
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Comércios AVGESTÃO"
+
+        headers = [
+            "Nome", "Endereço", "Telefone", "WhatsApp", "Instagram",
+            "Email", "Categoria", "Subnicho", "Tem Site?", "URL do Site",
+            "Avaliação", "Nº Avaliações", "Cidade", "Bairro", "Link Maps",
+            "Place ID",
+        ]
+        header_font = Font(bold=True, color="FFFFFF")
+        header_fill = PatternFill("solid", fgColor="7C3AED")
+        for col, h in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col, value=h)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = Alignment(horizontal="center")
+
+        campos = [
+            "nome", "endereco", "telefone", "whatsapp", "instagram",
+            "email", "categoria", "subnicho", "tem_site", "url_site",
+            "avaliacao", "num_avaliacoes", "cidade", "bairro", "link_maps",
+            "place_id",
+        ]
+        for row_idx, b in enumerate(businesses, 2):
+            for col_idx, campo in enumerate(campos, 1):
+                valor = b.get(campo, "")
+                if campo == "tem_site":
+                    valor = "Sim" if valor else "NÃO"
+                ws.cell(row=row_idx, column=col_idx, value=valor)
+
+        widths = [35, 45, 18, 18, 30, 30, 25, 26, 10, 35, 10, 12, 20, 22, 45, 30]
+        for i, w in enumerate(widths, 1):
+            ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = w
+
+        filepath = output_dir / filename
+        wb.save(filepath)
+        return filepath
+    except ImportError:
+        print("  [!] openpyxl não instalado — exportando CSV apenas")
+        return None
+
+
 # ── Google Maps Scraper ────────────────────────────────────────────
 
 async def aceitar_cookies(page):
@@ -163,7 +235,7 @@ async def scroll_panel(page, max_scrolls=25):
             break
 
 
-async def extrair_detalhes(page, categoria, cidade=""):
+async def extrair_detalhes(page, categoria, cidade="", subnicho=""):
     """Extrai dados de um comércio na página de detalhes aberta."""
     await page.wait_for_timeout(1500)
 
@@ -182,6 +254,8 @@ async def extrair_detalhes(page, categoria, cidade=""):
         "cidade": cidade,
         "bairro": "",
         "link_maps": "",
+        "place_id": "",
+        "subnicho": subnicho,
     }
 
     # Nome - mais seletivo para evitar pegar elementos errados
@@ -295,6 +369,10 @@ async def extrair_detalhes(page, categoria, cidade=""):
         current_url = page.url
         if "/maps/" in current_url or "google" in current_url:
             dados["link_maps"] = current_url
+            # Place ID: extrai do URL quando disponivel (CID ou ChIJ)
+            m_pid = re.search(r"(0x[0-9a-fA-F]+:0x[0-9a-fA-F]+|ChIJ[A-Za-z0-9_-]+)", current_url)
+            if m_pid:
+                dados["place_id"] = m_pid.group(1)
     except Exception:
         pass
 
@@ -341,9 +419,10 @@ async def extrair_detalhes(page, categoria, cidade=""):
     return dados
 
 
-async def buscar_categoria(page, categoria, cidade, start_index=0, progress=None, nomes_existentes=None, max_results=20, output_dir=None):
+async def buscar_categoria(page, categoria, cidade, start_index=0, progress=None, nomes_existentes=None, max_results=20, output_dir=None, subnicho="", query_term=None):
     """Busca uma categoria no Google Maps e retorna lista de comércios."""
-    query = f"{categoria} em {cidade}"
+    termo_busca = query_term or categoria
+    query = f"{termo_busca} em {cidade}" if " em " not in termo_busca else termo_busca
     url = f"https://www.google.com/maps/search/{query.replace(' ', '+')}/"
 
     try:
@@ -464,7 +543,7 @@ async def buscar_categoria(page, categoria, cidade, start_index=0, progress=None
 
         await asyncio.sleep(random.uniform(1.8, 3.5))
 
-        dados = await extrair_detalhes(page, categoria, cidade)
+        dados = await extrair_detalhes(page, categoria, cidade, subnicho=subnicho)
         if dados:
             # Verifica duplicata por nome + cidade
             chave = f"{dados['nome'].lower()}|{cidade.lower()}"
@@ -539,6 +618,28 @@ async def main():
         default=None,
         help="Regiao de prospeccao (padrao: baixada)",
     )
+    parser.add_argument(
+        "--produto",
+        choices=["landing", "avgestao"],
+        default="landing",
+        help="Produto: landing (padrao, comportamento antigo) ou avgestao",
+    )
+    parser.add_argument(
+        "--grupo",
+        default=None,
+        help="Grupo do AVGESTAO: assistencias, refrigeracao, automotivo, sob_medida, servicos_externos",
+    )
+    parser.add_argument(
+        "--cidade",
+        default=None,
+        help="Cidade para busca AVGESTAO (ex: 'Nova Iguacu, RJ')",
+    )
+    parser.add_argument(
+        "--max",
+        type=int,
+        default=20,
+        help="Maximo de resultados por subnicho (padrao: 20)",
+    )
     args = parser.parse_args()
 
     # Força UTF-8 no Windows
@@ -557,6 +658,9 @@ async def main():
         os.system(f"{sys.executable} -m pip install playwright")
         os.system(f"{sys.executable} -m playwright install chromium")
         from playwright.async_api import async_playwright
+
+    if args.produto == "avgestao":
+        return await main_avgestao(args, async_playwright)
 
     regioes = resolve_regiao(args.regiao)
 
@@ -750,6 +854,136 @@ async def main():
             sem_site_local = [c for c in da_local if not c["tem_site"]]
             if da_local:
                 print(f"  {local.split(',')[0]:20s}: {len(da_local):4d} total | {len(sem_site_local):4d} sem site")
+        print(f"{'='*50}")
+
+
+async def main_avgestao(args, async_playwright):
+    """Fluxo de mapeamento no modo AVGESTAO.
+
+    Usa consultas especificas por subnicho e cidade, captura place_id,
+    deduplica por place_id -> url maps -> telefone -> nome+endereco.
+    Preserva pausas entre consultas e retomada apos interrupcao.
+    """
+    from config.regioes import BAIXADA
+    from datetime import date
+
+    grupos = resolver_grupo(args.grupo)
+    cidade_arg = args.cidade
+    max_results = args.max
+
+    cidades = [cidade_arg] if cidade_arg else list(BAIXADA.cidades)
+    hoje = date.today().isoformat()
+
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(
+            headless=False,
+            args=["--disable-blink-features=AutomationControlled"],
+        )
+        ctx = await browser.new_context(
+            viewport={"width": 1366, "height": 768},
+            locale="pt-BR",
+            user_agent=(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/122.0.0.0 Safari/537.36"
+            ),
+        )
+        page = await ctx.new_page()
+
+        try:
+            await page.goto("https://www.google.com/maps", wait_until="domcontentloaded", timeout=45000)
+        except Exception as e:
+            print(f"[!] Timeout ao carregar Maps. Tentando novamente... ({e})")
+            await page.goto("https://www.google.com/maps", wait_until="commit", timeout=30000)
+        await asyncio.sleep(3)
+        await aceitar_cookies(page)
+        await asyncio.sleep(1)
+
+        for grupo in grupos:
+            output_dir = Path("output") / "avgestao" / grupo.key
+            output_dir.mkdir(parents=True, exist_ok=True)
+
+            print("\n" + "=" * 60)
+            print(f"  MAPEADOR AVGESTAO — {grupo.label.upper()}")
+            print(f"  {len(grupo.subnichos)} subnichos | {len(cidades)} cidades")
+            print("=" * 60)
+
+            progress = load_progress(output_dir)
+            todos = progress.get("comercios", [])
+            vistos_chaves = set()
+            for c in todos:
+                vistos_chaves.add(f"{c.get('nome','').lower()}|{c.get('cidade','').lower()}|{c.get('subnicho','').lower()}")
+
+            for cidade in cidades:
+                print(f"\n  CIDADE: {cidade}")
+                consultas = consultar_subnichos(grupo.key, cidade)
+
+                for sub_idx, (query, subnicho_label, msg_cat) in enumerate(consultas, 1):
+                    print(f"\n  [{sub_idx}/{len(consultas)}] {subnicho_label} em {cidade}")
+
+                    try:
+                        resultados = await buscar_categoria(
+                            page, subnicho_label, cidade,
+                            start_index=0,
+                            progress=progress,
+                            nomes_existentes=None,
+                            max_results=max_results,
+                            output_dir=output_dir,
+                            subnicho=subnicho_label,
+                            query_term=query,
+                        )
+
+                        for r in resultados:
+                            r["grupo"] = grupo.key
+                            r["msg_cat"] = msg_cat
+                            chave = f"{r.get('nome','').lower()}|{r.get('cidade','').lower()}|{r.get('subnicho','').lower()}"
+                            if chave not in vistos_chaves:
+                                vistos_chaves.add(chave)
+                                todos.append(r)
+
+                        progress["comercios"] = todos
+                        save_progress(progress, output_dir)
+
+                    except Exception as e:
+                        print(f"  X Erro em {subnicho_label}: {e}")
+                        try:
+                            await page.goto("https://www.google.com/maps", wait_until="commit", timeout=15000)
+                        except Exception:
+                            pass
+
+                    delay = random.uniform(DELAY_MIN, DELAY_MAX)
+                    print(f"  Aguardando {delay:.1f}s...")
+                    await asyncio.sleep(delay)
+
+        await browser.close()
+
+    # Deduplica e exporta por grupo (apos fechar o browser)
+    for grupo in grupos:
+        output_dir = Path("output") / "avgestao" / grupo.key
+        progress = load_progress(output_dir)
+        todos = progress.get("comercios", [])
+        if not todos:
+            print(f"\n  Nenhum comércio encontrado para {grupo.label}.")
+            continue
+
+        unicos = deduplicar_leads(todos)
+        print(f"\n  {grupo.label}: {len(todos)} bruto -> {len(unicos)} únicos (dedup place_id/maps/tel/nome+end)")
+
+        csv_path = export_csv_avgestao(unicos, f"comercios_{grupo.key}_{hoje}.csv", output_dir)
+        print(f"  CSV:  {csv_path}")
+        xlsx_path = export_excel_avgestao_raw(unicos, f"comercios_{grupo.key}_{hoje}.xlsx", output_dir)
+        if xlsx_path:
+            print(f"  Excel: {xlsx_path}")
+
+        # Estatísticas por subnicho
+        print(f"\n  ESTATÍSTICAS POR SUBNICHO — {grupo.label.upper()}")
+        print(f"  {'-'*50}")
+        subs = {}
+        for c in unicos:
+            s = c.get("subnicho") or "(sem subnicho)"
+            subs[s] = subs.get(s, 0) + 1
+        for s, q in sorted(subs.items(), key=lambda x: -x[1]):
+            print(f"  {s:40s}: {q}")
         print(f"{'='*50}")
 
 

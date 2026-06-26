@@ -318,6 +318,113 @@ python buscar_emails_playwright.py
 python envio_emails_zoho.py
 ```
 
+## Modo AVGESTÃO
+
+O modo `avgestao` adapta o sistema para captar, qualificar e organizar leads com
+forte potencial para contratar o **AVGESTÃO** (SaaS de orçamentos, ordens de
+serviço, aprovação por link, portal do cliente, financeiro e estoque). Ele é
+aditivo: o modo antigo de landing pages (`--produto landing`, padrão) continua
+idêntico.
+
+### Grupos e nichos prioritários
+
+| Grupo | Subnichos |
+|---|---|
+| `assistencias` | assistência técnica de celular, conserto de celular, computadores/notebooks, impressoras, eletrodomésticos, eletrônicos/videogames |
+| `refrigeracao` | refrigeração, climatização, instalação/manutenção de ar-condicionado, conserto de geladeiras e freezers |
+| `automotivo` | oficina mecânica, autoelétrica, oficina de motos, centro automotivo, injeção eletrônica |
+| `sob_medida` | vidraçaria, marcenaria, móveis planejados, serralheria, portões automáticos |
+| `servicos_externos` | energia solar, segurança eletrônica, câmeras e alarmes, dedetização, manutenção de piscinas, manutenção predial |
+
+### Fluxo (3 etapas, igual ao fluxo de landing pages)
+
+```bash
+# 1. Mapear comércios no Google Maps (consultas específicas por nicho/cidade)
+python mapear_comercios.py --produto avgestao --grupo assistencias
+python mapear_comercios.py --produto avgestao --grupo refrigeracao --cidade "Nova Iguaçu, RJ"
+
+# 2. Qualificar leads (score_avgestao 0-100, faz_assistencia, mensagem por nicho)
+python prospectar_leads.py --produto avgestao --grupo assistencias
+
+# 3. Gerar campanha diária (filtra, ordena, exclui já abordados, top N)
+python campanha_diaria.py --produto avgestao --grupo assistencias --top 10
+```
+
+### Score AVGESTÃO (0–100)
+
+| Critério | Pontos |
+|---|---|
+| Nicho principal compatível | +30 |
+| Nome/categoria com assistência/manutenção/conserto/reparo/instalação | +10 |
+| Múltiplos sinais de prestação de serviço | +10 |
+| ≥ 20 avaliações | +15 |
+| Endereço comercial | +10 |
+| Site ou Instagram | +5 |
+| Telefone ou WhatsApp | +15 |
+| Nome e cidade válidos | +5 |
+| Franquia ou grande rede | −30 |
+| Negócio aparentemente somente varejista | −25 |
+| Sem telefone | −20 |
+| Autônomo genérico sem empresa identificada | −15 |
+
+Presença digital (site/Instagram) **nunca** é penalizada — é tratada como sinal
+de maturidade. Score final limitado entre 0 e 100.
+
+### Classificação `faz_assistencia`
+
+`CONFIRMADO` · `PROVÁVEL` · `NÃO CONFIRMADO`, baseada em sinais como
+assistência técnica, conserto, manutenção, reparo, troca de tela, diagnóstico,
+formatação, instalação e técnico.
+
+### Deduplicação
+
+Por `place_id` (quando disponível) → URL do Google Maps → telefone normalizado →
+nome + endereço, nesta ordem de prioridade.
+
+### Saídas
+
+```
+output/avgestao/
+├── <grupo>/
+│   ├── comercios_<grupo>_YYYY-MM-DD.csv   # bruto do mapeamento
+│   ├── comercios_<grupo>_YYYY-MM-DD.xlsx
+│   └── progresso.json                      # retomada após interrupção
+├── prospeccao_avgestao_<grupo>.xlsx        # leads qualificados
+└── leads_<grupo>_YYYY-MM-DD.xlsx           # campanha final (top N)
+```
+
+A campanha final gera o XLSX com as colunas: Nome, Nome curto, Cidade, Nicho,
+Subnicho, Telefone, WhatsApp, Instagram, Site, Avaliação, Quantidade de
+avaliações, Faz assistência, Score AVGESTÃO, Motivos do score, Mensagem inicial,
+Link WhatsApp, Status, Data da abordagem, Follow-up 1 e Follow-up 2.
+
+O **Link WhatsApp** é `wa.me` com a mensagem preenchida — o sistema **nunca**
+envia automaticamente. A campanha exclui leads já abordados consultando o
+Supabase (ou `output/avgestao/historico_abordagem.txt` como fallback) e degrada
+graciosamente se nenhum estiver disponível.
+
+### Supabase (migration)
+
+Execute `supabase/migration_avgestao.sql` no SQL Editor. Adiciona
+`produto`, `grupo`, `subnicho`, `faz_assistencia`, `score_avgestao`,
+`motivos_score` e `nome_curto` à tabela `leads` (idempotente, não quebra dados
+existentes). Depois importe os leads avgestão com:
+
+```bash
+python import_leads_to_supabase.py --arquivo output/avgestao/leads_assistencias_YYYY-MM-DD.xlsx
+```
+
+### Testes
+
+```bash
+python tests/test_avgestao.py        # sem dependências (asserts puros)
+# ou, se pytest estiver instalado:
+pytest tests/test_avgestao.py
+```
+
+Cobre: normalização de telefone, deduplicação, cálculo do score, classificação
+de assistência, geração de mensagem e filtros por grupo/cidade.
+
 ## Cidades Cobertas
 
 11 cidades da Baixada Fluminense: Duque de Caxias, Nova Iguaçu, São João de Meriti, Belford Roxo, Nilópolis, Mesquita, Queimados, Itaguaí, Seropédica, Paracambi, Japeri.

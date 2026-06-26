@@ -121,6 +121,16 @@ MAPEAMENTO_COLUNAS = {
     "Tipo de Material": "tipo_de_material",
     "Observações": "observacoes_extra",
     "Observacoes": "observacoes_extra",
+    # Campos do modo AVGESTAO (presentes somente em planilhas avgestao)
+    "Score AVGESTÃO": "score_avgestao",
+    "Score AVGESTAO": "score_avgestao",
+    "Faz assistência": "faz_assistencia",
+    "Faz assistencia": "faz_assistencia",
+    "Subnicho": "subnicho",
+    "Grupo": "grupo",
+    "Motivos do score": "motivos_score",
+    "Nome curto": "nome_curto",
+    "Mensagem inicial": "mensagem_whatsapp",
 }
 
 
@@ -261,6 +271,21 @@ def normalizar_lead(lead_bruto):
     if lead_bruto.get("observacoes_extra"):
         obs_parts.append(lead_bruto["observacoes_extra"])
     lead["observacoes"] = " | ".join(filter(None, obs_parts))
+
+    # Campos do modo AVGESTAO (opcionais - presentes somente em planilhas avgestao)
+    score_avg = str(lead_bruto.get("score_avgestao", "")).strip()
+    try:
+        lead["score_avgestao"] = int(float(score_avg)) if score_avg else 0
+    except (ValueError, TypeError):
+        lead["score_avgestao"] = 0
+    lead["faz_assistencia"] = lead_bruto.get("faz_assistencia", "").strip()
+    lead["subnicho"] = lead_bruto.get("subnicho", "").strip()
+    lead["grupo"] = lead_bruto.get("grupo", "").strip()
+    lead["motivos_score"] = lead_bruto.get("motivos_score", "").strip()
+    lead["nome_curto"] = lead_bruto.get("nome_curto", "").strip()
+
+    # Detecta produto: avgestao se houver grupo ou score_avgestao informado
+    lead["produto"] = "avgestao" if (lead["grupo"] or score_avg) else "landing"
 
     return lead
 
@@ -405,6 +430,13 @@ def main():
                 "status": "novo",
                 "origem": regiao.key,
                 "observacoes": lead["observacoes"],
+                "produto": lead.get("produto", "landing"),
+                "grupo": lead.get("grupo", ""),
+                "subnicho": lead.get("subnicho", ""),
+                "faz_assistencia": lead.get("faz_assistencia", ""),
+                "score_avgestao": lead.get("score_avgestao", 0),
+                "motivos_score": lead.get("motivos_score", ""),
+                "nome_curto": lead.get("nome_curto", ""),
             }
 
             try:
@@ -440,6 +472,13 @@ def main():
                     "nicho": lead["nicho"],
                     "avaliacao": lead["avaliacao"],
                     "num_avaliacoes": lead["num_avaliacoes"],
+                    "produto": lead.get("produto", "landing"),
+                    "grupo": lead.get("grupo", ""),
+                    "subnicho": lead.get("subnicho", ""),
+                    "faz_assistencia": lead.get("faz_assistencia", ""),
+                    "score_avgestao": lead.get("score_avgestao", 0),
+                    "motivos_score": lead.get("motivos_score", ""),
+                    "nome_curto": lead.get("nome_curto", ""),
                 }
             else:
                 atualizados += 1
@@ -466,6 +505,13 @@ def main():
                     "status": novo_status,
                     "bairro": lead["bairro"],
                     "endereco": lead["endereco"],
+                    "produto": lead.get("produto", "landing"),
+                    "grupo": lead.get("grupo", ""),
+                    "subnicho": lead.get("subnicho", ""),
+                    "faz_assistencia": lead.get("faz_assistencia", ""),
+                    "score_avgestao": lead.get("score_avgestao", 0),
+                    "motivos_score": lead.get("motivos_score", ""),
+                    "nome_curto": lead.get("nome_curto", ""),
                 }
 
             try:

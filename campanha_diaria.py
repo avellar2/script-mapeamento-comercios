@@ -15,6 +15,16 @@ from pathlib import Path
 from config.regioes import resolve_regiao, get_output_dir, detectar_regiao_do_lead
 from config.mensagens import gerar_mensagem_whatsapp as gerar_mensagem_whatsapp_config
 from config.franquia import detectar_franquia
+from config.avgestao import (
+    resolver_grupo,
+    filtrar_por_grupo,
+    deduplicar_leads,
+    enriquecer_lead_avgestao,
+    prioridade_avgestao,
+    COLUNAS_XLSX_AVGESTAO,
+)
+from utils.phone_utils import normalizar_telefone_br
+from utils.xlsx_avgestao import exportar_xlsx_avgestao
 
 try:
     from openpyxl import load_workbook, Workbook
@@ -714,6 +724,192 @@ def escrever_resumo(ws, leads_por_aba, total_geral, regiao_labels=""):
     ws.column_dimensions["F"].width = 18
 
 
+# ── Modo AVGESTAO ─────────────────────────────────────────────────
+
+_HEADER_TO_CAMPO_AVGESTAO = {h: c for h, c, _ in COLUNAS_XLSX_AVGESTAO}
+
+
+def ler_leads_avgestao(caminho):
+    """Le leads de um XLSX ou CSV no formato AVGESTAO e retorna lista de dicts."""
+    caminho = Path(caminho)
+    if not caminho.exists():
+        return []
+
+    if caminho.suffix.lower() == ".csv":
+        import csv
+        with open(caminho, encoding="utf-8-sig") as f:
+            return [dict(row) for row in csv.DictReader(f) if row.get("nome")]
+
+    # XLSX
+    wb = load_workbook(str(caminho), read_only=True, data_only=True)
+    ws = wb[wb.sheetnames[0]]
+    cabecalhos = [str(cell.value).strip() if cell.value else "" for cell in ws[1]]
+    col_map = {}
+    for idx, cab in enumerate(cabecalhos):
+        campo = _HEADER_TO_CAMPO_AVGESTAO.get(cab)
+        if campo:
+            col_map[campo] = idx
+
+    leads = []
+    for row in ws.iter_rows(min_row=2, values_only=True):
+        lead = {}
+        for campo, idx in col_map.items():
+            lead[campo] = str(row[idx]).strip() if idx < len(row) and row[idx] is not None else ""
+        if lead.get("nome"):
+            leads.append(lead)
+    wb.close()
+    return leads
+
+
+def carregar_telefones_abordados():
+    """
+    Carrega telefones normalizados ja abordados.
+
+    Prioridade:
+    1. Supabase (leads com status != novo/pronto_para_enviar)
+    2. Arquivo de historico output/avgestao/historico_abordagem.txt
+    3. Conjunto vazio (degradacao graciosa)
+    """
+    abordados = set()
+
+    # 1. Supabase
+    try:
+        import os
+        from dotenv import load_dotenv
+        load_dotenv()
+        url = os.environ.get("SUPABASE_URL")
+        key = os.environ.get("SUPABASE_ANON_KEY") or os.environ.get("SUPABASE_KEY")
+        if url and key:
+            from supabase import create_client
+            sb = create_client(url, key)
+            result = sb.table("leads").select("telefone_normalizado").in_(
+                "status", ["abordado", "respondeu", "follow_up", "interessado", "convertido", "perdido"]
+            ).execute()
+            for row in result.data:
+                tel = row.get("telefone_normalizado")
+                if tel:
+                    abordados.add(tel)
+            print(f"  Supabase: {len(abordados)} leads ja abordados")
+            return abordados
+    except Exception as e:
+        print(f"  [!] Supabase indisponivel ({type(e).__name__}): tentando historico local")
+
+    # 2. Arquivo de historico
+    hist = Path("output") / "avgestao" / "historico_abordagem.txt"
+    if hist.exists():
+        with open(hist, encoding="utf-8") as f:
+            for linha in f:
+                tel = linha.strip()
+                if tel:
+                    norm = normalizar_telefone_br(tel)
+                    if norm:
+                        abordados.add(norm)
+        print(f"  Historico local: {len(abordados)} leads ja abordados")
+        return abordados
+
+    # 3. Degradacao graciosa
+    print("  [!] Sem Supabase nem historico local: exclusao de abordados desativada")
+    return abordados
+
+
+def main_avgestao(args):
+    """Fluxo da campanha diaria no modo AVGESTAO."""
+    from datetime import date
+
+    print("\n  MODO: AVGESTAO (campanha)")
+    grupo_arg = args.grupo
+    top = args.top
+
+    # Localizar arquivo de leads
+    if args.arquivo:
+        caminho = Path(args.arquivo)
+    else:
+        caminho = None
+        saida_dir = Path("output") / "avgestao"
+        if grupo_arg:
+            candidato = saida_dir / f"prospeccao_avgestao_{grupo_arg}.xlsx"
+            if candidato.exists():
+                caminho = candidato
+        if not caminho:
+            candidato = saida_dir / "prospeccao_avgestao_todos.xlsx"
+            if candidato.exists():
+                caminho = candidato
+
+    if not caminho or not caminho.exists():
+        print(f"[!] Arquivo de prospeccao AVGESTAO nao encontrado.")
+        print("    Rode primeiro: python prospectar_leads.py --produto avgestao --grupo <grupo>")
+        if grupo_arg:
+            print(f"    ou use --arquivo para apontar o XLSX/CSV.")
+        sys.exit(1)
+
+    print(f"  Lendo: {caminho}")
+    leads = ler_leads_avgestao(caminho)
+    print(f"  Leads carregados: {len(leads)}")
+
+    # Filtra por grupo (quando informado)
+    if grupo_arg:
+        leads = filtrar_por_grupo(leads, grupo_arg)
+        print(f"  Apos filtro de grupo '{grupo_arg}': {len(leads)}")
+
+    # Exclui ja abordados
+    abordados = carregar_telefones_abordados()
+    if abordados:
+        antes = len(leads)
+        leads = [
+            l for l in leads
+            if (normalizar_telefone_br(l.get("whatsapp") or l.get("telefone") or "") or "") not in abordados
+        ]
+        print(f"  Apos excluir abordados: {len(leads)} (removidos: {antes - len(leads)})")
+
+    # Obriga ter telefone ou whatsapp (campanha precisa de contato)
+    leads = [l for l in leads if normalizar_telefone_br(l.get("whatsapp") or l.get("telefone") or "")]
+    print(f"  Com telefone/WhatsApp valido: {len(leads)}")
+
+    # Reenriquece para garantir mensagem atualizada e dedup (preserva score_avgestao)
+    leads = deduplicar_leads(leads)
+    print(f"  Apos dedup (place_id/maps/tel/nome+end): {len(leads)}")
+
+    # Ordena pelo score_avgestao ja calculado pelo prospectar (preserva score)
+    def _score_int(l):
+        try:
+            return int(float(str(l.get("score_avgestao", 0))))
+        except (ValueError, TypeError):
+            return 0
+    leads.sort(key=_score_int, reverse=True)
+
+    # Top N
+    leads = leads[:top]
+    print(f"  Top {top} selecionados")
+
+    if not leads:
+        print("\n[!] Nenhum lead elegivel para a campanha AVGESTAO.")
+        sys.exit(0)
+
+    # Exporta preservando o score/motivos/mensagens ja calculados
+    hoje = date.today().isoformat()
+    nome_grupo = grupo_arg or "todos"
+    saida_dir = Path("output") / "avgestao"
+    saida_dir.mkdir(parents=True, exist_ok=True)
+    caminho_saida = saida_dir / f"leads_{nome_grupo}_{hoje}.xlsx"
+    exportar_xlsx_avgestao(leads, caminho_saida, titulo_aba=f"Leads {nome_grupo}", enriquecer=False)
+
+    print(f"\n{'='*60}")
+    print(f"  Campanha AVGESTAO salva: {caminho_saida}")
+    print(f"  Total: {len(leads)} leads")
+    print(f"  NUNCA envia automaticamente - abra os links wa.me manualmente.")
+    print(f"{'='*60}\n")
+
+    # Resumo rapido no console
+    for i, lead in enumerate(leads[:10], 1):
+        score = _score_int(lead)
+        pri = prioridade_avgestao(score)
+        nome = lead.get("nome", "?")[:35]
+        cidade = lead.get("cidade", "?")[:15]
+        sub = lead.get("subnicho", "?")[:22]
+        print(f"  {i:2d}. [{pri:6s}] {score:3d}pts | {nome:35s} | {cidade:15s} | {sub}")
+    print()
+
+
 # ── Main ───────────────────────────────────────────────────────────
 
 def main():
@@ -728,6 +924,10 @@ def main():
         default=None,
         help="Regiao de prospeccao (padrao: baixada)",
     )
+    parser.add_argument("--produto", choices=["landing", "avgestao"], default="landing",
+                        help="Produto: landing (padrao) ou avgestao")
+    parser.add_argument("--grupo", default=None,
+                        help="Grupo do AVGESTAO: assistencias, refrigeracao, automotivo, sob_medida, servicos_externos")
     args = parser.parse_args()
 
     if sys.platform == "win32":
@@ -739,6 +939,9 @@ def main():
     print("=" * 60)
     print("  CAMPANHA DIÁRIA - GERADOR DE PLANILHA DE ABORDAGEM")
     print("=" * 60)
+
+    if args.produto == "avgestao":
+        return main_avgestao(args)
 
     # Busca arquivo de prospecção
     if args.arquivo:

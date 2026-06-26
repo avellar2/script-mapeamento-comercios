@@ -16,6 +16,14 @@ from urllib.parse import quote
 from config.regioes import resolve_regiao, get_output_dir
 from config.franquia import detectar_franquia, classificar_tipo_cliente, score_penalidade_franquia
 from config.mensagens import gerar_mensagem_whatsapp
+from config.avgestao import (
+    enriquecer_lead_avgestao,
+    filtrar_por_grupo,
+    filtrar_por_cidade,
+    prioridade_avgestao,
+    resolver_grupo,
+)
+from utils.xlsx_avgestao import exportar_xlsx_avgestao
 
 try:
     from openpyxl import Workbook
@@ -705,6 +713,35 @@ def gerar_mensagem_whatsapp_fallback(lead):
     return gerar_mensagem_whatsapp(lead, BAIXADA)
 
 
+def processar_leads_avgestao(leads, grupo=None, cidade=None):
+    """
+    Processa leads no modo AVGESTAO:
+    - filtra por grupo e cidade (quando informados)
+    - enriquece com score_avgestao, faz_assistencia, subnicho, mensagem
+    - ordena por score_avgestao descendente
+    NAO penaliza presenca de site.
+    """
+    print(f"\n  Processando {len(leads)} leads (modo AVGESTAO)...")
+    if grupo:
+        leads = filtrar_por_grupo(leads, grupo)
+        print(f"  Apos filtro de grupo '{grupo}': {len(leads)}")
+    if cidade:
+        leads = filtrar_por_cidade(leads, cidade)
+        print(f"  Apos filtro de cidade '{cidade}': {len(leads)}")
+
+    enriquecidos = []
+    for lead in leads:
+        e = enriquecer_lead_avgestao(lead)
+        e["score"] = e.get("score_avgestao", 0)
+        e["prioridade"] = prioridade_avgestao(e["score"])
+        e["status"] = "novo"
+        e["data_abordagem"] = ""
+        enriquecidos.append(e)
+
+    enriquecidos.sort(key=lambda l: l.get("score", 0), reverse=True)
+    return enriquecidos
+
+
 def processar_leads(leads, regiao=None):
     print(f"\n  Processando {len(leads)} leads...")
     if regiao:
@@ -740,6 +777,12 @@ def main():
     parser.add_argument("--saida", default="leads_prospeccao.xlsx", help="Nome do arquivo Excel de saída")
     parser.add_argument("--regiao", choices=["baixada", "rio_premium", "todas"], default=None,
                         help="Regiao de prospeccao (padrao: baixada)")
+    parser.add_argument("--produto", choices=["landing", "avgestao"], default="landing",
+                        help="Produto: landing (padrao, comportamento antigo) ou avgestao")
+    parser.add_argument("--grupo", default=None,
+                        help="Grupo do AVGESTAO: assistencias, refrigeracao, automotivo, sob_medida, servicos_externos")
+    parser.add_argument("--cidade", default=None,
+                        help="Cidade para filtro do AVGESTAO (ex: 'Nova Iguacu, RJ')")
     args = parser.parse_args()
 
     # Força UTF-8 no Windows
@@ -756,6 +799,9 @@ def main():
     arquivo = encontrar_arquivo_dados(args.arquivo)
     print(f"\n  Arquivo: {arquivo}")
     print(f"  Tamanho: {arquivo.stat().st_size / 1024:.1f} KB")
+
+    if args.produto == "avgestao":
+        return main_avgestao(args, arquivo)
 
     # Resolve regiao
     regioes = resolve_regiao(args.regiao)
@@ -802,6 +848,56 @@ def main():
         cidade = lead.get("cidade", "?")[:15]
         oferta = lead.get("oferta_sugerida", "?")
         print(f"  {i:2d}. [{pri:5s}] {score:3d}pts | {nome:35s} | {cidade:15s} | {oferta}")
+
+    print()
+
+
+def main_avgestao(args, arquivo):
+    """Fluxo de prospecção no modo AVGESTAO."""
+    from pathlib import Path
+    from config.avgestao import resolver_grupo, GRUPOS
+    from utils.xlsx_avgestao import exportar_xlsx_avgestao
+
+    print("\n  MODO: AVGESTAO")
+
+    leads = carregar_dados(arquivo)
+    print(f"  Leads carregados: {len(leads)}")
+
+    grupos = resolver_grupo(args.grupo)
+    grupo_label = args.grupo or "todos"
+
+    leads = processar_leads_avgestao(leads, grupo=args.grupo, cidade=args.cidade)
+
+    alta = sum(1 for l in leads if l.get("prioridade") == "Alta")
+    media = sum(1 for l in leads if l.get("prioridade") == "Média")
+    baixa = sum(1 for l in leads if l.get("prioridade") == "Baixa")
+    com_whatsapp = sum(1 for l in leads if l.get("link_whatsapp"))
+
+    print(f"\n  RESULTADO AVGESTAO:")
+    print(f"  Alta prioridade:  {alta}")
+    print(f"  Média prioridade: {media}")
+    print(f"  Baixa prioridade: {baixa}")
+    print(f"  Com link WhatsApp: {com_whatsapp}")
+
+    output_dir = Path(__file__).parent / "output" / "avgestao"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    nome_grupo = args.grupo or "todos"
+    caminho_saida = output_dir / f"prospeccao_avgestao_{nome_grupo}.xlsx"
+    exportar_xlsx_avgestao(leads, caminho_saida, titulo_aba="Leads AVGESTAO")
+
+    print(f"\n  Excel exportado: {caminho_saida}")
+    print(f"{'=' * 60}")
+
+    print(f"\n  TOP 10 LEADS AVGESTAO:")
+    print(f"  {'-'*55}")
+    top = leads[:10]
+    for i, lead in enumerate(top, 1):
+        pri = lead.get("prioridade", "?")
+        score = lead.get("score", 0)
+        nome = lead.get("nome", "?")[:35]
+        cidade = lead.get("cidade", "?")[:15]
+        sub = lead.get("subnicho", "?")[:22]
+        print(f"  {i:2d}. [{pri:6s}] {score:3d}pts | {nome:35s} | {cidade:15s} | {sub}")
 
     print()
 
