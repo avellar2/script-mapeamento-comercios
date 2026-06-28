@@ -71,7 +71,16 @@ MSG = (
 def marcar(lid, status):
     body = json.dumps({"status": status, "ultimo_contato_em": datetime.now().isoformat()}).encode()
     req = urllib.request.Request(f"{API_URL}?id=eq.{lid}", data=body, headers={**HEADERS, "Content-Type": "application/json"}, method="PATCH")
-    with urllib.request.urlopen(req, context=CTX): pass
+    try:
+        with urllib.request.urlopen(req, context=CTX) as resp:
+            code = resp.getcode()
+            if code not in (200, 201, 204):
+                print(f"   ⚠️ Supabase respondeu {code} ao marcar {status}")
+                return False
+            return True
+    except Exception as e:
+        print(f"   ⚠️ ERRO ao marcar {status}: {str(e)[:80]}")
+        return False
 
 profile = Path(__file__).parent / ".whatsapp_business_profile"
 for lock in ["SingletonLock", "SingletonCookie", "SingletonSocket"]:
@@ -129,7 +138,8 @@ with sync_playwright() as pw:
 
         if "inválido" in bt or "invalid" in bt:
             print("   ⚠️ Numero invalido")
-            marcar(lead["id"], "perdido")
+            if not marcar(lead["id"], "perdido"):
+                print("   ⚠️ FALHA ao marcar perdido - lead pode reaparecer amanha")
             continue
 
         try:
@@ -155,9 +165,11 @@ with sync_playwright() as pw:
                 continue
 
         time.sleep(4)
-        marcar(lead["id"], "abordado")
-        enviados += 1
-        print("   ✅ Marcado no Supabase")
+        if marcar(lead["id"], "abordado"):
+            enviados += 1
+            print("   ✅ Marcado no Supabase")
+        else:
+            print("   ⚠️ ENVIADO mas FALHA ao marcar abordado - lead pode reaparecer")
 
         if i < len(leads) - 1:
             print("   ⏳ 7min...")

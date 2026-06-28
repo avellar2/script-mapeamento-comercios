@@ -302,8 +302,16 @@ def marcar(lead_id, status, obs=None):
         headers={**HEADERS, "Content-Type": "application/json"},
         method="PATCH",
     )
-    with urllib.request.urlopen(req, context=CTX):
-        pass
+    try:
+        with urllib.request.urlopen(req, context=CTX) as resp:
+            code = resp.getcode()
+            if code not in (200, 201, 204):
+                print(f"   ⚠️ Supabase respondeu {code} ao marcar {status}")
+                return False
+            return True
+    except Exception as e:
+        print(f"   ⚠️ ERRO ao marcar {status}: {str(e)[:80]}")
+        return False
 
 
 def _body_text(page, limit=400):

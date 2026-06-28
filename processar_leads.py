@@ -19,7 +19,7 @@ if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
-APIFY_TOKEN = "apify_api_g35riRIYbexQigTpDwRm4GJ40emppP36z2dc"
+APIFY_TOKEN = os.environ.get("APIFY_TOKEN", "")
 OUTPUT_DIR = Path(__file__).parent / "output" / "apify"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 

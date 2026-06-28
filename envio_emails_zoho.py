@@ -52,8 +52,8 @@ SMTP_PORT = int(os.getenv("ZOHO_SMTP_PORT", "465"))
 SMTP_USER = os.getenv("ZOHO_SMTP_USER", "contato@vandersonavellar.com")
 
 # Supabase
-SUPABASE_URL = os.getenv("SUPABASE_URL", "https://ivqaccppqcchqshaplao.supabase.co")
-SUPABASE_KEY = os.getenv("SUPABASE_ANON_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml2cWFjY3BwcWNjaHFzaGFwbGFvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY3Mjg4MDMsImV4cCI6MjA5MjMwNDgwM30.jXVgYGRCH5MFXtKvqQ2Y_dcUfoY0DY-CBBTu_iKMt60")
+SUPABASE_URL = os.getenv("SUPABASE_URL", "")
+SUPABASE_KEY = os.getenv("SUPABASE_ANON_KEY") or os.getenv("SUPABASE_KEY", "")
 
 # Limites
 # Defaults mais conservadores para reduzir bloqueio por reputacao.
