@@ -1,0 +1,18 @@
+{
+  "fonte": "IBGE - API de Localidades (https://servicodados.ibge.gov.br/api/v1/localidades/municipios)",
+  "data_geracao": "2026-06-28",
+  "quantidade_municipios": 5571,
+  "versao_base": 1,
+  "colunas": [
+    "codigo_ibge",
+    "nome",
+    "uf",
+    "uf_nome",
+    "regiao",
+    "capital",
+    "populacao"
+  ],
+  "encoding": "utf-8",
+  "checksum_sha256": "71c86d9e71b4b65a80b48a85fea18964c0284f0a539393c57d50f92ebcb758db",
+  "observacao_populacao": "populacao = 0 nesta versao (a API de localidades nao entrega populacao). A ordem 'maiores' cai em alfabetica quando todas as populacoes sao 0."
+}

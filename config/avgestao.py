@@ -809,6 +809,36 @@ COLUNAS_XLSX_AVGESTAO: list[tuple[str, str, int]] = [
 ]
 
 
+# ══════════════════════════════════════════════════════════════════
+# CAMPOS GEOGRAFICOS (modo escalado) — NAO alteram COLUNAS_XLSX_AVGESTAO
+# ══════════════════════════════════════════════════════════════════
+
+# Campos geograficos adicionados aos leads no modo escalado. Usados no CSV de
+# leads parciais (config/runs.COLUNAS_CSV_GEO) e na migration do Supabase
+# (supabase/migration_avgestao_geo.sql). Nao interferem em templates, score,
+# classificacao, dedup comercial, mensagens nem link do WhatsApp.
+CAMPOS_GEOGRAFICOS: list[str] = [
+    "uf", "estado", "regiao",
+    "source_query", "source_scope", "run_id", "captured_at",
+    "place_id", "maps_url",
+]
+
+# Conjunto NOVO e separado de colunas para o XLSX agregado geografico.
+# = as 20 colunas originais (COLUNAS_XLSX_AVGESTAO, intocada) + as geograficas.
+# COLUNAS_XLSX_AVGESTAO permanece com exatamente as mesmas 20 colunas.
+COLUNAS_XLSX_AVGESTAO_GEO: list[tuple[str, str, int]] = list(COLUNAS_XLSX_AVGESTAO) + [
+    ("UF", "uf", 6),
+    ("Estado", "estado", 18),
+    ("Região", "regiao", 14),
+    ("Query de origem", "source_query", 45),
+    ("Escopo de origem", "source_scope", 14),
+    ("Run ID", "run_id", 26),
+    ("Capturado em", "captured_at", 20),
+    ("Place ID", "place_id", 28),
+    ("URL Google Maps", "maps_url", 45),
+]
+
+
 def linha_xlsx_avgestao(lead: dict) -> dict:
     """Constroi o dict header -> valor para uma linha do XLSX AVGESTAO (enriquecendo)."""
     enriquecido = enriquecer_lead_avgestao(lead)

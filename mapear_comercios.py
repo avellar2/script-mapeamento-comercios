@@ -15,10 +15,10 @@ import os
 import random
 import re
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
-from config.regioes import resolve_regiao, get_output_dir, get_locais_busca
+from config.regioes import resolve_regiao, get_output_dir, get_locais_busca, BAIXADA
 from config.avgestao import (
     resolver_grupo,
     consultar_subnichos,
@@ -27,7 +27,14 @@ from config.avgestao import (
     enriquecer_lead_avgestao,
     GRUPOS,
     get_grupo,
+    COLUNAS_XLSX_AVGESTAO_GEO,
 )
+from config import territorios as T
+from config.territorios import UF_NOMES
+from config import dedup as DEDUP
+from config import fila as FILA
+from config import runs as RUNS
+from config import limites as LIMITES
 DELAY_MIN = 2.0
 DELAY_MAX = 5.0
 
@@ -420,8 +427,111 @@ async def extrair_detalhes(page, categoria, cidade="", subnicho=""):
     return dados
 
 
-async def buscar_categoria(page, categoria, cidade, start_index=0, progress=None, nomes_existentes=None, max_results=20, output_dir=None, subnicho="", query_term=None):
-    """Busca uma categoria no Google Maps e retorna lista de comércios."""
+# ══════════════════════════════════════════════════════════════════
+# Robustez de buscar_categoria (etapa 8) — helpers testaveis
+# ══════════════════════════════════════════════════════════════════
+
+class CaptchaDetectado(Exception):
+    """Levantada quando o Google Maps apresenta CAPTCHA/bloqueio e
+    captcha_detector=True. Nao tenta resolver nem contornar."""
+
+
+# Delay principal por item usado quando delay_min/delay_max nao sao informados.
+# Reproduz o comportamento atual (random.uniform(1.8, 3.5) no loop de itens).
+_DELAY_ITEM_DEFAULT = (1.8, 3.5)
+
+
+def validar_delays(delay_min, delay_max):
+    """Valida/normaliza os delays por item.
+
+    Retorna (delay_min, delay_max). Defaults (None, None) reproduzem o
+    comportamento atual (1.8, 3.5). ValueError se delay_min > delay_max
+    (com ambos informados) ou se algum for negativo.
+    """
+    if delay_min is None and delay_max is None:
+        return _DELAY_ITEM_DEFAULT
+    dmin = _DELAY_ITEM_DEFAULT[0] if delay_min is None else float(delay_min)
+    dmax = _DELAY_ITEM_DEFAULT[1] if delay_max is None else float(delay_max)
+    if dmin < 0 or dmax < 0:
+        raise ValueError("delay_min/delay_max nao podem ser negativos")
+    if dmin > dmax:
+        raise ValueError(
+            f"delay_min ({dmin}) nao pode ser maior que delay_max ({dmax})"
+        )
+    return dmin, dmax
+
+
+async def detectar_captcha(page) -> bool:
+    """Detecta bloqueio/CAPTCHA do Google. Nao tenta resolver.
+
+    Verifica URL de bloqueio (sorry / accounts.google.com) e seletor de
+    CAPTCHA. Tolerante a erros de leitura da pagina (retorna False).
+    """
+    try:
+        url = page.url or ""
+    except Exception:
+        url = ""
+    if "sorry" in url or "accounts.google.com" in url:
+        return True
+    try:
+        if await page.locator("#captcha").count() > 0:
+            return True
+    except Exception:
+        pass
+    return False
+
+
+async def salvar_screenshot(page, screenshot_dir, nome: str):
+    """Salva screenshot em screenshot_dir se configurado. Robusto a falhas."""
+    if not screenshot_dir:
+        return None
+    try:
+        d = Path(screenshot_dir)
+        d.mkdir(parents=True, exist_ok=True)
+        caminho = d / f"{nome}.png"
+        await page.screenshot(path=str(caminho))
+        return caminho
+    except Exception:
+        return None
+
+
+def _alcance_tentativas(max_tentativas) -> int:
+    """Quantas tentativas de clique fazer por item (>=1). Default 3.
+
+    None/0/negativo -> 3 (preserva comportamento atual).
+    """
+    if max_tentativas is None:
+        return 3
+    try:
+        n = int(max_tentativas)
+    except (TypeError, ValueError):
+        return 3
+    return n if n >= 1 else 3
+
+
+def _deve_interromper_por_captcha(captcha_detector: bool, captcha_detectado: bool) -> bool:
+    """CAPTCHA so interrompe se o detector estiver habilitado E houver deteccao.
+
+    captcha_detector=False nunca interrompe (mesmo com bloqueio presente).
+    """
+    return bool(captcha_detector) and bool(captcha_detectado)
+
+
+async def buscar_categoria(page, categoria, cidade, start_index=0, progress=None, nomes_existentes=None, max_results=20, output_dir=None, subnicho="", query_term=None, delay_min=None, delay_max=None, max_tentativas=3, screenshot_dir=None, captcha_detector=False):
+    """Busca uma categoria no Google Maps e retorna lista de comércios.
+
+    Novos kwargs (defaults preservam o comportamento atual):
+        delay_min/delay_max — delay por item (default 1.8-3.5, como antes).
+        max_tentativas       — tentativas de clique por item (default 3).
+        screenshot_dir       — se informado, salva screenshot em falhas.
+        captcha_detector     — se True, levanta CaptchaDetectado ao detectar
+                               bloqueio (default False = nao interrompe).
+    O contrato de retorno e extrair_detalhes nao mudam.
+    """
+    # Validar delays por item (default reproduz 1.8-3.5; ValueError se min > max).
+    dmin_item, dmax_item = validar_delays(delay_min, delay_max)
+    n_tent = _alcance_tentativas(max_tentativas)
+
     termo_busca = query_term or categoria
     query = f"{termo_busca} em {cidade}" if " em " not in termo_busca else termo_busca
     url = f"https://www.google.com/maps/search/{query.replace(' ', '+')}/"
@@ -430,6 +540,7 @@ async def buscar_categoria(page, categoria, cidade, start_index=0, progress=None
         await page.goto(url, wait_until="domcontentloaded", timeout=45000)
     except Exception as e:
         print(f"  [!] Erro ao carregar: {e}")
+        await salvar_screenshot(page, screenshot_dir, f"erro_carga_{categoria}")
         try:
             await page.reload(wait_until="commit", timeout=30000)
         except Exception:
@@ -438,6 +549,15 @@ async def buscar_categoria(page, categoria, cidade, start_index=0, progress=None
     await asyncio.sleep(random.uniform(2, 3))
     await aceitar_cookies(page)
     await asyncio.sleep(2)
+
+    # Deteccao de CAPTCHA/bloqueio — so interrompe se captcha_detector=True.
+    # Nao tenta resolver nem contornar.
+    captcha_detectado = await detectar_captcha(page)
+    if _deve_interromper_por_captcha(captcha_detector, captcha_detectado):
+        await salvar_screenshot(page, screenshot_dir, "captcha")
+        raise CaptchaDetectado(
+            "CAPTCHA/bloqueio detectado no Google Maps — interrompendo execucao"
+        )
 
     # Rola para carregar mais
     await scroll_panel(page)
@@ -514,7 +634,7 @@ async def buscar_categoria(page, categoria, cidade, start_index=0, progress=None
 
         # Tenta clicar com retry e maior timeout
         clicou = False
-        for tentativa in range(3):
+        for tentativa in range(n_tent):
             try:
                 await item.click(timeout=10000)
                 clicou = True
@@ -525,8 +645,8 @@ async def buscar_categoria(page, categoria, cidade, start_index=0, progress=None
                 if 'not visible' in erro_str or 'element is not visible' in erro_str:
                     print(f"    [{novos_encontrados+1}/{max_results}] Elemento invisível, pulando...")
                     break
-                elif tentativa < 2:
-                    print(f"    [{novos_encontrados+1}/{max_results}] Retry clique {tentativa + 1}/3...")
+                elif tentativa < n_tent - 1:
+                    print(f"    [{novos_encontrados+1}/{max_results}] Retry clique {tentativa + 1}/{n_tent}...")
                     await asyncio.sleep(1)
                     # Tenta scroll com menor timeout
                     try:
@@ -536,13 +656,14 @@ async def buscar_categoria(page, categoria, cidade, start_index=0, progress=None
                     await asyncio.sleep(0.5)
                 else:
                     print(f"    [{novos_encontrados+1}/{max_results}] Erro ao clicar: {str(e)[:60]}")
+                    await salvar_screenshot(page, screenshot_dir, f"erro_clique_{i}")
                     break
 
         if not clicou:
             i += 1
             continue
 
-        await asyncio.sleep(random.uniform(1.8, 3.5))
+        await asyncio.sleep(random.uniform(dmin_item, dmax_item))
 
         dados = await extrair_detalhes(page, categoria, cidade, subnicho=subnicho)
         if dados:
@@ -615,9 +736,9 @@ async def main():
     parser = argparse.ArgumentParser(description="Mapeador de Comercios - Google Maps")
     parser.add_argument(
         "--regiao",
-        choices=["baixada", "rio_premium", "todas"],
         default=None,
-        help="Regiao de prospeccao (padrao: baixada)",
+        help="Regiao: no modo landing (baixada/rio_premium/todas); "
+             "no modo AVGESTAO com --escopo regiao, nome da regiao IBGE (ex: sudeste, nordeste)",
     )
     parser.add_argument(
         "--produto",
@@ -638,9 +759,57 @@ async def main():
     parser.add_argument(
         "--max",
         type=int,
-        default=20,
-        help="Maximo de resultados por subnicho (padrao: 20)",
+        default=None,
+        help="Maximo de resultados por subnicho (alias de --max-por-consulta; "
+             "default 20 se nem --max nem --max-por-consulta forem informados).",
     )
+    # ── CLI geografica (etapa 9) — sem remover os antigos ──────────────
+    parser.add_argument("--escopo",
+        choices=["cidade", "cidades", "uf", "ufs", "regiao", "brasil", "arquivo"],
+        default=None, help="Escopo geografico do modo AVGESTAO escalado")
+    parser.add_argument("--cidades", nargs="+", default=None,
+        help="Lista de cidades 'Nome, UF' para --escopo cidades")
+    parser.add_argument("--uf", nargs="+", default=None,
+        help="Lista de UFs para --escopo uf/ufs (ex: RJ SP)")
+    parser.add_argument("--ufs", nargs="+", default=None, dest="ufs",
+        help="Alias de --uf")
+    parser.add_argument("--cidades-arquivo", default=None,
+        help="Caminho de arquivo com cidades (uma por linha, 'Nome, UF')")
+    parser.add_argument("--limite-cidades", type=int, default=None,
+        help="Limita o numero de cidades resolvidas")
+    parser.add_argument("--max-por-cidade", type=int, default=None,
+        help="Limite de leads unicos por cidade (runtime, nao trunca a fila)")
+    parser.add_argument("--max-por-subnicho", type=int, default=None,
+        help="Limite de leads unicos por subnicho (runtime)")
+    parser.add_argument("--max-total", type=int, default=None,
+        help="Limite total de leads unicos no run")
+    parser.add_argument("--max-por-consulta", type=int, default=None,
+        help="Maximo de resultados por consulta (alias de --max)")
+    parser.add_argument("--resume", action="store_true",
+        help="Retoma um run existente (exige --run-id)")
+    parser.add_argument("--run-id", default=None,
+        help="Id do run (gerado se omitido; exigido com --resume)")
+    parser.add_argument("--dry-run", action="store_true",
+        help="Resolve cidades, gera fila/checkpoint e mostra distribuicao sem abrir browser")
+    parser.add_argument("--somente-gerar-fila", action="store_true",
+        help="Como --dry-run: gera fila e encerra sem abrir browser")
+    parser.add_argument("--ordem-cidades",
+        choices=["fornecida", "capitais", "maiores", "alfabetica", "aleatoria"],
+        default="fornecida", help="Ordem das cidades na fila")
+    parser.add_argument("--delay-min", type=float, default=None,
+        help="Delay minimo (s) entre consultas (default 2.0)")
+    parser.add_argument("--delay-max", type=float, default=None,
+        help="Delay maximo (s) entre consultas (default 5.0)")
+    parser.add_argument("--max-tentativas", type=int, default=3,
+        help="Tentativas de clique por item (default 3)")
+    parser.add_argument("--headless", action="store_true",
+        help="Executa Chromium em modo headless")
+    parser.add_argument("--permitir-base-incompleta", action="store_true",
+        help="Permite escopos amplos mesmo com base de municipios incompleta")
+    parser.add_argument("--confirmar-grande-execucao", action="store_true",
+        help="Confirmacao explicita para --escopo brasil sem --max-total/--limite-cidades")
+    parser.add_argument("--legacy", action="store_true",
+        help="Fluxo AVGESTAO antigo (contingencia; nao documentado)")
     args = parser.parse_args()
 
     # Força UTF-8 no Windows
@@ -661,7 +830,9 @@ async def main():
         from playwright.async_api import async_playwright
 
     if args.produto == "avgestao":
-        return await main_avgestao(args, async_playwright)
+        if args.legacy:
+            return await main_avgestao(args, async_playwright)
+        return await main_avgestao_escalado(args, async_playwright)
 
     regioes = resolve_regiao(args.regiao)
 
@@ -870,7 +1041,7 @@ async def main_avgestao(args, async_playwright):
 
     grupos = resolver_grupo(args.grupo)
     cidade_arg = args.cidade
-    max_results = args.max
+    max_results = args.max if args.max is not None else 20
 
     cidades = [cidade_arg] if cidade_arg else list(BAIXADA.cidades)
     hoje = date.today().isoformat()
@@ -992,6 +1163,661 @@ async def main_avgestao(args, async_playwright):
         for s, q in sorted(subs.items(), key=lambda x: -x[1]):
             print(f"  {s:40s}: {q}")
         print(f"{'='*50}")
+
+
+# ══════════════════════════════════════════════════════════════════
+# MODO AVGESTAO ESCALADO (etapa 9) — fila + checkpoint + dedup global
+# ══════════════════════════════════════════════════════════════════
+
+def _validar_args_escaldo(args):
+    """Validacoes de CLI do modo escalado. Aborta (SystemExit) em conflito."""
+    # --max e --max-por-consulta: alias; se ambos informados e diferentes, erro
+    if args.max_por_consulta is not None and args.max is not None \
+            and args.max != args.max_por_consulta:
+        print("❌ Conflito: --max e --max-por-consulta informados com valores diferentes "
+              f"({args.max} != {args.max_por_consulta}). Use apenas um.")
+        sys.exit(1)
+    # max_por_consulta efetivo (default historico 20 se nenhum informado)
+    if args.max_por_consulta is not None:
+        mpc = args.max_por_consulta
+    elif args.max is not None:
+        mpc = args.max
+    else:
+        mpc = 20
+    # Proteção Brasil: exige --max-total OU --limite-cidades OU --confirmar-grande-execucao
+    if args.escopo == "brasil":
+        if not (args.max_total or (args.limite_cidades and args.limite_cidades > 0)
+                or args.confirmar_grande_execucao):
+            print("❌ Execução com --escopo brasil exige --max-total, --limite-cidades "
+                  "ou --confirmar-grande-execucao (para evitar captacao nacional nao intencional).")
+            sys.exit(1)
+    # Resume exige run-id
+    if args.resume and not args.run_id:
+        print("❌ --resume exige --run-id <id>.")
+        sys.exit(1)
+    # delay inter-task valido
+    dmin = args.delay_min if args.delay_min is not None else DELAY_MIN
+    dmax = args.delay_max if args.delay_max is not None else DELAY_MAX
+    if dmin < 0 or dmax < 0:
+        print("❌ --delay-min/--delay-max nao podem ser negativos.")
+        sys.exit(1)
+    if dmin > dmax:
+        print(f"❌ --delay-min ({dmin}) maior que --delay-max ({dmax}).")
+        sys.exit(1)
+    return mpc, dmin, dmax
+
+
+def _escopo_do_args(args) -> str:
+    """Descobre o escopo efetivo. Default historico: Baixada (cidades)."""
+    if args.escopo:
+        return args.escopo
+    # sem escopo e sem cidade -> Baixada (comportamento historico)
+    if args.cidade:
+        return "cidade"
+    if args.cidades:
+        return "cidades"
+    return "cidades"  # default Baixada
+
+
+def _resolver_municipios_do_args(args, run_id):
+    """Resolve os municipios conforme o escopo. Default Baixada historico."""
+    escopo = _escopo_do_args(args)
+    if not args.escopo and not args.cidade and not args.cidades:
+        # default historico: Baixada
+        return T.resolver_cidades(
+            escopo="cidades", cidades=list(BAIXADA.cidades),
+            limite_cidades=args.limite_cidades, ordem=args.ordem_cidades,
+            run_id=run_id, permitir_base_incompleta=args.permitir_base_incompleta,
+        )
+    return T.resolver_cidades(
+        escopo=escopo,
+        cidade=args.cidade,
+        cidades=args.cidades,
+        uf=args.uf,
+        ufs=args.ufs or args.uf,
+        regiao=args.regiao if escopo == "regiao" else None,
+        cidades_arquivo=args.cidades_arquivo,
+        limite_cidades=args.limite_cidades,
+        ordem=args.ordem_cidades,
+        run_id=run_id,
+        permitir_base_incompleta=args.permitir_base_incompleta,
+    )
+
+
+def _escopo_descritor(args, municipios):
+    """Label curto do escopo para nomes de arquivo e config."""
+    if args.escopo == "brasil":
+        return "brasil"
+    if args.escopo == "regiao":
+        return (args.regiao or "regiao")
+    if args.escopo in ("uf", "ufs"):
+        return "_".join(args.ufs or args.uf or [])
+    if args.escopo in ("cidades", "arquivo"):
+        return f"{len(municipios)}cidades"
+    if args.escopo == "cidade":
+        return (args.cidade or "cidade").replace(", ", "_").replace(" ", "_")
+    return "baixada"
+
+
+def _serializar_municipios(municipios) -> list:
+    """Serializa Municipio para dict JSON-serializavel (preserva nome/uf/normalizado)."""
+    out = []
+    for m in municipios or []:
+        if isinstance(m, dict):
+            out.append(m)
+        else:
+            out.append({
+                "nome": getattr(m, "nome", ""),
+                "uf": getattr(m, "uf", ""),
+                "nome_normalizado": getattr(m, "nome_normalizado", "") or
+                    getattr(m, "nome", ""),
+                "regiao": getattr(m, "regiao", ""),
+            })
+    return out
+
+
+def _config_do_run(args, municipios, run_id, max_por_consulta, escopo_descritor):
+    """Monta o dict de configuracao estrutural do run."""
+    return {
+        "produto": "avgestao",
+        "run_id": run_id,
+        "grupos": [g.key for g in resolver_grupo(args.grupo)],
+        "escopo": _escopo_do_args(args),
+        "escopo_descritor": escopo_descritor,
+        "municipios": _serializar_municipios(municipios),
+        "subnichos": [s.subnicho_key for g in resolver_grupo(args.grupo) for s in g.subnichos],
+        "consultas": [],
+        "ordem_cidades": args.ordem_cidades,
+        "limite_cidades": args.limite_cidades,
+        "max_por_consulta": max_por_consulta,
+        "max_por_cidade": args.max_por_cidade,
+        "max_por_subnicho": args.max_por_subnicho,
+        "max_total": args.max_total,
+        "delay_min": args.delay_min if args.delay_min is not None else DELAY_MIN,
+        "delay_max": args.delay_max if args.delay_max is not None else DELAY_MAX,
+        "max_tentativas": args.max_tentativas,
+        "headless": args.headless,
+        "permitir_base_incompleta": args.permitir_base_incompleta,
+    }
+
+
+def _enriquecer_lead_geo(lead, item, escopo, run_id):
+    """Adiciona campos geograficos + captured_at UTC ao lead aceito."""
+    lead["grupo"] = item.grupo
+    lead["subnicho"] = item.subnicho
+    lead["msg_cat"] = item.msg_cat
+    lead["uf"] = item.uf
+    lead["estado"] = UF_NOMES.get(item.uf, "")
+    lead["regiao"] = item.regiao
+    lead["source_query"] = item.query
+    lead["source_scope"] = escopo
+    lead["run_id"] = run_id
+    lead["captured_at"] = datetime.now(timezone.utc).isoformat()
+    # maps_url: a base de dedup lê link_maps|url_maps|maps_url; o CSV GEO usa maps_url
+    lead["maps_url"] = lead.get("link_maps", "") or lead.get("maps_url", "")
+    return lead
+
+
+def _carregar_chaves_supabase():
+    """Pre-carrega chaves do Supabase para o dedup global.
+
+    Retorna dict {place_ids, maps_urls, telefones} ou None se o Supabase nao
+    estiver configurado. Erros de conexao/autenticacao SAO propagados (nao
+    sao escondidos como 'coluna ausente').
+    """
+    try:
+        from dotenv import load_dotenv  # type: ignore
+        load_dotenv()
+    except Exception:
+        pass
+    url = os.environ.get("SUPABASE_URL", "")
+    key = os.environ.get("SUPABASE_ANON_KEY") or os.environ.get("SUPABASE_KEY", "")
+    if not url or not key:
+        return None  # Supabase nao configurado -> skip (sem dedup contra base)
+    from supabase import create_client  # type: ignore
+    from import_leads_to_supabase import listar_chaves_existentes
+    sb = create_client(url, key)  # auth/conexao -> propaga
+    ch = listar_chaves_existentes(sb)
+    return {
+        "place_ids": ch["place_ids"],
+        "maps_urls": ch["maps_urls"],
+        "telefones": ch["telefones"],
+    }
+
+
+def _reconstituir_dedup_parciais(run_id):
+    """Cria IndexadorDedup e pre-carrega com leads_parciais.csv do run."""
+    idx = DEDUP.IndexadorDedup()
+    parciais = RUNS.ler_leads_parciais(run_id)
+    for lead in parciais:
+        # re-alimenta o indexador: add retorna False para duplicatas internas,
+        # mas queremos registrar as chaves. add ja registra quando aceita.
+        idx.add(lead)
+    return idx
+
+
+def _exportar_xlsx_geo(leads, caminho):
+    """Exporta XLSX geografico agregado usando COLUNAS_XLSX_AVGESTAO_GEO.
+
+    Aplica enriquecer_lead_avgestao para preencher score/motivos/mensagem.
+    Nao altera COLUNAS_XLSX_AVGESTAO (as 20 originais).
+    """
+    try:
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill, Alignment
+        from openpyxl.utils import get_column_letter
+    except ImportError:
+        print("  [!] openpyxl nao instalado — pulando XLSX geo")
+        return None
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Leads GEO"
+    headers = [c[0] for c in COLUNAS_XLSX_AVGESTAO_GEO]
+    campos = [c[1] for c in COLUNAS_XLSX_AVGESTAO_GEO]
+    widths = [c[2] for c in COLUNAS_XLSX_AVGESTAO_GEO]
+    hfont = Font(bold=True, color="FFFFFF")
+    hfill = PatternFill("solid", fgColor="7C3AED")
+    for col, h in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col, value=h)
+        cell.font = hfont
+        cell.fill = hfill
+        cell.alignment = Alignment(horizontal="center")
+    for r, lead in enumerate(leads, 2):
+        row = dict(lead)
+        try:
+            row.update(enriquecer_lead_avgestao(lead))
+        except Exception:
+            pass
+        for c, campo in enumerate(campos, 1):
+            v = row.get(campo, lead.get(campo, ""))
+            if campo == "tem_site":
+                v = "Sim" if v else "NÃO"
+            ws.cell(row=r, column=c, value=v)
+    for i, w in enumerate(widths, 1):
+        ws.column_dimensions[get_column_letter(i)].width = w
+    ws.auto_filter.ref = ws.dimensions
+    caminho.parent.mkdir(parents=True, exist_ok=True)
+    wb.save(caminho)
+    return caminho
+
+
+def _exportar_parciais_xlsx(leads, caminho):
+    """Exporta leads_parciais.xlsx (colunas COLUNAS_CSV_GEO, raw)."""
+    try:
+        from openpyxl import Workbook
+        from openpyxl.utils import get_column_letter
+    except ImportError:
+        return None
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Leads parciais"
+    cols = RUNS.COLUNAS_CSV_GEO
+    for c, h in enumerate(cols, 1):
+        ws.cell(row=1, column=c, value=h)
+    for r, lead in enumerate(leads, 2):
+        for c, campo in enumerate(cols, 1):
+            ws.cell(row=r, column=c, value=lead.get(campo, ""))
+    for i, _ in enumerate(cols, 1):
+        ws.column_dimensions[get_column_letter(i)].width = 22
+    caminho.parent.mkdir(parents=True, exist_ok=True)
+    wb.save(caminho)
+    return caminho
+
+
+def _imprimir_distribuicao(fila, municipios, max_por_consulta):
+    """Mostra distribuicao por UF, regiao, cidade, grupo e subnicho (dry-run)."""
+    dist = FILA.distribuicao_estimada(fila, max_por_consulta)
+    print(f"\n  Cidades: {dist['cidades']} | UFs: {dist['ufs']}")
+    print(f"  Tarefas: {dist['total_tarefas']}")
+    print(f"  Estimativa maxima de resultados: {dist['estimativa_maxima_leads']}")
+    print(f"\n  Por UF:")
+    for uf, q in sorted(dist["por_uf"].items()):
+        print(f"    {uf:4s}: {q}")
+    print(f"\n  Por regiao:")
+    for reg, q in sorted(dist["por_regiao"].items()):
+        print(f"    {reg:18s}: {q}")
+    print(f"\n  Por grupo:")
+    for g, q in sorted(dist["por_grupo"].items()):
+        print(f"    {g:18s}: {q}")
+    print(f"\n  Por subnicho:")
+    for s, q in sorted(dist["por_subnicho"].items()):
+        print(f"    {s:40s}: {q}")
+    print(f"\n  Por cidade:")
+    for cid, q in sorted(dist["por_cidade"].items()):
+        print(f"    {cid:40s}: {q}")
+
+
+def _agora_iso():
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _config_para_resume(args, config_salvo, run_id, max_por_consulta):
+    """Constroi a config de comparacao do resume mesclando salvo + args.
+
+    Campos estruturais NAO informados (None/default) herdam do config_salvo,
+    permitindo retomar sem re-passar --cidade/--grupo/--escopo. Campos
+    explicitamente informados sobrescrevem (e divergem se diferentes do salvo).
+    """
+    cfg = dict(config_salvo)
+    cfg["run_id"] = run_id
+    cfg["produto"] = "avgestao"
+    cfg["versao_fila"] = config_salvo.get("versao_fila", RUNS.VERSAO_FILA)
+    # max_por_consulta: se usuario informou --max/--max-por-consulta, usa; senao salvo
+    if args.max_por_consulta is not None or args.max is not None:
+        cfg["max_por_consulta"] = max_por_consulta
+    else:
+        cfg["max_por_consulta"] = config_salvo.get("max_por_consulta", max_por_consulta)
+    # limites: so sobrescreve se informado explicitamente
+    if args.max_por_cidade is not None:
+        cfg["max_por_cidade"] = args.max_por_cidade
+    if args.max_por_subnicho is not None:
+        cfg["max_por_subnicho"] = args.max_por_subnicho
+    if args.max_total is not None:
+        cfg["max_total"] = args.max_total
+    if args.ordem_cidades and args.ordem_cidades != "fornecida":
+        cfg["ordem_cidades"] = args.ordem_cidades
+    # grupos/subnichos: se --grupo informado, recalcula; senao mantem do salvo
+    if args.grupo:
+        grupos = resolver_grupo(args.grupo)
+        cfg["grupos"] = [g.key for g in grupos]
+        cfg["subnichos"] = [s.subnicho_key for g in grupos for s in g.subnichos]
+    if args.escopo:
+        cfg["escopo"] = args.escopo
+    return cfg
+
+
+async def main_avgestao_escalado(args, async_playwright):
+    """Fluxo AVGESTAO escalado: fila + checkpoint + dedup global + limites.
+
+    Sem escopo/cidade -> Baixada historica. --cidade -> escopo cidade.
+    --dry-run/--somente-gerar-fila nao abrem browser. --resume valida config_hash.
+    """
+    max_por_consulta, dmin_inter, dmax_inter = _validar_args_escaldo(args)
+    escopo = _escopo_do_args(args)
+
+    # ── RESUME: carrega run existente ────────────────────────────────
+    if args.resume:
+        run_id = args.run_id
+        # checa existencia sem criar (pasta_run cria o diretorio)
+        run_dir = RUNS.OUTPUT_BASE / run_id
+        if not run_dir.exists() or not (run_dir / "config.json").exists():
+            print(f"❌ Run inexistente: {run_id}")
+            sys.exit(1)
+        config_salvo = RUNS.carregar_config(run_id)
+        config_atual = _config_para_resume(args, config_salvo, run_id, max_por_consulta)
+        motivos = RUNS.verificar_compatibilidade_resume(config_salvo, config_atual)
+        if motivos:
+            print("❌ Resume incompativel — configuracao estrutural divergente:")
+            for m in motivos:
+                print(f"    - {m}")
+            print("    Alterar limites/escopo/grupos exige um novo run.")
+            sys.exit(1)
+        # max_por_consulta efetivo do run (herda do salvo se nao informado)
+        max_por_consulta = config_atual["max_por_consulta"]
+        fila = FILA.carregar_fila(RUNS.caminhos_run(run_id)["fila"])
+        municipios = config_salvo.get("municipios", [])
+        escopo_descritor = config_salvo.get("escopo_descritor", "run")
+        escopo = config_salvo.get("escopo", escopo)
+        print(f"↻ Retomando run {run_id}: {len(fila)} tarefas na fila")
+    else:
+        # ── NOVO RUN: resolver municipios e criar run ─────────────────
+        run_id = args.run_id or RUNS.gerar_run_id()
+        municipios = _resolver_municipios_do_args(args, run_id)
+        if not municipios:
+            print("❌ Nenhuma cidade resolvida para o escopo informado.")
+            sys.exit(1)
+        escopo_descritor = _escopo_descritor(args, municipios)
+        config = _config_do_run(args, municipios, run_id, max_por_consulta, escopo_descritor)
+        RUNS.salvar_config(run_id, config)
+        grupos = resolver_grupo(args.grupo)
+        fila = FILA.gerar_fila(grupos, municipios, max_por_consulta=max_por_consulta,
+                               run_id=run_id)
+        RUNS.salvar_fila_run(run_id, fila)
+        cp = RUNS.novo_checkpoint(run_id, len(fila))
+        cp["config_hash"] = config.get("config_hash")
+        RUNS.salvar_checkpoint(run_id, cp)
+        print(f"✓ Run criado: {run_id}")
+        print(f"  Escopo: {escopo} ({escopo_descritor}) | Cidades: {len(municipios)}")
+
+    # ── DRY-RUN / SOMENTE-GERAR-FILA: nao abre browser ────────────────
+    if args.dry_run or args.somente_gerar_fila:
+        _imprimir_distribuicao(fila, municipios, max_por_consulta)
+        print(f"\n  Pasta do run: {RUNS.pasta_run(run_id)}")
+        print("  (dry-run — navegador nao aberto, Google Maps nao consultado)")
+        return run_id
+
+    # ── EXECUCAO REAL ────────────────────────────────────────────────
+    grupos = resolver_grupo(args.grupo)
+    # dedup global: reconstitui dos parciais + Supabase
+    indexador = _reconstituir_dedup_parciais(run_id)
+    try:
+        chaves_sb = _carregar_chaves_supabase()
+        if chaves_sb is not None:
+            indexador.mesclar_chaves_existentes(chaves_sb)
+            print(f"  Dedup: chaves Supabase pre-carregadas "
+                  f"({len(chaves_sb['place_ids'])} place_ids, "
+                  f"{len(chaves_sb['maps_urls'])} maps_urls)")
+        else:
+            print("  Dedup: Supabase nao configurado — dedup apenas intra-run/parciais")
+    except Exception as e:
+        # erro real de conexao/auth: NAO esconder
+        print(f"❌ Erro ao carregar chaves do Supabase: {e}")
+        raise
+
+    limites = LIMITES.Limites(
+        max_por_cidade=args.max_por_cidade,
+        max_por_subnicho=args.max_por_subnicho,
+        max_total=args.max_total,
+    )
+    motor = LIMITES.MotorLimites(limites=limites, contadores=LIMITES.ContadoresLimites())
+    # no resume, reconta contadores a partir dos parciais aceitos
+    if args.resume:
+        for lead in RUNS.ler_leads_parciais(run_id):
+            motor.contadores.registrar_aceito(lead.get("cidade", ""), lead.get("subnicho", ""))
+
+    cp = RUNS.carregar_checkpoint(run_id) or RUNS.novo_checkpoint(run_id, len(fila))
+    screenshot_dir = RUNS.caminhos_run(run_id)["screenshots"]
+
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(
+            headless=bool(args.headless),
+            args=["--disable-blink-features=AutomationControlled"],
+        )
+        ctx = await browser.new_context(
+            viewport={"width": 1366, "height": 768},
+            locale="pt-BR",
+            user_agent=(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/122.0.0.0 Safari/537.36"
+            ),
+        )
+        page = await ctx.new_page()
+        try:
+            try:
+                await page.goto("https://www.google.com/maps",
+                                wait_until="domcontentloaded", timeout=45000)
+            except Exception as e:
+                print(f"[!] Timeout ao carregar Maps: {e}")
+                await page.goto("https://www.google.com/maps",
+                                wait_until="commit", timeout=30000)
+            await asyncio.sleep(3)
+            await aceitar_cookies(page)
+
+            try:
+                await _processar_fila(run_id, fila, motor, indexador, page, args,
+                                      escopo, max_por_consulta, screenshot_dir,
+                                      dmin_inter, dmax_inter, cp)
+            except (KeyboardInterrupt, asyncio.CancelledError):
+                atual = _tarefa_atual(fila)
+                RUNS.salvar_estado_interrupcao(run_id, fila, cp, atual,
+                                               "interrompido pelo usuario/cancelamento")
+                print("\n⏹  Execucao interrompida — estado salvo.")
+            except CaptchaDetectado as e:
+                atual = _tarefa_atual(fila)
+                RUNS.salvar_estado_interrupcao(run_id, fila, cp, atual,
+                                               f"captcha detectado: {e}")
+                print("\n🛑  CAPTCHA detectado — execucao interrompida e estado salvo.")
+        finally:
+            try:
+                await page.close()
+            except Exception:
+                pass
+            try:
+                await ctx.close()
+            except Exception:
+                pass
+            try:
+                await browser.close()
+            except Exception:
+                pass
+
+    # ── Exportacao final ─────────────────────────────────────────────
+    _exportar_final(run_id, fila, municipios, escopo_descritor, args)
+    return run_id
+
+
+def _tarefa_atual(fila):
+    """Id da tarefa em_andamento (para marcar interrompida)."""
+    for item in fila:
+        if item.status == FILA.STATUS_EM_ANDAMENTO:
+            return item.id_tarefa
+    return None
+
+
+def _persistir_estado(run_id, fila, cp, item=None):
+    """Atualiza checkpoint com contagens de status e salva fila+checkpoint atomicamente."""
+    status_cont = FILA.contagem_por_status(fila)
+    cp["concluidas"] = status_cont.get(FILA.STATUS_CONCLUIDA, 0)
+    cp["pendentes"] = status_cont.get(FILA.STATUS_PENDENTE, 0)
+    cp["em_andamento"] = status_cont.get(FILA.STATUS_EM_ANDAMENTO, 0)
+    cp["erro"] = status_cont.get(FILA.STATUS_ERRO, 0)
+    cp["interrompidas"] = status_cont.get(FILA.STATUS_INTERROMPIDA, 0)
+    cp["ignoradas_limite"] = status_cont.get(FILA.STATUS_IGNORADA_LIMITE, 0)
+    cp["atualizado_em"] = _agora_iso()
+    cp["ultima_tarefa"] = item.id_tarefa if item else None
+    RUNS.salvar_fila_run(run_id, fila)
+    RUNS.salvar_checkpoint(run_id, cp)
+
+
+async def _processar_fila(run_id, fila, motor, indexador, page, args, escopo,
+                          max_por_consulta, screenshot_dir,
+                          dmin_inter, dmax_inter, cp):
+    """Loop principal de execucao da fila. Pausa entre consultas aqui (nao em buscar_categoria)."""
+    for idx, item in enumerate(fila):
+        if item.status not in FILA.STATUS_EXECUTAVEIS:
+            continue  # concluida/interrompida/ignorada_limite nao repetem
+        # erro ja esgotou tentativas -> nao retentativa no mesmo run
+        if item.status == FILA.STATUS_ERRO \
+                and (item.tentativas or 0) >= (args.max_tentativas or 3):
+            continue
+
+        pode, status = motor.pode_despachar(item)
+        if not pode:
+            item.status = status  # ignorada_limite
+            if motor.total_atingido:
+                motor.marcar_ignoradas_a_partir_de(fila, idx)
+                _persistir_estado(run_id, fila, cp, item)
+                print(f"  ⏸  max_total atingido — restantes marcadas ignorada_limite")
+                return
+            _persistir_estado(run_id, fila, cp, item)
+            continue
+
+        item.status = FILA.STATUS_EM_ANDAMENTO
+        item.iniciado_em = _agora_iso()
+        item.tentativas = (item.tentativas or 0) + 1
+        _persistir_estado(run_id, fila, cp, item)
+        print(f"\n  [{idx+1}/{len(fila)}] {item.subnicho_label} em {item.cidade}, {item.uf}")
+
+        leads_aceitos = []
+        try:
+            resultados = await buscar_categoria(
+                page, item.subnicho_label, item.cidade,
+                start_index=0, progress=None, nomes_existentes=None,
+                max_results=max_por_consulta, output_dir=None,
+                subnicho=item.subnicho, query_term=item.query,
+                max_tentativas=args.max_tentativas,
+                screenshot_dir=str(screenshot_dir),
+                captcha_detector=True,
+            )
+            for lead in resultados:
+                if motor.total_atingido:
+                    break  # max_total atingido — nao aceita mais leads desta task
+                _enriquecer_lead_geo(lead, item, escopo, run_id)
+                if indexador.add(lead):
+                    motor.registrar_aceito(item)
+                    leads_aceitos.append(lead)
+                    # verifica max_total apos cada aceito (limite por leads unicos)
+                    if LIMITES.limite_total_atingido(motor.contadores, motor.limites):
+                        motor.total_atingido = True
+            if leads_aceitos:
+                RUNS.anexar_linha_csv(run_id, leads_aceitos)
+            item.captados = len(leads_aceitos)
+            item.status = FILA.STATUS_CONCLUIDA
+            item.concluido_em = _agora_iso()
+            print(f"    ✓ {len(leads_aceitos)} leads unicos aceitos")
+            _persistir_estado(run_id, fila, cp, item)
+        except CaptchaDetectado as e:
+            item.status = FILA.STATUS_INTERROMPIDA
+            item.erro = f"captcha: {e}"
+            _persistir_estado(run_id, fila, cp, item)
+            raise
+        except Exception as e:
+            item.status = FILA.STATUS_ERRO
+            item.erro = str(e)[:200]
+            RUNS.registrar_erro(run_id, {"id_tarefa": item.id_tarefa,
+                                         "cidade": item.cidade,
+                                         "subnicho": item.subnicho}, e)
+            print(f"    X erro: {e}")
+            _persistir_estado(run_id, fila, cp, item)
+            # apos esgotar tentativas, segue para a proxima tarefa
+            continue
+
+        # Pausa entre consultas (responsabilidade do orquestrador, nao de buscar_categoria)
+        await asyncio.sleep(random.uniform(dmin_inter, dmax_inter))
+
+
+def _exportar_final(run_id, fila, municipios, escopo_descritor, args):
+    """Gera arquivos finais: parciais xlsx, xlsx geo, resumo, checkpoint, log."""
+    caminhos = RUNS.caminhos_run(run_id)
+    leads = RUNS.ler_leads_parciais(run_id)
+    # dedup final de seguranca (idempotente — parciais ja sao unicos)
+    unicos = DEDUP.deduplicar_leads_global(leads)
+
+    # leads_parciais.xlsx (raw, COLUNAS_CSV_GEO)
+    _exportar_parciais_xlsx(unicos, caminhos["leads_xlsx"])
+
+    # XLSX geografico agregado (COLUNAS_XLSX_AVGESTAO_GEO + auto_filter)
+    grupos_keys = "_".join(g.key for g in resolver_grupo(args.grupo))
+    xlsx_geo_nome = f"leads_{grupos_keys}_{escopo_descritor}_{run_id}.xlsx"
+    xlsx_geo = _exportar_xlsx_geo(unicos, RUNS.pasta_run(run_id) / xlsx_geo_nome)
+    if xlsx_geo:
+        print(f"  XLSX geo: {xlsx_geo}")
+
+    # checkpoint final
+    cp = RUNS.carregar_checkpoint(run_id) or RUNS.novo_checkpoint(run_id, len(fila))
+    status_cont = FILA.contagem_por_status(fila)
+    # preserva status_run "interrompido" se houve interrupcao (captcha/ctrl+c)
+    if cp.get("status_run") != "interrompido" \
+            and status_cont.get(FILA.STATUS_INTERROMPIDA, 0) == 0:
+        cp["status_run"] = "concluido"
+    cp["atualizado_em"] = _agora_iso()
+    cp["concluidas"] = status_cont.get(FILA.STATUS_CONCLUIDA, 0)
+    cp["ignoradas_limite"] = status_cont.get(FILA.STATUS_IGNORADA_LIMITE, 0)
+    cp["erro"] = status_cont.get(FILA.STATUS_ERRO, 0)
+    cp["interrompidas"] = status_cont.get(FILA.STATUS_INTERROMPIDA, 0)
+    cp["captados_total"] = len(unicos)
+    RUNS.salvar_checkpoint(run_id, cp)
+
+    # resumo.json
+    dist = FILA.distribuicao_estimada(fila, args.max_por_consulta or args.max or 20)
+    resumo = {
+        "run_id": run_id,
+        "concluido_em": _agora_iso(),
+        "status_run": cp["status_run"],
+        "total_tarefas": len(fila),
+        "concluidas": cp["concluidas"],
+        "ignoradas_limite": cp["ignoradas_limite"],
+        "erro": cp["erro"],
+        "interrompidas": cp["interrompidas"],
+        "captados_total": len(unicos),
+        "brutos": len(leads),
+        "unicos": len(unicos),
+        "duplicatas_removidas": max(0, len(leads) - len(unicos)),
+        "por_grupo": dist["por_grupo"],
+        "por_subnicho": dist["por_subnicho"],
+        "por_uf": dist["por_uf"],
+        "por_regiao": dist["por_regiao"],
+        "arquivos": {
+            "config": str(caminhos["config"]),
+            "fila": str(caminhos["fila"]),
+            "checkpoint": str(caminhos["checkpoint"]),
+            "leads_csv": str(caminhos["leads_csv"]),
+            "leads_xlsx": str(caminhos["leads_xlsx"]),
+            "xlsx_geo": str(xlsx_geo) if xlsx_geo else "",
+            "erros": str(caminhos["erros"]),
+            "log": str(caminhos["log"]),
+        },
+    }
+    RUNS.salvar_resumo(run_id, resumo)
+
+    # execucao.log (minimal)
+    try:
+        with open(caminhos["log"], "w", encoding="utf-8") as f:
+            f.write(f"Run {run_id}\n")
+            f.write(f"Concluido em: {resumo['concluido_em']}\n")
+            f.write(f"Tarefas: {len(fila)} | concluidas: {cp['concluidas']} | "
+                    f"ignoradas_limite: {cp['ignoradas_limite']} | erro: {cp['erro']}\n")
+            f.write(f"Leads unicos: {len(unicos)} (brutos: {len(leads)})\n")
+    except Exception:
+        pass
+
+    print(f"\n  RESUMO FINAL — run {run_id}")
+    print(f"    Tarefas: {len(fila)} | concluidas: {cp['concluidas']} | "
+          f"ignoradas_limite: {cp['ignoradas_limite']} | erro: {cp['erro']}")
+    print(f"    Leads unicos: {len(unicos)} (brutos: {len(leads)})")
+    print(f"    Pasta: {RUNS.pasta_run(run_id)}")
 
 
 if __name__ == "__main__":

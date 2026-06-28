@@ -131,7 +131,32 @@ MAPEAMENTO_COLUNAS = {
     "Motivos do score": "motivos_score",
     "Nome curto": "nome_curto",
     "Mensagem inicial": "mensagem_whatsapp",
+    # Campos geograficos do modo escalado (etapa 6/7)
+    "UF": "uf",
+    "uf": "uf",
+    "Estado": "estado",
+    "estado": "estado",
+    "Região": "regiao",
+    "Regiao": "regiao",
+    "regiao": "regiao",
+    "Query de origem": "source_query",
+    "source_query": "source_query",
+    "Escopo de origem": "source_scope",
+    "source_scope": "source_scope",
+    "Run ID": "run_id",
+    "run_id": "run_id",
+    "Capturado em": "captured_at",
+    "captured_at": "captured_at",
+    "Place ID": "place_id",
+    "place_id": "place_id",
+    "URL Google Maps": "maps_url",
+    "maps_url": "maps_url",
+    "Link Maps": "maps_url",
 }
+
+# Campos geograficos opcionais (so presentes em planilhas do modo escalado).
+CAMPOS_GEO_OPCIONAIS = ["uf", "estado", "regiao", "source_query", "source_scope",
+                        "run_id", "captured_at", "place_id", "maps_url"]
 
 
 def encontrar_planilha(caminho_arquivo=None):
@@ -287,7 +312,130 @@ def normalizar_lead(lead_bruto):
     # Detecta produto: avgestao se houver grupo ou score_avgestao informado
     lead["produto"] = "avgestao" if (lead["grupo"] or score_avg) else "landing"
 
+    # Campos geograficos do modo escalado (opcionais - .get default "")
+    for campo in CAMPOS_GEO_OPCIONAIS:
+        lead[campo] = lead_bruto.get(campo, "").strip()
+
     return lead
+
+
+def _aplicar_campos_geo(payload: dict, lead: dict) -> None:
+    """Adiciona os campos geograficos opcionais a um payload de insert/update.
+
+    captured_at so eh incluido se tiver valor (TIMESTAMPTZ nao pode ser "").
+    Os demais viram "" quando ausentes (DEFAULT '' na migration).
+    """
+    for campo in CAMPOS_GEO_OPCIONAIS:
+        valor = lead.get(campo, "")
+        if campo == "captured_at":
+            if valor:
+                payload[campo] = valor
+        else:
+            payload[campo] = valor
+
+
+# ══════════════════════════════════════════════════════════════════
+# DEDUP GLOBAL — chaves existentes no Supabase (paginado, com fallback)
+# ══════════════════════════════════════════════════════════════════
+
+class _ErroColunaAusente(Exception):
+    """Sinaliza que uma coluna geografica nao existe no Supabase (migration pendente)."""
+
+
+# Marcadores de "coluna nao existe" vindos do PostgREST/Postgres.
+# Usados para distinguir ausencia de coluna (fallback) de erro real (propaga).
+_MARCADORES_COLUNA = (
+    "does not exist",
+    "could not find the",
+    "column",
+    "pgrst205",
+    "schema cache",
+)
+
+
+def _e_erro_coluna(exc: BaseException) -> bool:
+    msg = str(exc).lower()
+    return any(m in msg for m in _MARCADORES_COLUNA)
+
+
+def _warn(msg: str) -> None:
+    """Print de aviso robusto a console com encoding diferente de UTF-8 (Windows)."""
+    try:
+        print(msg)
+    except UnicodeEncodeError:
+        try:
+            print(msg.encode("utf-8", "replace").decode("ascii", "replace"))
+        except Exception:
+            pass
+
+
+def _paginar_leads(sb, colunas: str, batch_size: int = 1000) -> list[dict]:
+    """Pagina a tabela leads via range. Propaga erros reais."""
+    offset = 0
+    dados: list[dict] = []
+    while True:
+        resp = sb.table("leads").select(colunas).range(offset, offset + batch_size - 1).execute()
+        pagina = resp.data or []
+        dados.extend(pagina)
+        if len(pagina) < batch_size:
+            break
+        offset += batch_size
+    return dados
+
+
+def listar_chaves_existentes(sb, batch_size: int = 1000) -> dict:
+    """Lista chaves de dedup global ja existentes no Supabase (paginado).
+
+    Retorna:
+        {
+            "telefones": dict[str, set[str]],  # tel_normalizado -> {cidades}
+            "place_ids": set[str],
+            "maps_urls": set[str],
+        }
+
+    Se a migration geo ainda nao foi aplicada (place_id/maps_url/uf ausentes),
+    emite warning claro e cai para o fallback (somente telefone_normalizado +
+    cidade). Erros de conexao/autenticacao NAO sao tratados como coluna ausente
+    — sao propagados.
+    """
+    COLUNAS_FULL = "id,telefone_normalizado,place_id,maps_url,cidade,uf"
+    COLUNAS_MIN = "id,telefone_normalizado,cidade"
+    try:
+        dados = _paginar_leads(sb, COLUNAS_FULL, batch_size)
+    except Exception as exc:
+        if not _e_erro_coluna(exc):
+            raise  # erro real de conexao/auth: propaga
+        # coluna geo ausente -> fallback
+        _warn("⚠️  Migration geo ainda não aplicada — place_id/maps_url/uf indisponíveis. "
+              "Usando fallback (telefone_normalizado + cidade). Aplique "
+              "supabase/migration_avgestao_geo.sql para dedup global completa.")
+        dados = _paginar_leads(sb, COLUNAS_MIN, batch_size)  # se falhar aqui, propaga
+        return _agrupar_chaves(dados, completo=False)
+
+    return _agrupar_chaves(dados, completo=True)
+
+
+def _agrupar_chaves(dados: list[dict], *, completo: bool) -> dict:
+    telefones: dict[str, set[str]] = {}
+    place_ids: set[str] = set()
+    maps_urls: set[str] = set()
+    for row in dados:
+        tel = (row.get("telefone_normalizado") or "").strip()
+        cidade = (row.get("cidade") or "").strip()
+        if tel:
+            telefones.setdefault(tel, set()).add(cidade)
+        if completo:
+            pid = (row.get("place_id") or "").strip()
+            if pid:
+                place_ids.add(pid)
+            url = (row.get("maps_url") or "").strip()
+            if url:
+                maps_urls.add(url)
+    return {
+        "telefones": telefones,
+        "place_ids": place_ids,
+        "maps_urls": maps_urls,
+    }
 
 
 def main():
@@ -438,6 +586,14 @@ def main():
                 "motivos_score": lead.get("motivos_score", ""),
                 "nome_curto": lead.get("nome_curto", ""),
             }
+            # Campos geograficos (opcionais; .get default "" — omite captured_at se vazio)
+            for campo in CAMPOS_GEO_OPCIONAIS:
+                valor = lead.get(campo, "")
+                if campo == "captured_at":
+                    if valor:
+                        novo_lead[campo] = valor
+                else:
+                    novo_lead[campo] = valor
 
             try:
                 result = sb.table("leads").insert(novo_lead).execute()
@@ -480,6 +636,7 @@ def main():
                     "motivos_score": lead.get("motivos_score", ""),
                     "nome_curto": lead.get("nome_curto", ""),
                 }
+                _aplicar_campos_geo(update_data, lead)
             else:
                 atualizados += 1
                 # Atualizar dados e permitir mudança de status se for 'novo' -> 'pronto_para_enviar'
@@ -513,6 +670,7 @@ def main():
                     "motivos_score": lead.get("motivos_score", ""),
                     "nome_curto": lead.get("nome_curto", ""),
                 }
+                _aplicar_campos_geo(update_data, lead)
 
             try:
                 sb.table("leads").update(update_data).eq("id", existente["id"]).execute()
