@@ -174,6 +174,108 @@ def _listar_arquivos(run_dir):
     print()
 
 
+def _modo_status(args):
+    """Modo status: consulta estado do run sem abrir navegador nem alterar arquivos."""
+    from config.lock import verificar_lock_global
+
+    if args.run_id:
+        run_dir = RUNS_DIR / args.run_id
+        if not run_dir.exists() or not (run_dir / "config.json").exists():
+            print(f"❌ Run inexistente: {args.run_id}")
+            sys.exit(1)
+
+        # Le arquivos (somente leitura)
+        import json
+        config = json.loads((run_dir / "config.json").read_text(encoding="utf-8"))
+        cp = json.loads((run_dir / "checkpoint.json").read_text(encoding="utf-8"))
+        resumo = json.loads((run_dir / "resumo.json").read_text(encoding="utf-8")) \
+            if (run_dir / "resumo.json").exists() else {}
+        fila = json.loads((run_dir / "fila.json").read_text(encoding="utf-8"))
+        leads_csv = run_dir / "leads_parciais.csv"
+        n_leads = len(leads_csv.read_text(encoding="utf-8-sig").strip().splitlines()) - 1 \
+            if leads_csv.exists() and leads_csv.stat().st_size > 0 else 0
+
+        # Verifica se ha processo ativo
+        lock_info = verificar_lock_global()
+        ativo = lock_info and lock_info.get("run_id") == args.run_id
+
+        # Encontra cidade atual
+        cidade_atual = ""
+        for it in fila:
+            if it.get("status") in ("em_andamento",):
+                cidade_atual = f"{it['cidade']} - {it['subnicho_label']}"
+                break
+        if not cidade_atual:
+            for it in fila:
+                if it.get("status") == "pendente":
+                    cidade_atual = f"{it['cidade']} - {it['subnicho_label']}"
+                    break
+
+        print()
+        print("=" * 60)
+        print(f"  STATUS DO RUN: {args.run_id}")
+        print("=" * 60)
+        print(f"  Run ID:        {args.run_id}")
+        print(f"  Status:        {cp.get('status_run', 'desconhecido')}")
+        print(f"  Escopo:        {config.get('escopo', '?')} - {config.get('escopo_descritor', '?')}")
+        print(f"  Grupo:         {', '.join(config.get('grupos', []))}")
+        print(f"  Cidade atual:  {cidade_atual or 'N/A'}")
+        print(f"  Captador ativo: {'SIM' if ativo else 'NÃO'}")
+        if ativo and lock_info:
+            print(f"    PID: {lock_info.get('pid')}")
+            print(f"    Início: {lock_info.get('inicio')}")
+        print()
+        print(f"  Tarefas:")
+        print(f"    Total:       {cp.get('total_tarefas', len(fila))}")
+        print(f"    Concluídas:  {cp.get('concluidas', 0)}")
+        print(f"    Pendentes:   {cp.get('pendentes', 0)}")
+        print(f"    Em andamento: {cp.get('em_andamento', 0)}")
+        print(f"    Erro:        {cp.get('erro', 0)}")
+        print(f"    Interrompidas: {cp.get('interrompidas', 0)}")
+        print(f"    Ignoradas:   {cp.get('ignoradas_limite', 0)}")
+        print()
+        print(f"  Leads captados: {resumo.get('captados_total', n_leads)}")
+        print(f"  Última atualização: {cp.get('atualizado_em', 'N/A')}")
+        print(f"  Última tarefa: {cp.get('ultima_tarefa', 'N/A')}")
+        print(f"  Motivo interrupção: {cp.get('motivo_interrupcao', 'N/A')}")
+        print()
+        print(f"  Arquivos:")
+        print(f"    Config:     {run_dir / 'config.json'}")
+        print(f"    Checkpoint: {run_dir / 'checkpoint.json'}")
+        print(f"    Fila:       {run_dir / 'fila.json'}")
+        print(f"    Leads CSV:  {run_dir / 'leads_parciais.csv'} ({n_leads} registros)")
+        print(f"    Resumo:     {run_dir / 'resumo.json'}")
+        print("=" * 60)
+    else:
+        # Lista runs recentes
+        runs = sorted(RUNS_DIR.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True)
+        print()
+        print("=" * 60)
+        print("  RUNS RECENTES")
+        print("=" * 60)
+        for r in runs[:15]:
+            if not r.is_dir():
+                continue
+            cp_path = r / "checkpoint.json"
+            cfg_path = r / "config.json"
+            if cp_path.exists() and cfg_path.exists():
+                import json
+                cp = json.loads(cp_path.read_text(encoding="utf-8"))
+                cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+                escopo = cfg.get("escopo_descritor", cfg.get("escopo", "?"))
+                print(f"  {r.name}")
+                print(f"    Status: {cp.get('status_run', '?')} | "
+                      f"Concl: {cp.get('concluidas', 0)} | "
+                      f"Pend: {cp.get('pendentes', 0)} | "
+                      f"Erro: {cp.get('erro', 0)} | "
+                      f"Leads: {cp.get('captados_total', 0)}")
+                print(f"    Escopo: {escopo} | "
+                      f"Atualizado: {str(cp.get('atualizado_em', '?'))[:19]}")
+                print()
+        print("  Use: python executar_campanha_avgestao.py --status --run-id <RUN_ID>")
+        print("=" * 60)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Orquestrador AVGESTAO — mapear, prospectar e gerar campanha em um comando",
@@ -212,7 +314,14 @@ def main():
     parser.add_argument("--somente-gerar-fila", action="store_true")
     parser.add_argument("--permitir-base-incompleta", action="store_true")
     parser.add_argument("--confirmar-grande-execucao", action="store_true")
+    parser.add_argument("--status", action="store_true",
+                        help="Modo status: consulta estado do run sem abrir navegador")
     args = parser.parse_args()
+
+    # ── MODO STATUS (somente leitura, sem abrir navegador) ────────────
+    if args.status:
+        _modo_status(args)
+        return
 
     etapas = [e.strip() for e in args.etapas.split(",") if e.strip()]
     if not etapas:

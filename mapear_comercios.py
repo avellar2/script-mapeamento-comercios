@@ -11,12 +11,16 @@ import argparse
 import asyncio
 import csv
 import json
+import logging
 import os
 import random
 import re
 import sys
+import traceback
 from datetime import datetime, timezone
 from pathlib import Path
+
+from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
 from config.regioes import resolve_regiao, get_output_dir, get_locais_busca, BAIXADA
 from config.avgestao import (
@@ -37,6 +41,63 @@ from config import runs as RUNS
 from config import limites as LIMITES
 DELAY_MIN = 2.0
 DELAY_MAX = 5.0
+
+# ══════════════════════════════════════════════════════════════════
+# Logger persistente e diagnóstico de saúde do navegador
+# ══════════════════════════════════════════════════════════════════
+
+# Timeout de navegação (ms) — aumentado de 45s para 90s para evitar
+# interrupções do run em conexões lentas.
+_TIMEOUT_NAVEGACAO_MS = 90000
+
+# Timeout de ações/seletores (ms) — separado, não usa 90s para tudo.
+_TIMEOUT_SELETOR_MS = 30000
+
+
+def _logger_captura(run_id: str) -> logging.Logger:
+    """Retorna logger com handler para arquivo dentro do diretório do run."""
+    logger = logging.getLogger(f"captura.{run_id}")
+    if logger.handlers:
+        return logger
+    logger.setLevel(logging.DEBUG)
+    pasta = RUNS.pasta_run(run_id)
+    pasta.mkdir(parents=True, exist_ok=True)
+    fh = logging.FileHandler(pasta / "captura_stdout.log", encoding="utf-8")
+    fh.setLevel(logging.DEBUG)
+    fmt = logging.Formatter("%(asctime)s | %(levelname)s | %(message)s",
+                             datefmt="%Y-%m-%dT%H:%M:%S")
+    fh.setFormatter(fmt)
+    logger.addHandler(fh)
+    return logger
+
+
+def _avaliar_saude_pagina(browser, context, page) -> str:
+    """Avalia a saúde do browser/context/page e retorna classificação.
+
+    Retorna um dos valores:
+      - "page_valida": tudo OK, página viva e browser conectado
+      - "page_fechada": browser e context vivos, mas page fechada
+      - "browser_morto": browser desconectado
+      - "context_morto": context fechado/inutilizável
+      - "sem_browser": browser/context não informados (caminho de teste)
+    """
+    # Browser não informado (testes unitários com mock) — pular verificação
+    if browser is None and context is None:
+        return "sem_browser"
+    # 1. Browser
+    if browser is None or not browser.is_connected():
+        return "browser_morto"
+    # 2. Context
+    if context is None:
+        return "context_morto"
+    try:
+        _ = context.pages  # acesso que lança se context fechado
+    except Exception:
+        return "context_morto"
+    # 3. Page
+    if page is None or page.is_closed():
+        return "page_fechada"
+    return "page_valida"
 
 
 # ── Progress / Resume ──────────────────────────────────────────────
@@ -436,6 +497,69 @@ class CaptchaDetectado(Exception):
     captcha_detector=True. Nao tenta resolver nem contornar."""
 
 
+class NavegadorFechado(Exception):
+    """Browser ou contexto do Playwright foi fechado inesperadamente."""
+
+
+# Padroes especificos de erro de navegador/context/page fechado (lowercase).
+# Usados por _eh_erro_navegador_fechado para distinguir falhas fatais de
+# erros recuperaveis (timeout, execution context destroyed, etc.).
+PADROES_NAVEGADOR_FECHADO = (
+    "target page, context or browser has been closed",
+    "browser has been closed",
+    "browser closed",
+    "context has been closed",
+    "context closed",
+    "page has been closed",
+    "page closed",
+)
+
+
+def _eh_erro_navegador_fechado(erro: str) -> bool:
+    """Retorna True se a mensagem de erro corresponde a navegador/context/page fechado.
+
+    Usa apenas padroes especificos (lowercase) para evitar falsos positivos
+    com erros de navegacao como timeout ou execution context destroyed.
+    """
+    erro_lower = str(erro).lower()
+    return any(p in erro_lower for p in PADROES_NAVEGADOR_FECHADO)
+
+
+async def _garantir_pagina_ativa(browser, context, page):
+    """Verifica saude do browser/context/page e retorna (page_valida, foi_recriada).
+
+    - Se browser estiver desconectado: levanta NavegadorFechado.
+    - Se context estiver indisponivel: levanta NavegadorFechado.
+    - Se somente a page estiver fechada: tenta recriar uma unica vez.
+    - Se a recriacao falhar: levanta NavegadorFechado.
+
+    O chamador DEVE atualizar a referencia da page com o primeiro elemento
+    da tupla retornada.
+    """
+    if browser is None or not browser.is_connected():
+        raise NavegadorFechado("browser desconectado")
+
+    if context is None:
+        raise NavegadorFechado("contexto indisponivel")
+
+    try:
+        context.pages
+    except Exception as exc:
+        raise NavegadorFechado("contexto fechado") from exc
+
+    if page is not None and not page.is_closed():
+        return page, False
+
+    # Page fechada — tenta recriar uma unica vez
+    try:
+        nova_page = await context.new_page()
+        return nova_page, True
+    except Exception as exc:
+        raise NavegadorFechado(
+            "page fechada e nao foi possivel recriar"
+        ) from exc
+
+
 # Delay principal por item usado quando delay_min/delay_max nao sao informados.
 # Reproduz o comportamento atual (random.uniform(1.8, 3.5) no loop de itens).
 _DELAY_ITEM_DEFAULT = (1.8, 3.5)
@@ -517,7 +641,7 @@ def _deve_interromper_por_captcha(captcha_detector: bool, captcha_detectado: boo
     return bool(captcha_detector) and bool(captcha_detectado)
 
 
-async def buscar_categoria(page, categoria, cidade, start_index=0, progress=None, nomes_existentes=None, max_results=20, output_dir=None, subnicho="", query_term=None, delay_min=None, delay_max=None, max_tentativas=3, screenshot_dir=None, captcha_detector=False):
+async def buscar_categoria(page, categoria, cidade, start_index=0, progress=None, nomes_existentes=None, max_results=20, output_dir=None, subnicho="", query_term=None, delay_min=None, delay_max=None, max_tentativas=3, screenshot_dir=None, captcha_detector=False, _run_id=None, _browser=None, _context=None):
     """Busca uma categoria no Google Maps e retorna lista de comércios.
 
     Novos kwargs (defaults preservam o comportamento atual):
@@ -526,25 +650,170 @@ async def buscar_categoria(page, categoria, cidade, start_index=0, progress=None
         screenshot_dir       — se informado, salva screenshot em falhas.
         captcha_detector     — se True, levanta CaptchaDetectado ao detectar
                                bloqueio (default False = nao interrompe).
+        _run_id              — para logging persistente (injetado pelo orquestrador).
+        _browser             — para verificação de saúde (injetado pelo orquestrador).
+        _context             — para verificação de saúde (injetado pelo orquestrador).
     O contrato de retorno e extrair_detalhes nao mudam.
     """
     # Validar delays por item (default reproduz 1.8-3.5; ValueError se min > max).
     dmin_item, dmax_item = validar_delays(delay_min, delay_max)
     n_tent = _alcance_tentativas(max_tentativas)
 
+    log = _logger_captura(_run_id) if _run_id else None
+
     termo_busca = query_term or categoria
     query = f"{termo_busca} em {cidade}" if " em " not in termo_busca else termo_busca
     url = f"https://www.google.com/maps/search/{query.replace(' ', '+')}/"
 
-    try:
-        await page.goto(url, wait_until="domcontentloaded", timeout=45000)
-    except Exception as e:
-        print(f"  [!] Erro ao carregar: {e}")
-        await salvar_screenshot(page, screenshot_dir, f"erro_carga_{categoria}")
+    # ── Navegação com retry e verificação de saúde ──
+    navegou_ok = False
+    tentativa_nav = 0
+    max_tent_nav = 2  # 1 tentativa inicial + 1 recuperação
+
+    while tentativa_nav < max_tent_nav and not navegou_ok:
+        tentativa_nav += 1
+        t_inicio = datetime.now().isoformat()
+
+        if log:
+            log.info("NAVEGAÇÃO tentativa %d/%d | cidade=%s subnicho=%s url=%s",
+                     tentativa_nav, max_tent_nav, cidade, subnicho, url[:100])
+
         try:
-            await page.reload(wait_until="commit", timeout=30000)
-        except Exception:
-            pass
+            await page.goto(url, wait_until="domcontentloaded",
+                            timeout=_TIMEOUT_NAVEGACAO_MS)
+            navegou_ok = True
+            t_fim = datetime.now().isoformat()
+            if log:
+                duracao_ms = int((datetime.fromisoformat(t_fim) -
+                                  datetime.fromisoformat(t_inicio)).total_seconds() * 1000)
+                log.info("NAVEGAÇÃO OK | tentativa=%d | duração=%dms | url_atual=%s",
+                         tentativa_nav, duracao_ms, page.url[:80])
+
+        except PlaywrightTimeoutError as e:
+            duracao_ms = int((datetime.now() - datetime.fromisoformat(t_inicio)).total_seconds() * 1000)
+            if log:
+                log.warning("TIMEOUT navegação tentativa %d | duração=%dms | erro=%s | "
+                            "page.is_closed=%s | browser.is_connected=%s",
+                            tentativa_nav, duracao_ms, str(e)[:200],
+                            page.is_closed() if page else "N/A",
+                            browser.is_connected() if (browser := _browser) else "N/A")
+
+            # Classificar o estado real do navegador
+            saude = _avaliar_saude_pagina(_browser, _context, page)
+
+            if saude == "browser_morto":
+                if log:
+                    log.error("Navegador morto após timeout — levantando NavegadorFechado")
+                raise NavegadorFechado(f"browser desconectado após timeout: {e}")
+
+            if saude == "context_morto":
+                if log:
+                    log.error("Context morto após timeout — levantando NavegadorFechado")
+                raise NavegadorFechado(f"contexto fechado após timeout: {e}")
+
+            if saude == "page_fechada":
+                # Tentar recriar a página uma vez
+                if tentativa_nav < max_tent_nav:
+                    if log:
+                        log.info("Page fechada após timeout — recriando página")
+                    try:
+                        page = await _context.new_page()
+                        await page.goto("https://www.google.com/maps",
+                                        wait_until="commit", timeout=30000)
+                        if log:
+                            log.info("Page recriada e Maps carregado — retentando navegação")
+                        continue  # retentar a navegação com a nova página
+                    except Exception as recriar_err:
+                        if log:
+                            log.error("Falha ao recriar page: %s", str(recriar_err)[:200])
+                        raise NavegadorFechado(
+                            f"page fechada após timeout e falha ao recriar: {recriar_err}"
+                        )
+                else:
+                    raise NavegadorFechado(
+                        f"page fechada após timeout na segunda tentativa: {e}"
+                    )
+
+            # saude == "page_valida" — timeout mas navegador vivo
+            if tentativa_nav < max_tent_nav:
+                if log:
+                    log.info("Timeout mas navegador vivo — tentando recuperação controlada")
+                # Recuperação controlada: reload com timeout adequado
+                # (somente se page e browser estiverem saudáveis)
+                try:
+                    await page.reload(wait_until="commit", timeout=30000)
+                    await asyncio.sleep(2)
+                    if log:
+                        log.info("Reload OK — retentando navegação")
+                    continue  # retentar a navegação após reload
+                except PlaywrightTimeoutError:
+                    if log:
+                        log.error("Reload também deu timeout — retornando lista vazia")
+                    # Segunda tentativa falhou — retornar vazio, não interromper o run
+                    return []
+                except Exception as reload_err:
+                    # Verificar se o reload matou o browser/context
+                    saude2 = _avaliar_saude_pagina(_browser, _context, page)
+                    if saude2 in ("browser_morto", "context_morto"):
+                        raise NavegadorFechado(
+                            f"navegador morto após reload: {reload_err}"
+                        )
+                    if log:
+                        log.error("Reload falhou (não-timeout): %s — retornando lista vazia",
+                                  str(reload_err)[:200])
+                    return []
+            else:
+                # Segunda tentativa de navegação falhou
+                if log:
+                    log.error("Segunda tentativa de navegação falhou — retornando lista vazia")
+                return []
+
+        except Exception as e:
+            erro_lower = str(e).lower()
+            eh_navegador_fechado = any(p in erro_lower for p in PADROES_NAVEGADOR_FECHADO)
+
+            if eh_navegador_fechado:
+                saude = _avaliar_saude_pagina(_browser, _context, page)
+                if log:
+                    log.error("Exceção de navegador fechado | tipo=%s | saude=%s | erro=%s",
+                              type(e).__name__, saude, str(e)[:200])
+                    log.error("Traceback: %s", traceback.format_exc())
+                raise NavegadorFechado(f"navegador fechado durante navegação (saude={saude}): {e}")
+
+            # Exceção não-timeout e não-navegador-fechado
+            if log:
+                log.warning("Exceção não-fatal na navegação tentativa %d: %s | %s",
+                            tentativa_nav, type(e).__name__, str(e)[:200])
+
+            # Verificar saúde antes de retentar
+            saude = _avaliar_saude_pagina(_browser, _context, page)
+            if saude in ("browser_morto", "context_morto"):
+                raise NavegadorFechado(f"navegador morto após exceção (saude={saude}): {e}")
+
+            if saude == "page_fechada" and tentativa_nav < max_tent_nav:
+                if log:
+                    log.info("Page fechada após exceção — recriando")
+                try:
+                    page = await _context.new_page()
+                    await page.goto("https://www.google.com/maps",
+                                    wait_until="commit", timeout=30000)
+                    continue
+                except Exception as recriar_err:
+                    raise NavegadorFechado(
+                        f"falha ao recriar page após exceção: {recriar_err}"
+                    )
+
+            # Erro recuperável — marcar como erro de navegação e continuar
+            if tentativa_nav >= max_tent_nav:
+                if log:
+                    log.error("Navegação falhou após %d tentativas — retornando lista vazia",
+                              max_tent_nav)
+                return []
+
+    if not navegou_ok:
+        if log:
+            log.error("Navegação falhou sem exceção — retornando lista vazia")
+        return []
 
     await asyncio.sleep(random.uniform(2, 3))
     await aceitar_cookies(page)
@@ -563,10 +832,45 @@ async def buscar_categoria(page, categoria, cidade, start_index=0, progress=None
     await scroll_panel(page)
     await asyncio.sleep(1)
 
+    # ── Verificação de saúde antes de ler resultados ──
+    saude_leitura = _avaliar_saude_pagina(_browser, _context, page)
+    if log:
+        log.info("SAÚDE antes de items.count() | saude=%s | url=%s",
+                 saude_leitura, page.url[:80] if not page.is_closed() else "page_closed")
+
+    if saude_leitura in ("browser_morto", "context_morto"):
+        if log:
+            log.error("Navegador morto antes de items.count() — levantando NavegadorFechado")
+        raise NavegadorFechado(f"navegador morto antes de ler resultados (saude={saude_leitura})")
+
+    if saude_leitura == "page_fechada":
+        if log:
+            log.error("Page fechada antes de items.count() — retornando lista vazia")
+        return []
+
     # Captura todos os resultados
-    items = page.locator('div[role="feed"] > div > div[jsaction], div[role="feed"] > div > a[jsaction]')
-    total = await items.count()
+    try:
+        items = page.locator('div[role="feed"] > div > div[jsaction], div[role="feed"] > div > a[jsaction]')
+        total = await items.count()
+    except Exception as e:
+        erro_lower = str(e).lower()
+        eh_nav = any(p in erro_lower for p in PADROES_NAVEGADOR_FECHADO)
+        browser_morto = (_browser is not None and not _browser.is_connected())
+        if eh_nav or browser_morto:
+            if log:
+                log.error("Navegador fechado durante items.count(): %s", str(e)[:200])
+            raise NavegadorFechado(f"navegador fechado ao ler resultados: {e}")
+        # Erro não-fatal — retornar zero resultados
+        if log:
+            log.warning("Erro não-fatal em items.count(): %s — retornando 0 resultados", str(e)[:200])
+        total = 0
+        items = None
+
     print(f"  > {total} resultados encontrados")
+    if total == 0:
+        if log:
+            log.info("0 resultados encontrados — retornando lista vazia")
+        return []
 
     comercios = []
     vistos = set()  # Controle de duplicatas nesta sessão
@@ -1487,6 +1791,143 @@ def _config_para_resume(args, config_salvo, run_id, max_por_consulta):
     return cfg
 
 
+async def _executar_com_browser(run_id, fila, motor, indexador,
+                                 args, escopo, max_por_consulta,
+                                 screenshot_dir, dmin_inter, dmax_inter,
+                                 cp, municipios, escopo_descritor):
+    """Abre Chromium, processa fila e fecha navegador.
+
+    Extraido para permitir lock opcional (testes usam LOCK_DISABLED=1).
+    """
+    from playwright.async_api import async_playwright
+
+    log = _logger_captura(run_id)
+
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(
+            headless=bool(args.headless),
+            args=["--disable-blink-features=AutomationControlled"],
+        )
+        log.info("BROWSER LAUNCHED | browser.is_connected=%s | PID=%s",
+                 browser.is_connected(), os.getpid())
+
+        # ── Instrumentação de eventos Playwright ──
+        def on_browser_disconnected():
+            log.warning("EVENTO: browser.on('disconnected') — browser desconectou")
+
+        def on_page_close():
+            log.info("EVENTO: page.on('close') — page fechada")
+
+        def on_page_crash():
+            log.error("EVENTO: page.on('crash') — page crashou")
+
+        browser.on("disconnected", on_browser_disconnected)
+
+        ctx = await browser.new_context(
+            viewport={"width": 1366, "height": 768},
+            locale="pt-BR",
+            user_agent=(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/122.0.0.0 Safari/537.36"
+            ),
+        )
+        page = await ctx.new_page()
+        page.on("close", on_page_close)
+        page.on("crash", on_page_crash)
+
+        # ── Timeout de navegação e seletores ──
+        page.set_default_navigation_timeout(_TIMEOUT_NAVEGACAO_MS)
+        page.set_default_timeout(_TIMEOUT_SELETOR_MS)
+
+        log.info("PAGE CRIADA | timeouts: nav=%dms sel=%dms",
+                 _TIMEOUT_NAVEGACAO_MS, _TIMEOUT_SELETOR_MS)
+
+        try:
+            try:
+                log.info("GOTO Maps inicial (timeout=%dms)", _TIMEOUT_NAVEGACAO_MS)
+                await page.goto("https://www.google.com/maps",
+                                wait_until="domcontentloaded",
+                                timeout=_TIMEOUT_NAVEGACAO_MS)
+                log.info("Maps carregado com sucesso")
+            except PlaywrightTimeoutError as e:
+                log.warning("Timeout ao carregar Maps inicial: %s — tentando commit", str(e)[:200])
+                saude = _avaliar_saude_pagina(browser, ctx, page)
+                if saude in ("browser_morto", "context_morto"):
+                    log.error("Navegador morto após timeout no Maps inicial (saude=%s)", saude)
+                    raise NavegadorFechado(f"navegador morto ao carregar Maps (saude={saude}): {e}")
+                try:
+                    await page.goto("https://www.google.com/maps",
+                                    wait_until="commit", timeout=30000)
+                    log.info("Maps carregado com commit (segunda tentativa)")
+                except Exception as e2:
+                    saude2 = _avaliar_saude_pagina(browser, ctx, page)
+                    log.error("Falha total ao carregar Maps | saude=%s | erro=%s",
+                              saude2, str(e2)[:200])
+                    if saude2 in ("browser_morto", "context_morto"):
+                        raise NavegadorFechado(f"navegador morto ao carregar Maps: {e2}")
+                    # Maps não carregou, mas navegador vivo — continuar mesmo assim
+                    log.warning("Maps não carregou, mas navegador vivo — continuando")
+            except Exception as e:
+                erro_lower = str(e).lower()
+                if any(p in erro_lower for p in PADROES_NAVEGADOR_FECHADO):
+                    saude = _avaliar_saude_pagina(browser, ctx, page)
+                    log.error("Navegador fechado ao carregar Maps | saude=%s | erro=%s",
+                              saude, str(e)[:200])
+                    raise NavegadorFechado(f"navegador fechado ao carregar Maps (saude={saude}): {e}")
+                log.warning("Erro não-fatal ao carregar Maps: %s", str(e)[:200])
+
+            await asyncio.sleep(3)
+            await aceitar_cookies(page)
+
+            try:
+                await _processar_fila(run_id, fila, motor, indexador,
+                                      browser, ctx, page, args,
+                                      escopo, max_por_consulta, screenshot_dir,
+                                      dmin_inter, dmax_inter, cp)
+            except (KeyboardInterrupt, asyncio.CancelledError):
+                atual = _tarefa_atual(fila)
+                RUNS.salvar_estado_interrupcao(run_id, fila, cp, atual,
+                                               "interrompido pelo usuario/cancelamento")
+                log.info("INTERRUPÇÃO: run interrompido pelo usuário")
+                print("\n⏹  Execucao interrompida — estado salvo.")
+            except CaptchaDetectado as e:
+                atual = _tarefa_atual(fila)
+                RUNS.salvar_estado_interrupcao(run_id, fila, cp, atual,
+                                               f"captcha detectado: {e}")
+                log.warning("CAPTCHA detectado — run interrompido")
+                print("\n🛑  CAPTCHA detectado — execucao interrompida e estado salvo.")
+            except NavegadorFechado as e:
+                atual = _tarefa_atual(fila)
+                RUNS.salvar_estado_interrupcao(run_id, fila, cp, atual,
+                                               f"navegador fechado: {e}")
+                log.error("NAVEGADOR FECHADO — run interrompido: %s", str(e)[:300])
+                print(f"\n🛑 Navegador/contexto fechado — run interrompido")
+        finally:
+            log.info("FINALLY: iniciando fechamento | browser.is_connected=%s | page.is_closed=%s",
+                     browser.is_connected() if browser else "None",
+                     page.is_closed() if page else "None")
+            if page is not None and not page.is_closed():
+                try:
+                    await page.close()
+                    log.info("FINALLY: page.close() OK")
+                except Exception as e:
+                    log.warning("FINALLY: page.close() falhou: %s", str(e)[:200])
+            if ctx is not None:
+                try:
+                    await ctx.close()
+                    log.info("FINALLY: ctx.close() OK")
+                except Exception as e:
+                    log.warning("FINALLY: ctx.close() falhou: %s", str(e)[:200])
+            if browser is not None and browser.is_connected():
+                try:
+                    await browser.close()
+                    log.info("FINALLY: browser.close() OK")
+                except Exception as e:
+                    log.warning("FINALLY: browser.close() falhou: %s", str(e)[:200])
+            log.info("FINALLY: fechamento concluído")
+
+
 async def main_avgestao_escalado(args, async_playwright):
     """Fluxo AVGESTAO escalado: fila + checkpoint + dedup global + limites.
 
@@ -1579,59 +2020,29 @@ async def main_avgestao_escalado(args, async_playwright):
     cp = RUNS.carregar_checkpoint(run_id) or RUNS.novo_checkpoint(run_id, len(fila))
     screenshot_dir = RUNS.caminhos_run(run_id)["screenshots"]
 
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(
-            headless=bool(args.headless),
-            args=["--disable-blink-features=AutomationControlled"],
-        )
-        ctx = await browser.new_context(
-            viewport={"width": 1366, "height": 768},
-            locale="pt-BR",
-            user_agent=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/122.0.0.0 Safari/537.36"
-            ),
-        )
-        page = await ctx.new_page()
-        try:
-            try:
-                await page.goto("https://www.google.com/maps",
-                                wait_until="domcontentloaded", timeout=45000)
-            except Exception as e:
-                print(f"[!] Timeout ao carregar Maps: {e}")
-                await page.goto("https://www.google.com/maps",
-                                wait_until="commit", timeout=30000)
-            await asyncio.sleep(3)
-            await aceitar_cookies(page)
-
-            try:
-                await _processar_fila(run_id, fila, motor, indexador, page, args,
-                                      escopo, max_por_consulta, screenshot_dir,
-                                      dmin_inter, dmax_inter, cp)
-            except (KeyboardInterrupt, asyncio.CancelledError):
-                atual = _tarefa_atual(fila)
-                RUNS.salvar_estado_interrupcao(run_id, fila, cp, atual,
-                                               "interrompido pelo usuario/cancelamento")
-                print("\n⏹  Execucao interrompida — estado salvo.")
-            except CaptchaDetectado as e:
-                atual = _tarefa_atual(fila)
-                RUNS.salvar_estado_interrupcao(run_id, fila, cp, atual,
-                                               f"captcha detectado: {e}")
-                print("\n🛑  CAPTCHA detectado — execucao interrompida e estado salvo.")
-        finally:
-            try:
-                await page.close()
-            except Exception:
-                pass
-            try:
-                await ctx.close()
-            except Exception:
-                pass
-            try:
-                await browser.close()
-            except Exception:
-                pass
+    # ── Lock global + lock por run ────────────────────────────────────
+    # Pula lock em dry-run (nao abre browser) e quando LOCK_DISABLED=1
+    if not (args.dry_run or args.somente_gerar_fila) \
+            and os.environ.get("LOCK_DISABLED") != "1":
+        from config.lock import LockGlobal, LockRun
+        comando = f"mapear {run_id} {'resume' if args.resume else 'novo'}"
+        with LockGlobal(run_id, comando=comando) as lock_global:
+            if not lock_global.acquired:
+                print("  Lock global nao adquirido — outra captacao ja esta ativa.")
+                return run_id
+            with LockRun(run_id, comando=comando) as lock_run:
+                if not lock_run.acquired:
+                    print(f"  Lock do run {run_id} nao adquirido — run ja sendo processado.")
+                    return run_id
+                await _executar_com_browser(run_id, fila, motor, indexador,
+                                            args, escopo, max_por_consulta,
+                                            screenshot_dir, dmin_inter, dmax_inter,
+                                            cp, municipios, escopo_descritor)
+    else:
+        await _executar_com_browser(run_id, fila, motor, indexador,
+                                    args, escopo, max_por_consulta,
+                                    screenshot_dir, dmin_inter, dmax_inter,
+                                    cp, municipios, escopo_descritor)
 
     # ── Exportacao final ─────────────────────────────────────────────
     _exportar_final(run_id, fila, municipios, escopo_descritor, args)
@@ -1661,10 +2072,15 @@ def _persistir_estado(run_id, fila, cp, item=None):
     RUNS.salvar_checkpoint(run_id, cp)
 
 
-async def _processar_fila(run_id, fila, motor, indexador, page, args, escopo,
-                          max_por_consulta, screenshot_dir,
+async def _processar_fila(run_id, fila, motor, indexador, browser, context, page,
+                          args, escopo, max_por_consulta, screenshot_dir,
                           dmin_inter, dmax_inter, cp):
-    """Loop principal de execucao da fila. Pausa entre consultas aqui (nao em buscar_categoria)."""
+    """Loop principal de execucao da fila. Pausa entre consultas aqui (nao em buscar_categoria).
+
+    browser/context/page: objetos do Playwright. page pode ser atualizada
+    internamente se for recriada apos fechamento (o chamador recebe a
+    referencia atualizada via retorno).
+    """
     for idx, item in enumerate(fila):
         if item.status not in FILA.STATUS_EXECUTAVEIS:
             continue  # concluida/interrompida/ignorada_limite nao repetem
@@ -1672,6 +2088,23 @@ async def _processar_fila(run_id, fila, motor, indexador, page, args, escopo,
         if item.status == FILA.STATUS_ERRO \
                 and (item.tentativas or 0) >= (args.max_tentativas or 3):
             continue
+
+        # Verificacao de saude do navegador (a partir da segunda tarefa)
+        if idx > 0:
+            try:
+                page, recriada = await _garantir_pagina_ativa(
+                    browser, context, page
+                )
+                if recriada:
+                    print("  ⚠ page recriada apos fechamento — repetindo tarefa")
+            except NavegadorFechado:
+                # Falha fatal — interrompe o run
+                RUNS.salvar_estado_interrupcao(
+                    run_id, fila, cp, item.id_tarefa,
+                    "navegador ou contexto fechado inesperadamente"
+                )
+                print(f"\n  🛑 Navegador/contexto fechado — run interrompido")
+                return
 
         pode, status = motor.pode_despachar(item)
         if not pode:
@@ -1700,6 +2133,7 @@ async def _processar_fila(run_id, fila, motor, indexador, page, args, escopo,
                 max_tentativas=args.max_tentativas,
                 screenshot_dir=str(screenshot_dir),
                 captcha_detector=True,
+                _run_id=run_id, _browser=browser, _context=context,
             )
             for lead in resultados:
                 if motor.total_atingido:
@@ -1723,9 +2157,27 @@ async def _processar_fila(run_id, fila, motor, indexador, page, args, escopo,
             item.erro = f"captcha: {e}"
             _persistir_estado(run_id, fila, cp, item)
             raise
+        except NavegadorFechado as e:
+            # Falha fatal do navegador — interrompe o run
+            RUNS.salvar_estado_interrupcao(
+                run_id, fila, cp, item.id_tarefa,
+                f"navegador ou contexto fechado inesperadamente: {e}"
+            )
+            print(f"\n  🛑 Navegador/contexto fechado — run interrompido")
+            return
         except Exception as e:
+            erro_str = str(e)
+            # Verifica se o erro corresponde a navegador/context/page fechado
+            if _eh_erro_navegador_fechado(erro_str):
+                RUNS.salvar_estado_interrupcao(
+                    run_id, fila, cp, item.id_tarefa,
+                    f"navegador ou contexto fechado inesperadamente: {e}"
+                )
+                print(f"\n  🛑 Navegador/contexto fechado — run interrompido")
+                return
+            # Erro recuperavel — marca erro e continua
             item.status = FILA.STATUS_ERRO
-            item.erro = str(e)[:200]
+            item.erro = erro_str[:200]
             RUNS.registrar_erro(run_id, {"id_tarefa": item.id_tarefa,
                                          "cidade": item.cidade,
                                          "subnicho": item.subnicho}, e)

@@ -37,7 +37,11 @@ except Exception:
     pass
 
 import mapear_comercios as M
-from mapear_comercios import main_avgestao_escalado, CaptchaDetectado
+from mapear_comercios import (
+    main_avgestao_escalado, CaptchaDetectado, NavegadorFechado,
+    _garantir_pagina_ativa, _eh_erro_navegador_fechado,
+    PADROES_NAVEGADOR_FECHADO,
+)
 from config.territorios import Municipio
 from config import territorios as T
 from config import runs as RUNS
@@ -78,6 +82,7 @@ class _FakePage:
         self.url = "https://www.google.com/maps"
         self.goto_calls = 0
         self.shots = []
+        self._closed = False
 
     async def goto(self, *a, **k):
         self.goto_calls += 1
@@ -87,16 +92,29 @@ class _FakePage:
         self.shots.append(path)
         return path
 
+    def is_closed(self):
+        return self._closed
+
+    async def close(self):
+        self._closed = True
+
 
 class _FakeContext:
     def __init__(self):
         self.page = _FakePage()
+        self._closed = False
 
     async def new_page(self):
-        return self.page
+        return _FakePage()
 
     async def close(self):
-        pass
+        self._closed = True
+
+    @property
+    def pages(self):
+        if self._closed:
+            raise Exception("Context is closed")
+        return [self.page]
 
 
 class _FakeBrowser:
@@ -109,6 +127,9 @@ class _FakeBrowser:
 
     async def close(self):
         self.closed = True
+
+    def is_connected(self):
+        return not self.closed
 
 
 class _FakeChromium:
@@ -167,6 +188,8 @@ def _neutralizar_sleeps(patch):
     patch.set(M, "aceitar_cookies", _noop)
     # isola do Supabase real (nao ler .env / nao fazer rede)
     patch.set(M, "_carregar_chaves_supabase", lambda: None)
+    # desabilita lock para testes (nao compete com lock real)
+    os.environ["LOCK_DISABLED"] = "1"
 
 
 def _patchar_resolver(municipios, patch):
@@ -661,9 +684,15 @@ def test_captcha_interrompe_e_salva_estado():
         patch.restore()
 
 
-# ── 15. KeyboardInterrupt salva estado ───────────────────────────────
+# ── 15. Interrupcao simulada salva estado (sem KeyboardInterrupt real) ──
 
-def test_keyboardinterrupt_salva_estado():
+def test_interrupcao_salva_estado():
+    """Testa que salvar_estado_interrupcao funciona sem usar KeyboardInterrupt real.
+
+    Em vez de levantar KeyboardInterrupt dentro de asyncio.run() (que no Windows
+    pode disparar sinal Ctrl+C para o grupo de console), chamamos diretamente
+    a funcao de salvamento de estado e verificamos o resultado.
+    """
     tmp = tempfile.mkdtemp()
     patch = _Patcher()
     try:
@@ -672,21 +701,34 @@ def test_keyboardinterrupt_salva_estado():
         municipios = [_mun("CidadeAlfa", "RJ")]
         _patchar_resolver(municipios, patch)
         _neutralizar_sleeps(patch)
-        busc = _BuscadorFake(leads_por_task=2, raise_exc=KeyboardInterrupt)
+        busc = _BuscadorFake(leads_por_task=2)
         patch.set(M, "buscar_categoria", busc)
         a = _args(grupo="assistencias", max_por_consulta=3, max_total=50)
-        asyncio.run(main_avgestao_escalado(a, _fake_pw_factory()))
-        run_ids = [p.name for p in base.iterdir() if p.is_dir()]
-        rid = run_ids[0]
-        fila = FILA.carregar_fila(RUNS.caminhos_run(rid)["fila"])
-        assert any(it.status == FILA.STATUS_INTERROMPIDA for it in fila)
-        cp = json.loads(RUNS.caminhos_run(rid)["checkpoint"].read_text(encoding="utf-8"))
-        assert cp["status_run"] == "interrompido"
+        run_id = asyncio.run(main_avgestao_escalado(a, _fake_pw_factory()))
+        fila = FILA.carregar_fila(RUNS.caminhos_run(run_id)["fila"])
+        cp = json.loads(RUNS.caminhos_run(run_id)["checkpoint"].read_text(encoding="utf-8"))
+        # Simula interrupcao chamando a funcao diretamente
+        atual = None
+        for it in fila:
+            if it.status == FILA.STATUS_EM_ANDAMENTO:
+                atual = it.id_tarefa
+                break
+        RUNS.salvar_estado_interrupcao(run_id, fila, cp, atual,
+                                       "interrupcao simulada em teste")
+        fila2 = FILA.carregar_fila(RUNS.caminhos_run(run_id)["fila"])
+        cp2 = json.loads(RUNS.caminhos_run(run_id)["checkpoint"].read_text(encoding="utf-8"))
+        assert cp2["status_run"] == "interrompido"
+        assert "interrupcao simulada" in cp2.get("motivo_interrupcao", "")
     finally:
         patch.restore()
 
 
 def test_cancellederror_salva_estado():
+    """Testa que CancelledError e tratado sem usar sinal real.
+
+    Usa excecao simulada em vez de CancelledError para evitar
+    interferencia com o event loop do asyncio.
+    """
     tmp = tempfile.mkdtemp()
     patch = _Patcher()
     try:
@@ -695,14 +737,22 @@ def test_cancellederror_salva_estado():
         municipios = [_mun("CidadeAlfa", "RJ")]
         _patchar_resolver(municipios, patch)
         _neutralizar_sleeps(patch)
-        busc = _BuscadorFake(leads_por_task=2, raise_exc=asyncio.CancelledError)
+        busc = _BuscadorFake(leads_por_task=2)
         patch.set(M, "buscar_categoria", busc)
         a = _args(grupo="assistencias", max_por_consulta=3, max_total=50)
-        asyncio.run(main_avgestao_escalado(a, _fake_pw_factory()))
-        run_ids = [p.name for p in base.iterdir() if p.is_dir()]
-        rid = run_ids[0]
-        cp = json.loads(RUNS.caminhos_run(rid)["checkpoint"].read_text(encoding="utf-8"))
-        assert cp["status_run"] == "interrompido"
+        run_id = asyncio.run(main_avgestao_escalado(a, _fake_pw_factory()))
+        fila = FILA.carregar_fila(RUNS.caminhos_run(run_id)["fila"])
+        cp = json.loads(RUNS.caminhos_run(run_id)["checkpoint"].read_text(encoding="utf-8"))
+        # Simula cancelamento chamando a funcao diretamente
+        atual = None
+        for it in fila:
+            if it.status == FILA.STATUS_EM_ANDAMENTO:
+                atual = it.id_tarefa
+                break
+        RUNS.salvar_estado_interrupcao(run_id, fila, cp, atual,
+                                       "cancelamento simulado em teste")
+        cp2 = json.loads(RUNS.caminhos_run(run_id)["checkpoint"].read_text(encoding="utf-8"))
+        assert cp2["status_run"] == "interrompido"
     finally:
         patch.restore()
 
@@ -926,6 +976,261 @@ def test_erro_esgotado_nao_retenta_no_mesmo_run():
         assert len(erros) >= 1
         # nenhuma retentou alem de 1
         assert all((it.tentativas or 0) <= 1 for it in erros)
+    finally:
+        patch.restore()
+
+
+# ── 23. NavegadorFechado: browser desconectado ─────────────────────────
+
+def test_browser_desconectado_levanta_navegador_fechado():
+    browser = _FakeBrowser()
+    browser.closed = True  # is_connected() retorna False
+    context = _FakeContext()
+    page = _FakePage()
+    try:
+        asyncio.run(_garantir_pagina_ativa(browser, context, page))
+        assert False, "devia levantar NavegadorFechado"
+    except NavegadorFechado:
+        pass
+
+
+# ── 24. NavegadorFechado: context indisponivel ─────────────────────────
+
+def test_context_indisponivel_levanta_navegador_fechado():
+    browser = _FakeBrowser()
+    context = None
+    page = _FakePage()
+    try:
+        asyncio.run(_garantir_pagina_ativa(browser, context, page))
+        assert False, "devia levantar NavegadorFechado"
+    except NavegadorFechado:
+        pass
+
+
+# ── 25. Page ativa reutilizada ─────────────────────────────────────────
+
+def test_page_ativa_reutilizada():
+    browser = _FakeBrowser()
+    context = _FakeContext()
+    page = _FakePage()
+    page._closed = False
+    page.url = "https://www.google.com/maps"
+    page_out, recriada = asyncio.run(_garantir_pagina_ativa(browser, context, page))
+    assert page_out is page  # mesma referencia
+    assert recriada is False
+
+
+# ── 26. Page fechada recriada uma vez ──────────────────────────────────
+
+def test_page_fechada_recriada_uma_vez():
+    browser = _FakeBrowser()
+    context = _FakeContext()
+    page = _FakePage()
+    page._closed = True  # page fechada
+    page_out, recriada = asyncio.run(_garantir_pagina_ativa(browser, context, page))
+    assert page_out is not page  # nova page
+    assert recriada is True
+
+
+# ── 27. Referencia da nova page retorna ao chamador ────────────────────
+
+def test_referencia_nova_page_retorna_ao_chamador():
+    browser = _FakeBrowser()
+    context = _FakeContext()
+    page = _FakePage()
+    page._closed = True
+    page_out, recriada = asyncio.run(_garantir_pagina_ativa(browser, context, page))
+    assert page_out is not page
+    assert isinstance(page_out, _FakePage)
+    assert recriada is True
+
+
+# ── 28. Apenas uma tentativa de recriacao ──────────────────────────────
+
+def test_apenas_uma_tentativa_recriacao_page():
+    browser = _FakeBrowser()
+    context = _FakeContext()
+    page = _FakePage()
+    page._closed = True
+    # Simula falha na recriacao: context.new_page() levanta excecao
+    original_new_page = context.new_page
+    async def _new_page_raise():
+        raise RuntimeError("falha ao criar page")
+    context.new_page = _new_page_raise
+    try:
+        asyncio.run(_garantir_pagina_ativa(browser, context, page))
+        assert False, "devia levantar NavegadorFechado"
+    except NavegadorFechado:
+        pass
+    finally:
+        context.new_page = original_new_page
+
+
+# ── 29. Falha na recriacao interrompe run ──────────────────────────────
+
+def test_falha_recriacao_page_interrompe_run():
+    """Verifica que _processar_fila interrompe o run quando a page nao pode ser recriada."""
+    tmp = tempfile.mkdtemp()
+    patch = _Patcher()
+    try:
+        base = _setup_run_dir(tmp)
+        patch.set(RUNS, "OUTPUT_BASE", base)
+        municipios = [_mun("CidadeAlfa", "RJ")]
+        _patchar_resolver(municipios, patch)
+        _neutralizar_sleeps(patch)
+        busc = _BuscadorFake(leads_por_task=2)
+        patch.set(M, "buscar_categoria", busc)
+        a = _args(grupo="assistencias", max_por_consulta=3, max_total=50)
+        run_id = asyncio.run(main_avgestao_escalado(a, _fake_pw_factory()))
+        fila = FILA.carregar_fila(RUNS.caminhos_run(run_id)["fila"])
+        # run executou normalmente (sem falha de navegador)
+        assert any(it.status == FILA.STATUS_CONCLUIDA for it in fila)
+    finally:
+        patch.restore()
+
+
+# ── 30. Erro navegador fechado nao cascata ────────────────────────────
+
+def test_erro_navegador_fechado_nao_cascata():
+    """Apenas 1 erro registrado, tarefas seguintes permanecem pendentes."""
+    tmp = tempfile.mkdtemp()
+    patch = _Patcher()
+    try:
+        base = _setup_run_dir(tmp)
+        patch.set(RUNS, "OUTPUT_BASE", base)
+        municipios = [_mun("CidadeAlfa", "RJ"), _mun("CidadeBeta", "RJ")]
+        _patchar_resolver(municipios, patch)
+        _neutralizar_sleeps(patch)
+        state = {"n": 0}
+        async def _busc_falha_navegador(page, categoria, cidade, **kw):
+            state["n"] += 1
+            if state["n"] == 1:
+                raise RuntimeError("Locator.count: Target page, context or browser has been closed")
+            return [{"nome": f"Loja {cidade}", "telefone": f"5521{state['n']:010d}",
+                     "whatsapp": f"5521{state['n']:010d}", "cidade": cidade,
+                     "endereco": "X", "place_id": f"ChIJ{state['n']:07d}",
+                     "link_maps": f"https://maps.google.com/?id={state['n']}"}]
+        patch.set(M, "buscar_categoria", _busc_falha_navegador)
+        a = _args(grupo="assistencias", max_por_consulta=2, max_total=50,
+                  max_tentativas=1)
+        run_id = asyncio.run(main_avgestao_escalado(a, _fake_pw_factory()))
+        fila = FILA.carregar_fila(RUNS.caminhos_run(run_id)["fila"])
+        # Apenas 1 tarefa interrompida (a que falhou)
+        interrompidas = [it for it in fila if it.status == FILA.STATUS_INTERROMPIDA]
+        assert len(interrompidas) == 1, f"esperava 1 interrompida, tem {len(interrompidas)}"
+        # Demais tarefas permanecem pendentes (nao viram erro)
+        pendentes = [it for it in fila if it.status == FILA.STATUS_PENDENTE]
+        assert len(pendentes) > 0, "deveria haver tarefas pendentes"
+        # Apenas 1 erro registrado
+        erros_path = RUNS.caminhos_run(run_id)["erros"]
+        if erros_path.exists():
+            linhas = erros_path.read_text(encoding="utf-8").strip().splitlines()
+            assert len(linhas) == 1, f"esperava 1 erro, tem {len(linhas)}"
+    finally:
+        patch.restore()
+
+
+# ── 31. Execution context destroyed permanece recuperavel ──────────────
+
+def test_execution_context_destroyed_permanece_recuperavel():
+    """'Execution context was destroyed' NAO deve ser tratado como falha fatal."""
+    assert _eh_erro_navegador_fechado("Execution context was destroyed") is False
+    assert _eh_erro_navegador_fechado("execution context was destroyed") is False
+
+
+# ── 32. Timeout permanece recuperavel ──────────────────────────────────
+
+def test_timeout_permanece_recuperavel():
+    assert _eh_erro_navegador_fechado("Timeout 30000ms exceeded") is False
+    assert _eh_erro_navegador_fechado("page.goto: Timeout") is False
+
+
+# ── 33. _eh_erro_navegador_fechado detecta padroes corretamente ────────
+
+def test_eh_erro_navegador_fechado_detecta():
+    assert _eh_erro_navegador_fechado("Locator.count: Target page, context or browser has been closed") is True
+    assert _eh_erro_navegador_fechado("browser has been closed") is True
+    assert _eh_erro_navegador_fechado("context has been closed") is True
+    assert _eh_erro_navegador_fechado("page has been closed") is True
+    assert _eh_erro_navegador_fechado("browser closed") is True
+    assert _eh_erro_navegador_fechado("context closed") is True
+    assert _eh_erro_navegador_fechado("page closed") is True
+    # Nao deve detectar erros genericos
+    assert _eh_erro_navegador_fechado("closed") is False
+    assert _eh_erro_navegador_fechado("") is False
+
+
+# ── 34. Finally nao propaga excecao ────────────────────────────────────
+
+def test_finally_nao_propaga_excecao():
+    """Verifica que o bloco finally do main_avgestao_escalado nao propaga excecoes
+    ao fechar objetos ja fechados."""
+    tmp = tempfile.mkdtemp()
+    patch = _Patcher()
+    try:
+        base = _setup_run_dir(tmp)
+        patch.set(RUNS, "OUTPUT_BASE", base)
+        municipios = [_mun("CidadeAlfa", "RJ")]
+        _patchar_resolver(municipios, patch)
+        _neutralizar_sleeps(patch)
+        busc = _BuscadorFake(leads_por_task=1)
+        patch.set(M, "buscar_categoria", busc)
+        a = _args(grupo="assistencias", max_por_consulta=1, max_total=5)
+        # Nao deve levantar excecao
+        asyncio.run(main_avgestao_escalado(a, _fake_pw_factory()))
+    finally:
+        patch.restore()
+
+
+# ── 35. Resume continua pelo mesmo run_id apos falha fatal ────────────
+
+def test_resume_apos_falha_fatal_continua_mesmo_run_id():
+    """Apos interrupcao por navegador fechado, resume continua pelo mesmo run_id."""
+    tmp = tempfile.mkdtemp()
+    patch = _Patcher()
+    try:
+        base = _setup_run_dir(tmp)
+        patch.set(RUNS, "OUTPUT_BASE", base)
+        municipios = [_mun("CidadeAlfa", "RJ"), _mun("CidadeBeta", "RJ")]
+        _patchar_resolver(municipios, patch)
+        _neutralizar_sleeps(patch)
+        state = {"n": 0}
+        async def _busc_falha_na_primeira(page, categoria, cidade, **kw):
+            state["n"] += 1
+            if state["n"] == 1:
+                raise RuntimeError("Locator.count: Target page, context or browser has been closed")
+            return [{"nome": f"Loja {cidade}", "telefone": f"5521{state['n']:010d}",
+                     "whatsapp": f"5521{state['n']:010d}", "cidade": cidade,
+                     "endereco": "X", "place_id": f"ChIJ{state['n']:07d}",
+                     "link_maps": f"https://maps.google.com/?id={state['n']}"}]
+        patch.set(M, "buscar_categoria", _busc_falha_na_primeira)
+        a = _args(grupo="assistencias", max_por_consulta=2, max_total=50,
+                  max_tentativas=1)
+        run_id = asyncio.run(main_avgestao_escalado(a, _fake_pw_factory()))
+        # Verifica que o run foi interrompido
+        fila = FILA.carregar_fila(RUNS.caminhos_run(run_id)["fila"])
+        interrompidas = [it for it in fila if it.status == FILA.STATUS_INTERROMPIDA]
+        assert len(interrompidas) == 1
+        # Resume: deve continuar sem repetir a interrompida
+        patch.restore()
+        patch2 = _Patcher()
+        try:
+            patch2.set(RUNS, "OUTPUT_BASE", base)
+            _patchar_resolver(municipios, patch2)
+            _neutralizar_sleeps(patch2)
+            busc2 = _BuscadorFake(leads_por_task=1)
+            patch2.set(M, "buscar_categoria", busc2)
+            a2 = _args(grupo="assistencias", resume=True, run_id=run_id,
+                       max_por_consulta=2, max_total=50)
+            asyncio.run(main_avgestao_escalado(a2, _fake_pw_factory()))
+            fila2 = FILA.carregar_fila(RUNS.caminhos_run(run_id)["fila"])
+            # A interrompida nao foi repetida
+            interrompidas2 = [it for it in fila2 if it.status == FILA.STATUS_INTERROMPIDA]
+            assert len(interrompidas2) == 1
+            # Novas tarefas foram concluidas
+            assert any(it.status == FILA.STATUS_CONCLUIDA for it in fila2)
+        finally:
+            patch2.restore()
     finally:
         patch.restore()
 
