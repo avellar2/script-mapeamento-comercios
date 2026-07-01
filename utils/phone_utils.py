@@ -22,17 +22,27 @@ import re
 from urllib.parse import quote
 
 
+def _validar_ddd(digitos: str) -> bool:
+    """Valida DDD brasileiro (11-99, exceto 00-09)."""
+    if len(digitos) < 2:
+        return False
+    ddd = digitos[:2]
+    return bool(re.match(r'^(1[1-9]|[2-9][0-9])$', ddd))
+
+
 def normalizar_telefone_br(valor: str) -> str | None:
     """
-    Normaliza um telefone brasileiro para o formato internacional.
+    Normaliza um telefone brasileiro para o formato internacional canônico.
 
     Regras:
     - Remove espaços, parênteses, traços, pontos e símbolos
     - Mantém apenas números
-    - Se já começa com 55 e tem >= 12 dígitos, mantém
-    - Remove zero inicial
+    - Remove prefixo 00 (internacional)
+    - Se já começa com 55 e tem 12 ou 13 dígitos, valida DDD e retorna
+    - Remove zero inicial (ex: 021...)
     - Se tem 11 dígitos (celular com DDD), prependa 55
     - Se tem 10 dígitos (fixo com DDD), prependa 55
+    - Valida DDD (11-99)
     - Qualquer outro caso, retorna None
 
     Exemplos:
@@ -43,6 +53,10 @@ def normalizar_telefone_br(valor: str) -> str | None:
     >>> normalizar_telefone_br("5521999999999")
     '5521999999999'
     >>> normalizar_telefone_br("021999999999")
+    '5521999999999'
+    >>> normalizar_telefone_br("+5521999999999")
+    '5521999999999'
+    >>> normalizar_telefone_br("009921999999999")
     '5521999999999'
     >>> normalizar_telefone_br("999999999")
     None  # sem DDD
@@ -56,9 +70,15 @@ def normalizar_telefone_br(valor: str) -> str | None:
     if not numeros:
         return None
 
-    # Já tem código do país (55) e comprimento válido
-    if numeros.startswith("55") and len(numeros) >= 12:
-        return numeros
+    # Remover prefixo 00 (internacional)
+    if numeros.startswith("00"):
+        numeros = numeros[2:]
+
+    # Já tem código do país (55) e comprimento válido (12=fixo, 13=celular)
+    if numeros.startswith("55") and len(numeros) in (12, 13):
+        if _validar_ddd(numeros[2:4]):
+            return numeros
+        return None
 
     # Remover zero inicial (ex: 021999999999)
     if numeros.startswith("0"):
@@ -66,14 +86,75 @@ def normalizar_telefone_br(valor: str) -> str | None:
 
     # Celular com DDD (11 dígitos): 21999999999
     if len(numeros) == 11:
-        return "55" + numeros
+        if _validar_ddd(numeros):
+            return "55" + numeros
+        return None
 
     # Fixo com DDD (10 dígitos): 2133333333
     if len(numeros) == 10:
-        return "55" + numeros
+        if _validar_ddd(numeros):
+            return "55" + numeros
+        return None
 
     # Número sem DDD ou formato inválido
     return None
+
+
+def variantes_busca_telefone(tel: str) -> list[str]:
+    """
+    Gera variantes de um telefone canônico para busca no WhatsApp Web.
+
+    Inclui formatos com +55, sem 55, formato visual brasileiro,
+    e quando aplicável, variante com/sem nono dígito.
+
+    Args:
+        tel: Telefone canônico (ex: 5521999999999)
+
+    Returns:
+        Lista de variantes para busca, da mais específica para a mais genérica.
+    """
+    if not tel or not tel.startswith("55") or len(tel) < 12:
+        return []
+
+    variantes = []
+    ddd_numero = tel[2:]  # 2199999999
+
+    # Formato com +55
+    variantes.append(f"+{tel}")
+
+    # Apenas dígitos com 55
+    variantes.append(tel)
+
+    # Apenas DDD + número sem 55
+    variantes.append(ddd_numero)
+
+    # Formato visual brasileiro (21) 99999-9999
+    if len(ddd_numero) == 11:
+        # Celular: 21 99999-9999
+        variantes.append(
+            f"({ddd_numero[:2]}) {ddd_numero[2:7]}-{ddd_numero[7:]}"
+        )
+        # Sem nono dígito (para leads antigos)
+        sem_nono = ddd_numero[:2] + ddd_numero[3:]
+        if len(sem_nono) == 10:
+            variantes.append(f"55{sem_nono}")
+            variantes.append(f"+55{sem_nono}")
+            variantes.append(sem_nono)
+            variantes.append(
+                f"({sem_nono[:2]}) {sem_nono[2:6]}-{sem_nono[6:]}"
+            )
+    elif len(ddd_numero) == 10:
+        # Fixo: 21 3333-3333
+        variantes.append(
+            f"({ddd_numero[:2]}) {ddd_numero[2:6]}-{ddd_numero[6:]}"
+        )
+        # Com nono dígito (tentativa)
+        com_nono = ddd_numero[:2] + "9" + ddd_numero[2:]
+        variantes.append(f"55{com_nono}")
+        variantes.append(f"+55{com_nono}")
+        variantes.append(com_nono)
+
+    return variantes
 
 
 def gerar_link_whatsapp(telefone_normalizado: str, mensagem: str = "") -> str:

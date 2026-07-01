@@ -52,3 +52,6 @@ fix_discord_env.py
 # OS
 .DS_Store
 Thumbs.db
+  
+# Perfis Chromium dedicados  
+profiles/ 
