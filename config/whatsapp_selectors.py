@@ -22,14 +22,14 @@ logger = logging.getLogger(__name__)
 
 # Campo de pesquisa do WhatsApp Web
 SEARCH_BOX_SELECTORS = [
+    '#side input[role="textbox"]',
+    '#side [aria-label*="Pesquisar" i]',
+    '#side [aria-label*="Search" i]',
+    '#side [aria-label*="nova conversa" i]',
+    '#side [aria-label*="new chat" i]',
     'div[contenteditable="true"][data-tab="3"]',
     'div[contenteditable="true"][title*="pesquisar" i]',
     'div[contenteditable="true"][title*="search" i]',
-    'div[contenteditable="true"][title*="Search or start new chat" i]',
-    'div[contenteditable="true"][role="textbox"][data-tab="3"]',
-    'div[contenteditable="true"][spellcheck="true"]',
-    'div[contenteditable="true"][aria-label*="pesquisar" i]',
-    'div[contenteditable="true"][aria-label*="search" i]',
 ]
 
 # Resultado da pesquisa (chat list item)

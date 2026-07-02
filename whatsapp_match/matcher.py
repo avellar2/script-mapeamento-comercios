@@ -128,6 +128,7 @@ async def pesquisar_telefone(page, telefone: str) -> tuple[bool, Optional[str]]:
         await search_box.fill("")
         await page.wait_for_timeout(500)
         await search_box.fill(telefone)
+        logger.info("Campo de busca encontrado: %s", search_selector)
         await page.wait_for_timeout(2000)  # Aguarda resultados
         return True, search_selector
     except Exception as e:
@@ -144,8 +145,9 @@ async def abrir_conversa(page) -> bool:
     """
     try:
         # Aguarda o item de chat aparecer
-        item_selector = await encontrar_seletor(page, CHAT_ITEM_SELECTORS, TIMEOUT_CURTO)
+        item_selector = await encontrar_seletor(page, CHAT_ITEM_SELECTORS, 3000)
         if not item_selector:
+            logger.debug("Nenhum chat item encontrado para a busca")
             return False
 
         chat_item = page.locator(item_selector).first
@@ -323,6 +325,7 @@ async def fazer_match_completo(
         # Gera variantes do telefone para busca
         variantes = variantes_busca_telefone(phone_normalized)
 
+        search_found_count = 0
         for variante in variantes:
             # Pesquisa o telefone
             encontrado, search_sel = await pesquisar_telefone(page, variante)
@@ -341,8 +344,11 @@ async def fazer_match_completo(
 
             # Abre a conversa
             if not await abrir_conversa(page):
+                search_found_count += 1
+                if search_found_count >= 1:
+                    logger.info("Nenhum chat encontrado apos %d tentativas, parando", search_found_count)
+                    break
                 continue
-
             result.chat_found = True
 
             # Confirma o número
