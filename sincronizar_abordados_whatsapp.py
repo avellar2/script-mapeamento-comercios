@@ -529,6 +529,103 @@ async def executar_sincronizacao(
 # CLI
 # ============================================================
 
+
+# ============================================================
+# MODO TEST-PHONE (controle direcionado)
+# ============================================================
+
+async def executar_test_phone(
+    campaign_key: str = PRIMEIRO_CONTATO_V1,
+) -> None:
+    """
+    Testa um unico telefone informado via WHATSAPP_MATCH_TEST_PHONE.
+    Modo seguro: dry-run, sem escrita, sem reserva, sem settle.
+    """
+    test_phone_raw = os.environ.get("WHATSAPP_MATCH_TEST_PHONE", "").strip()
+    phone_normalized = normalizar_telefone_br(test_phone_raw)
+    if not phone_normalized:
+        logger.error("Telefone de teste invalido")
+        return
+
+    phone_masked = phone_normalized[:4] + "****" + phone_normalized[-4:]
+    run_id = f"testphone_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+
+    logger.info("=" * 60)
+    logger.info("MODO TEST-PHONE - %s", run_id)
+    logger.info("Telefone: %s", phone_masked)
+    logger.info("Campaign key: %s", campaign_key)
+    logger.info("=" * 60)
+
+    # Cria lead ficticio para o matcher
+    fake_lead = {
+        "id": "test-phone-0000",
+        "nome": "TESTE",
+        "telefone": "",
+        "whatsapp": phone_normalized,
+        "telefone_normalizado": phone_normalized,
+        "cidade": "",
+        "bairro": "",
+        "categoria": "",
+        "nicho": "",
+        "produto": "avgestao",
+        "grupo": "assistencias",
+        "status": "novo",
+    }
+
+    # Inicializa Playwright
+    p, (context, page) = await setup_playwright()
+    if not p:
+        return
+
+    diagnostic_dir = OUTPUT_DIR / run_id / "diagnosticos"
+
+    try:
+        start_total = time.time()
+        result = await fazer_match_completo(
+            page,
+            lead_id=fake_lead["id"],
+            phone_normalized=phone_normalized,
+            campaign_key=campaign_key,
+            diagnostic_dir=str(diagnostic_dir),
+        )
+        elapsed_total = time.time() - start_total
+
+        # Relatorio
+        logger.info("=" * 60)
+        logger.info("RESULTADO TEST-PHONE")
+        logger.info("=" * 60)
+        logger.info("Telefone: %s", phone_masked)
+        logger.info("Campo encontrado: %s", "sim" if result.selector_used else "nao")
+        logger.info("Selector usado: %s", result.selector_used or "nenhum")
+        logger.info("Chat encontrado: %s", "sim" if result.chat_found else "nao")
+        logger.info("Mensagem de saida: %s", "sim" if result.outbound_found else "nao")
+        logger.info("Campaign match: %s", "sim" if result.campaign_match else "nao" if result.campaign_match is False else "n/a")
+        logger.info("Estado final: %s", result.status.value)
+        logger.info("Tempo total: %.1fs", elapsed_total)
+
+        if result.status == MatchStatus.NO_CHAT:
+            logger.warning(
+                "ATENCAO: resultado no_chat. "
+                "A busca lateral nao encontrou conversa para este telefone. "
+                "Verifique se o numero esta correto e se possui conversa ativa."
+            )
+        elif result.status == MatchStatus.SEARCH_FIELD_NOT_FOUND:
+            logger.error("Campo de busca nao encontrado - problema de seletor")
+        elif result.status == MatchStatus.LOGIN_REQUIRED:
+            logger.error("WhatsApp nao autenticado")
+        else:
+            logger.info("Busca executada com sucesso: %s", result.status.value)
+
+    except Exception as e:
+        logger.error("Erro durante teste: %s", e)
+    finally:
+        await context.close()
+        await p.stop()
+
+    logger.info("=" * 60)
+    logger.info("FIM TEST-PHONE")
+    logger.info("=" * 60)
+
 def main():
     parser = argparse.ArgumentParser(
         description="Sincronização retroativa WhatsApp Web → Supabase",
@@ -575,8 +672,32 @@ Exemplos:
         default=PRIMEIRO_CONTATO_V1,
         help=f"Chave da campanha (padrão: {PRIMEIRO_CONTATO_V1})",
     )
+    parser.add_argument(
+        "--test-phone",
+        action="store_true",
+        help="Modo direcionado: testa apenas um telefone da variavel "
+             "de ambiente WHATSAPP_MATCH_TEST_PHONE. Requer --dry-run.",
+    )
 
     args = parser.parse_args()
+
+    # Valida modo test-phone
+    if args.test_phone:
+        test_phone = os.environ.get("WHATSAPP_MATCH_TEST_PHONE", "").strip()
+        if not test_phone:
+            logger.error(
+                "WHATSAPP_MATCH_TEST_PHONE nao definida. "
+                "Defina a variavel de ambiente com o telefone de teste."
+            )
+            sys.exit(1)
+        if not args.dry_run:
+            logger.error("--test-phone requer --dry-run")
+            sys.exit(1)
+        phone_norm = normalizar_telefone_br(test_phone)
+        if not phone_norm:
+            logger.error("Telefone de teste invalido apos normalizacao")
+            sys.exit(1)
+        logger.info("Modo TEST-PHONE: usando telefone da variavel de ambiente")
 
     # Se --apply foi passado, desativa dry-run
     if args.apply:
@@ -598,13 +719,18 @@ Exemplos:
             sys.exit(1)
 
         # Executa
-        asyncio.run(executar_sincronizacao(
-            dry_run=args.dry_run,
-            limit=args.limit,
-            resume=args.resume,
-            reconcile=args.reconcile,
-            campaign_key=args.campaign_key,
-        ))
+        if args.test_phone:
+            asyncio.run(executar_test_phone(
+                campaign_key=args.campaign_key,
+            ))
+        else:
+            asyncio.run(executar_sincronizacao(
+                dry_run=args.dry_run,
+                limit=args.limit,
+                resume=args.resume,
+                reconcile=args.reconcile,
+                campaign_key=args.campaign_key,
+            ))
 
 
 if __name__ == "__main__":

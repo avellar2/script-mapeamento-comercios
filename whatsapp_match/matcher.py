@@ -21,6 +21,7 @@ Anti-falso-positivo:
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
@@ -329,6 +330,7 @@ async def fazer_match_completo(
         variants_tried = 0
 
         for variante in variantes:
+            variant_start = time.time()
             # Pesquisa o telefone
             encontrado, search_sel = await pesquisar_telefone(page, variante)
             if encontrado == "login_required":
@@ -341,6 +343,8 @@ async def fazer_match_completo(
             # Campo de busca encontrado
             search_field_was_found = True
             result.selector_used = search_sel
+            variant_elapsed = time.time() - variant_start
+            logger.debug("Variante %%s: %.2fs, found=%%s", variants_tried, variant_elapsed, True)
             variants_tried += 1
 
             # Verifica se e grupo/canal/comunidade
