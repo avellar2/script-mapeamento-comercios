@@ -126,10 +126,10 @@ async def pesquisar_telefone(page, telefone: str) -> tuple[bool, Optional[str]]:
         search_box = page.locator(search_selector)
         await search_box.click()
         await search_box.fill("")
-        await page.wait_for_timeout(500)
+        await page.wait_for_timeout(300)
         await search_box.fill(telefone)
         logger.info("Campo de busca encontrado: %s", search_selector)
-        await page.wait_for_timeout(2000)  # Aguarda resultados
+        await page.wait_for_timeout(1000)  # Aguarda resultados
         return True, search_selector
     except Exception as e:
         logger.warning("Erro ao pesquisar telefone %s: %s", telefone, e)
@@ -145,7 +145,7 @@ async def abrir_conversa(page) -> bool:
     """
     try:
         # Aguarda o item de chat aparecer
-        item_selector = await encontrar_seletor(page, CHAT_ITEM_SELECTORS, 3000)
+        item_selector = await encontrar_seletor(page, CHAT_ITEM_SELECTORS, 2000)
         if not item_selector:
             logger.debug("Nenhum chat item encontrado para a busca")
             return False
@@ -190,7 +190,7 @@ async def confirmar_numero(page, telefone_canonico: str) -> tuple[bool, Optional
         if header_selector:
             header = page.locator(header_selector)
             await header.click()
-            await page.wait_for_timeout(500)
+            await page.wait_for_timeout(300)
 
             # Procura telefone no painel de informações
             phone_selector = await encontrar_seletor(page, PHONE_IN_PROFILE_SELECTORS, TIMEOUT_CURTO)
@@ -208,7 +208,7 @@ async def confirmar_numero(page, telefone_canonico: str) -> tuple[bool, Optional
             back_selector = await encontrar_seletor(page, BACK_BUTTON_SELECTORS, TIMEOUT_CURTO)
             if back_selector:
                 await page.locator(back_selector).first.click()
-                await page.wait_for_timeout(500)
+                await page.wait_for_timeout(300)
     except Exception as e:
         logger.warning("Erro ao confirmar número: %s", e)
 
@@ -325,7 +325,9 @@ async def fazer_match_completo(
         # Gera variantes do telefone para busca
         variantes = variantes_busca_telefone(phone_normalized)
 
-        search_found_count = 0
+        search_field_was_found = False
+        variants_tried = 0
+
         for variante in variantes:
             # Pesquisa o telefone
             encontrado, search_sel = await pesquisar_telefone(page, variante)
@@ -333,32 +335,34 @@ async def fazer_match_completo(
                 result.status = MatchStatus.LOGIN_REQUIRED
                 return result
             if not encontrado:
+                variants_tried += 1
                 continue
 
+            # Campo de busca encontrado
+            search_field_was_found = True
             result.selector_used = search_sel
+            variants_tried += 1
 
-            # Verifica se é grupo/canal/comunidade
+            # Verifica se e grupo/canal/comunidade
             if await detectar_grupo(page):
                 result.status = MatchStatus.GROUP
                 return result
 
             # Abre a conversa
             if not await abrir_conversa(page):
-                search_found_count += 1
-                if search_found_count >= 1:
-                    logger.info("Nenhum chat encontrado apos %d tentativas, parando", search_found_count)
-                    break
+                # Nenhum chat encontrado para esta variante — continua proxima
                 continue
+
             result.chat_found = True
 
-            # Confirma o número
+            # Confirma o numero
             confirmado, tel_encontrado = await confirmar_numero(page, phone_normalized)
             if not confirmado:
                 result.status = MatchStatus.AMBIGUOUS_CONTACT
                 result.details["phone_found"] = tel_encontrado
                 return result
 
-            # Detecta mensagem de saída
+            # Detecta mensagem de saida
             out_found, timestamp, texto = await detectar_mensagem_saida(page)
             result.outbound_found = out_found
             result.message_timestamp = timestamp
@@ -383,7 +387,8 @@ async def fazer_match_completo(
 
             return result
 
-        # Check if login was required (QR detected in first attempt)
+        # Apos esgotar todas as variantes
+        # Verifica se era tela de login
         login_check = await _detectar_tela_login(page)
         if login_check:
             result.status = MatchStatus.LOGIN_REQUIRED
@@ -391,10 +396,18 @@ async def fazer_match_completo(
                 await capturar_diagnostico(page, diagnostic_dir, f"match_{lead_id[:8]}_login")
             return result
 
-        # Nenhuma variante encontrou conversa (fallbacks esgotados / DOM quebrado)
-        result.status = MatchStatus.SEARCH_FIELD_NOT_FOUND
-        if diagnostic_dir:
-            await capturar_diagnostico(page, diagnostic_dir, f"match_{lead_id[:8]}_nochat")
+        # Classificacao correta apos esgotar variantes
+        if search_field_was_found:
+            # Campo encontrado, preenchido, mas nenhuma conversa apareceu
+            result.status = MatchStatus.NO_CHAT
+            logger.info("Busca executada, %d variantes testadas, nenhuma conversa encontrada", variants_tried)
+        else:
+            # Nenhum seletor conseguiu localizar o campo de busca
+            result.status = MatchStatus.SEARCH_FIELD_NOT_FOUND
+            logger.warning("Campo de busca nao encontrado em %d variantes", variants_tried)
+            if diagnostic_dir:
+                await capturar_diagnostico(page, diagnostic_dir, f"match_{lead_id[:8]}_nosearch")
+
         return result
 
     except Exception as e:

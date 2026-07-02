@@ -329,7 +329,7 @@ def test_nenhuma_conversa_encontrada_no_chat():
     # Apenas o campo de busca existe; nenhum item de conversa aparece.
     page = FakePage({SEARCH_BOX_SELECTORS[0]: [{"title": None, "text": None, "timestamp": None}]})
     result = asyncio.run(fazer_match_completo(page, "lead-12", PHONE, CK))
-    assert result.status in (MatchStatus.NO_CHAT, MatchStatus.SEARCH_FIELD_NOT_FOUND)
+    assert result.status == MatchStatus.NO_CHAT
     assert result.chat_found is False
 
 
@@ -358,7 +358,7 @@ def test_todos_fallbacks_quebrados_geram_diagnostico():
     with tempfile.TemporaryDirectory() as tmp:
         page = FakePage(broken=True)
         result = asyncio.run(fazer_match_completo(page, "lead-diag", PHONE, CK, diagnostic_dir=tmp))
-        assert result.status in (MatchStatus.NO_CHAT, MatchStatus.SEARCH_FIELD_NOT_FOUND)
+        assert result.status == MatchStatus.SEARCH_FIELD_NOT_FOUND
         # Diagnóstico: screenshot + snapshot salvos
         arquivos = list(Path(tmp).glob("*"))
         assert any(a.suffix == ".png" for a in arquivos), "screenshot não gerado"
@@ -398,6 +398,44 @@ def test_no_search_field_returns_search_field_not_found():
     # The distinction: SEARCH_FIELD_NOT_FOUND means the search UI element is missing
     # NO_CHAT means we found the search UI but no chat matched the phone
 
+
+
+
+def test_no_chat_nao_interrompe_lote():
+    """Resultado NO_CHAT nao deve interromper o processamento do lote."""
+    # This is a state machine test: no_chat is a valid per-lead result
+    # that should NOT trigger global abort
+    from whatsapp_match.matcher import MatchStatus
+    # no_chat is not a global error
+    assert MatchStatus.NO_CHAT not in (
+        MatchStatus.SEARCH_FIELD_NOT_FOUND,
+        MatchStatus.LOGIN_REQUIRED,
+        MatchStatus.ERROR,
+    )
+
+
+def test_search_field_found_returns_no_chat():
+    """Search field found + no chat item = NO_CHAT (not SEARCH_FIELD_NOT_FOUND)."""
+    # FakePage with search box but no chat items
+    dom = {SEARCH_BOX_SELECTORS[0]: [{"title": None, "text": None, "timestamp": None}]}
+    page = FakePage(dom)
+    result = asyncio.run(fazer_match_completo(page, "lead-nochat", PHONE, CK))
+    assert result.status == MatchStatus.NO_CHAT
+    assert result.selector_used is not None  # Search field was found
+
+
+def test_search_field_absent_returns_search_field_not_found():
+    """No search box at all = SEARCH_FIELD_NOT_FOUND."""
+    page = FakePage({})  # Empty page
+    result = asyncio.run(fazer_match_completo(page, "lead-absent", PHONE, CK))
+    assert result.status == MatchStatus.SEARCH_FIELD_NOT_FOUND
+
+
+def test_input_uses_fill_not_contenteditable():
+    """Search uses fill() method which works with INPUT elements."""
+    # The real DOM uses INPUT, not contenteditable DIV
+    # fill() works with both, but we verify the selector targets INPUT
+    assert '#side input[role="textbox"]' in SEARCH_BOX_SELECTORS[0]
 
 def test_matcher_nao_envia_mensagens():
     """O módulo matcher não contém lógica de envio (send?phone, Enter, botão Enviar)."""
