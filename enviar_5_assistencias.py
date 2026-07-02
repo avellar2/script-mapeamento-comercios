@@ -1,9 +1,22 @@
 #!/usr/bin/env python3
 """Envia mensagens para os 5 leads aprovados da campanha assistencias"""
-import os, json, time, ssl, urllib.request
+import os, json, time, ssl, urllib.request, sys
 from pathlib import Path
 from urllib.parse import quote
 from datetime import datetime
+
+# Adiciona raiz ao path
+sys.path.insert(0, str(Path(__file__).parent))
+
+from config.lock_whatsapp_sender import LockWhatsAppSender
+from sender_int import (
+    normalizar_telefone_lead,
+    obter_campaign_key,
+    reserve_lead,
+    settle_lead,
+    get_supabase_client,
+)
+from utils.phone_utils import normalizar_telefone_br
 
 env_path = Path(__file__).parent / ".env"
 if env_path.exists():
@@ -20,21 +33,14 @@ API_URL = f"{SUPABASE_URL}/rest/v1/leads"
 CTX = ssl.create_default_context()
 HEADERS = {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"}
 
-NOMES = [
-    "Nick Cell - Assistência Técnica",
-    "WR Smart (Conserto de Celular)",
-    "Assistência técnica Freitas Cell",
-    "MSC ASSISTÊNCIA TÉCNICA",
-    "SWATCELL CONSERTOS DE CELULARES",
+# Leads com telefone (NÃO usar nome para matching)
+LEADS = [
+    {"nome": "Nick Cell - Assistência Técnica", "telefone": "5521990170874"},
+    {"nome": "WR Smart (Conserto de Celular)", "telefone": "5521985755184"},
+    {"nome": "Assistência técnica Freitas Cell", "telefone": "5521981780019"},
+    {"nome": "MSC ASSISTÊNCIA TÉCNICA", "telefone": "5521981209833"},
+    {"nome": "SWATCELL CONSERTOS DE CELULARES", "telefone": "5521970007855"},
 ]
-
-TEL = {
-    "Nick Cell - Assistência Técnica": "5521990170874",
-    "WR Smart (Conserto de Celular)": "5521985755184",
-    "Assistência técnica Freitas Cell": "5521981780019",
-    "MSC ASSISTÊNCIA TÉCNICA": "5521981209833",
-    "SWATCELL CONSERTOS DE CELULARES": "5521970007855",
-}
 
 MSG = (
     "Boa tarde, pessoal da {nome}! Tudo bem?\n\n"
@@ -45,100 +51,150 @@ MSG = (
     "Posso liberar e configurar o acesso de vocês?"
 )
 
-def marcar(nome, status):
-    from urllib.parse import quote as q
-    ne = q(nome)
-    body = json.dumps({"status": status, "ultimo_contato_em": datetime.now().isoformat()}).encode()
-    req = urllib.request.Request(f"{API_URL}?nome=eq.{ne}", data=body, headers={**HEADERS, "Content-Type": "application/json"}, method="PATCH")
-    with urllib.request.urlopen(req, context=CTX): pass
-
 profile = Path(__file__).parent / ".whatsapp_business_profile"
-for lock in ["SingletonLock", "SingletonCookie", "SingletonSocket"]:
-    p = profile / lock
-    if p.exists(): p.unlink()
 
 from playwright.sync_api import sync_playwright
 
 print("=" * 60)
-print(f"  Enviando 5 leads - Assistencias")
+print(f"  Enviando {len(LEADS)} leads - Assistencias")
 print(f"  {datetime.now().strftime('%H:%M')}")
 print("=" * 60)
 
-with sync_playwright() as pw:
-    browser = pw.chromium.launch_persistent_context(
-        user_data_dir=str(profile), channel="chrome",
-        headless=False, args=["--no-sandbox", "--disable-blink-features=AutomationControlled", "--new-instance"],
-        viewport={"width": 800, "height": 900}, locale="pt-BR",
-    )
-    page = browser.pages[0] if browser.pages else browser.new_page()
+# Adquire lock global do perfil dos senders
+with LockWhatsAppSender() as lock:
+    if not lock.acquired:
+        print("ERRO: Já existe um sender ativo usando o perfil WhatsApp.")
+        sys.exit(1)
 
-    for i, nome in enumerate(NOMES, 1):
-        tel = TEL[nome]
-        msg = MSG.format(nome=nome)
-        url = f"https://web.whatsapp.com/send?phone={tel}&text={quote(msg)}"
+    # Remove locks do Chromium (após adquirir o lock do sender)
+    for lock_file in ["SingletonLock", "SingletonCookie", "SingletonSocket"]:
+        p = profile / lock_file
+        if p.exists(): p.unlink()
 
-        print(f"\n[{i}/5] {nome}")
-        print(f"   📞 {tel}")
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch_persistent_context(
+            user_data_dir=str(profile), channel="chrome",
+            headless=False, args=["--no-sandbox", "--disable-blink-features=AutomationControlled", "--new-instance"],
+            viewport={"width": 800, "height": 900}, locale="pt-BR",
+        )
+        page = browser.pages[0] if browser.pages else browser.new_page()
 
-        try:
-            page.goto(url, wait_until="domcontentloaded", timeout=120000)
-        except:
-            print("   ❌ Erro ao navegar")
-            continue
+        for i, lead_data in enumerate(LEADS, 1):
+            nome = lead_data["nome"]
+            tel_raw = lead_data["telefone"]
+            tel_norm = normalizar_telefone_br(tel_raw)
 
-        time.sleep(8)
-        bt = page.inner_text("body", timeout=5000).lower()[:200]
-        if "escaneie" in bt or "conectar" in bt:
-            print("   ⚠️ QR Code! Escaneie...")
-            for _ in range(36):
-                time.sleep(5)
-                bt = page.inner_text("body", timeout=5000).lower()[:200]
-                if "escaneie" not in bt and "conectar" not in bt:
-                    print("   ✅ Conectado!")
-                    break
-            else:
-                print("   ❌ QR nao escaneado")
+            if not tel_norm:
+                print(f"\n[{i}/{len(LEADS)}] {nome}")
+                print(f"   ❌ Telefone inválido: {tel_raw}")
                 continue
 
-        if "inválido" in bt or "invalid" in bt:
-            print("   ⚠️ Número inválido")
-            marcar(nome, "perdido")
-            continue
+            # Busca lead_id pelo telefone
+            lead_id = None
+            try:
+                req = urllib.request.Request(
+                    f"{API_URL}?telefone_normalizado=eq.{tel_norm}&select=id,nome,produto,grupo",
+                    headers=HEADERS
+                )
+                with urllib.request.urlopen(req, context=CTX) as r:
+                    data = json.loads(r.read().decode())
+                    if data:
+                        lead_id = data[0]["id"]
+                        nome = data[0].get("nome", nome)
+            except Exception as e:
+                print(f"   ⚠️ Erro ao buscar lead: {e}")
 
-        try:
-            page.wait_for_selector('div[contenteditable="true"]', timeout=35000)
-        except:
-            print("   ⚠️ Campo nao apareceu")
-            continue
-
-        time.sleep(2)
-        btn = page.locator('button[aria-label="Enviar"], button[aria-label="Send"]')
-        if btn.count() > 0:
-            btn.first.click()
-            print("   ✅ Enviado!")
-        else:
-            ed = page.locator('div[contenteditable="true"]')
-            if ed.count() > 0:
-                ed.first.click()
-                time.sleep(1)
-                page.keyboard.press("Enter")
-                print("   ✅ Enviado via Enter!")
-            else:
-                print("   ❌ Botao nao encontrado")
+            if not lead_id:
+                print(f"\n[{i}/{len(LEADS)}] {nome} - Lead não encontrado no Supabase")
                 continue
 
-        time.sleep(4)
-        marcar(nome, "abordado")
-        print("   ✅ Marcado no Supabase")
+            campaign_key = obter_campaign_key({"produto": "avgestao", "grupo": "assistencias"})
+            msg = MSG.format(nome=nome)
+            url = f"https://web.whatsapp.com/send?phone={tel_norm}&text={quote(msg)}"
 
-        if i < len(NOMES):
-            print("   ⏳ 7min...")
-            for s in range(420, 0, -1):
-                if s % 60 == 0 or s <= 10:
-                    print(f"   {s//60}min {s%60:02d}s", end="\r")
-                time.sleep(1)
-            print()
+            print(f"\n[{i}/{len(LEADS)}] {nome}")
+            print(f"   📞 {tel_norm}")
 
-    browser.close()
+            # Reserva atômica antes de abrir o WhatsApp
+            reserve = reserve_lead(tel_norm, campaign_key, lead_id, source="sender:auto")
+            if not reserve or reserve.get("outcome") not in ("reserved",):
+                print(f"   ⚠️ Reserva recusada: {reserve.get('outcome', 'erro')}")
+                continue
+
+            reservation_id = reserve.get("reservation_id")
+            reservation_token = reserve.get("reservation_token")
+
+            try:
+                page.goto(url, wait_until="domcontentloaded", timeout=120000)
+            except:
+                print("   ❌ Erro ao navegar")
+                settle_lead(reservation_id, reservation_token, "failed", obs="erro_navegacao")
+                continue
+
+            time.sleep(8)
+            bt = page.inner_text("body", timeout=5000).lower()[:200]
+            if "escaneie" in bt or "conectar" in bt:
+                print("   ⚠️ QR Code! Escaneie...")
+                for _ in range(36):
+                    time.sleep(5)
+                    bt = page.inner_text("body", timeout=5000).lower()[:200]
+                    if "escaneie" not in bt and "conectar" not in bt:
+                        print("   ✅ Conectado!")
+                        break
+                else:
+                    print("   ❌ QR nao escaneado")
+                    settle_lead(reservation_id, reservation_token, "needs_reconciliation", obs="qr_nao_escaneado")
+                    continue
+
+            if "inválido" in bt or "invalid" in bt:
+                print("   ⚠️ Número inválido")
+                settle_lead(reservation_id, reservation_token, "failed", obs="numero_invalido")
+                continue
+
+            try:
+                page.wait_for_selector('div[contenteditable="true"]', timeout=35000)
+            except:
+                print("   ⚠️ Campo nao apareceu")
+                settle_lead(reservation_id, reservation_token, "needs_reconciliation", obs="campo_nao_apareceu")
+                continue
+
+            time.sleep(2)
+            btn = page.locator('button[aria-label="Enviar"], button[aria-label="Send"]')
+            if btn.count() > 0:
+                btn.first.click()
+                print("   ✅ Enviado!")
+            else:
+                ed = page.locator('div[contenteditable="true"]')
+                if ed.count() > 0:
+                    ed.first.click()
+                    time.sleep(1)
+                    page.keyboard.press("Enter")
+                    print("   ✅ Enviado via Enter!")
+                else:
+                    print("   ❌ Botao nao encontrado")
+                    settle_lead(reservation_id, reservation_token, "needs_reconciliation", obs="botao_nao_encontrado")
+                    continue
+
+            time.sleep(4)
+            # Finaliza a reserva como sent (NÃO faz PATCH separado em leads)
+            settle = settle_lead(
+                reservation_id, reservation_token, "sent",
+                message_timestamp=datetime.now().isoformat(),
+                obs="enviado_5_assistencias",
+            )
+            if settle and settle.get("outcome") == "settled":
+                print("   ✅ Confirmado no Supabase (via settle_outreach)")
+            else:
+                print(f"   ⚠️ Falha ao finalizar: {settle}")
+
+            if i < len(LEADS):
+                print("   ⏳ 7min...")
+                for s in range(420, 0, -1):
+                    if s % 60 == 0 or s <= 10:
+                        print(f"   {s//60}min {s%60:02d}s", end="\r")
+                    time.sleep(1)
+                print()
+
+        browser.close()
 
 print(f"\n✅ Envio concluido!")

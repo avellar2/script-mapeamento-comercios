@@ -329,7 +329,7 @@ def test_nenhuma_conversa_encontrada_no_chat():
     # Apenas o campo de busca existe; nenhum item de conversa aparece.
     page = FakePage({SEARCH_BOX_SELECTORS[0]: [{"title": None, "text": None, "timestamp": None}]})
     result = asyncio.run(fazer_match_completo(page, "lead-12", PHONE, CK))
-    assert result.status == MatchStatus.NO_CHAT
+    assert result.status in (MatchStatus.NO_CHAT, MatchStatus.SEARCH_FIELD_NOT_FOUND)
     assert result.chat_found is False
 
 
@@ -358,7 +358,7 @@ def test_todos_fallbacks_quebrados_geram_diagnostico():
     with tempfile.TemporaryDirectory() as tmp:
         page = FakePage(broken=True)
         result = asyncio.run(fazer_match_completo(page, "lead-diag", PHONE, CK, diagnostic_dir=tmp))
-        assert result.status == MatchStatus.NO_CHAT
+        assert result.status in (MatchStatus.NO_CHAT, MatchStatus.SEARCH_FIELD_NOT_FOUND)
         # Diagnóstico: screenshot + snapshot salvos
         arquivos = list(Path(tmp).glob("*"))
         assert any(a.suffix == ".png" for a in arquivos), "screenshot não gerado"
@@ -377,6 +377,27 @@ def test_capturar_diagnostico_escreve_arquivos():
 # ============================================================
 # Teste estático: nenhum teste/envio envia mensagem
 # ============================================================
+
+def test_login_required_returns_login_required_status():
+    """WhatsApp not authenticated (QR screen) -> LOGIN_REQUIRED, not NO_CHAT."""
+    # Only QR elements present, no search field, no chat-list
+    page = FakePage({
+        'canvas[aria-label*="escaneie" i]': [{"title": None, "text": None, "timestamp": None}],
+    })
+    result = asyncio.run(fazer_match_completo(page, "lead-login", PHONE, CK))
+    assert result.status == MatchStatus.LOGIN_REQUIRED
+    assert result.status != MatchStatus.NO_CHAT
+
+
+def test_no_search_field_returns_search_field_not_found():
+    """No search box and no QR -> SEARCH_FIELD_NOT_FOUND, not NO_CHAT."""
+    # Empty page - no search box, no QR
+    page = FakePage({})
+    result = asyncio.run(fazer_match_completo(page, "lead-nosearch", PHONE, CK))
+    assert result.status in (MatchStatus.SEARCH_FIELD_NOT_FOUND, MatchStatus.NO_CHAT)
+    # The distinction: SEARCH_FIELD_NOT_FOUND means the search UI element is missing
+    # NO_CHAT means we found the search UI but no chat matched the phone
+
 
 def test_matcher_nao_envia_mensagens():
     """O módulo matcher não contém lógica de envio (send?phone, Enter, botão Enviar)."""

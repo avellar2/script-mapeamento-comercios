@@ -25,7 +25,11 @@ SEARCH_BOX_SELECTORS = [
     'div[contenteditable="true"][data-tab="3"]',
     'div[contenteditable="true"][title*="pesquisar" i]',
     'div[contenteditable="true"][title*="search" i]',
+    'div[contenteditable="true"][title*="Search or start new chat" i]',
+    'div[contenteditable="true"][role="textbox"][data-tab="3"]',
     'div[contenteditable="true"][spellcheck="true"]',
+    'div[contenteditable="true"][aria-label*="pesquisar" i]',
+    'div[contenteditable="true"][aria-label*="search" i]',
 ]
 
 # Resultado da pesquisa (chat list item)
@@ -150,6 +154,8 @@ QR_CODE_SELECTORS = [
     'canvas[aria-label*="scan" i]',
     'div[data-testid="qrcode"]',
     'div[data-ref]',
+    'div[role="button"][data-testid="qrcode"]',
+    'div[aria-label*="qrcode" i]',
 ]
 
 # ============================================================

@@ -60,6 +60,8 @@ class MatchStatus(Enum):
     STATUS = "status"                 # É status, não marcar
     AMBIGUOUS_CONTACT = "ambiguous_contact"  # Contato salvo por nome, número não confirmável
     ERROR = "error"                   # Erro durante a pesquisa
+    SEARCH_FIELD_NOT_FOUND = "search_field_not_found"  # Campo de busca nao encontrado
+    LOGIN_REQUIRED = "login_required"  # WhatsApp Web nao autenticado (QR code)
 
 
 @dataclass
@@ -79,6 +81,27 @@ class MatchResult:
     details: dict[str, Any] = field(default_factory=dict)
 
 
+async def _detectar_tela_login(page) -> bool:
+    """Detecta se o WhatsApp Web esta na tela de login (QR code)."""
+    try:
+        from config.whatsapp_selectors import QR_CODE_SELECTORS, TIMEOUT_CURTO
+        for selector in QR_CODE_SELECTORS:
+            try:
+                el = await page.wait_for_selector(selector, timeout=TIMEOUT_CURTO)
+                if el:
+                    return True
+            except Exception:
+                continue
+        body = await page.inner_text("body", timeout=3000)
+        body_lower = body.lower()[:500]
+        for kw in ["escaneie", "conectar", "use o whatsapp", "scan the qr", "qr code"]:
+            if kw in body_lower:
+                return True
+    except Exception:
+        pass
+    return False
+
+
 async def pesquisar_telefone(page, telefone: str) -> tuple[bool, Optional[str]]:
     """
     Pesquisa um telefone no campo de busca do WhatsApp Web.
@@ -93,6 +116,9 @@ async def pesquisar_telefone(page, telefone: str) -> tuple[bool, Optional[str]]:
     # Encontra o campo de busca
     search_selector = await encontrar_seletor(page, SEARCH_BOX_SELECTORS, TIMEOUT_CURTO)
     if not search_selector:
+        if await _detectar_tela_login(page):
+            logger.warning("WhatsApp Web nao autenticado (QR code visivel)")
+            return "login_required", None
         logger.warning("Campo de busca não encontrado")
         return False, None
 
@@ -300,6 +326,9 @@ async def fazer_match_completo(
         for variante in variantes:
             # Pesquisa o telefone
             encontrado, search_sel = await pesquisar_telefone(page, variante)
+            if encontrado == "login_required":
+                result.status = MatchStatus.LOGIN_REQUIRED
+                return result
             if not encontrado:
                 continue
 
@@ -348,8 +377,16 @@ async def fazer_match_completo(
 
             return result
 
+        # Check if login was required (QR detected in first attempt)
+        login_check = await _detectar_tela_login(page)
+        if login_check:
+            result.status = MatchStatus.LOGIN_REQUIRED
+            if diagnostic_dir:
+                await capturar_diagnostico(page, diagnostic_dir, f"match_{lead_id[:8]}_login")
+            return result
+
         # Nenhuma variante encontrou conversa (fallbacks esgotados / DOM quebrado)
-        result.status = MatchStatus.NO_CHAT
+        result.status = MatchStatus.SEARCH_FIELD_NOT_FOUND
         if diagnostic_dir:
             await capturar_diagnostico(page, diagnostic_dir, f"match_{lead_id[:8]}_nochat")
         return result

@@ -55,6 +55,11 @@ def _get_client(key_type: str = "anon"):
         logger.error("Pacote 'supabase' não instalado. pip install supabase")
         return None
 
+    VALID_KEY_TYPES = {"anon", "service_role"}
+    if key_type not in VALID_KEY_TYPES:
+        logger.error(f"key_type inv\u00e1lido: {key_type!r}. Use 'anon' ou 'service_role'")
+        return None
+
     _carregar_env()
     url = os.environ.get("SUPABASE_URL", "")
 

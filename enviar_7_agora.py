@@ -1,9 +1,21 @@
 #!/usr/bin/env python3
 """Envia 7 leads de assistencias - ate 17:45"""
-import os, json, time, ssl, urllib.request, random
+import os, json, time, ssl, urllib.request, random, sys
 from pathlib import Path
 from urllib.parse import quote
 from datetime import datetime
+
+# Adiciona raiz ao path
+sys.path.insert(0, str(Path(__file__).parent))
+
+from config.lock_whatsapp_sender import LockWhatsAppSender
+from sender_int import (
+    normalizar_telefone_lead,
+    obter_campaign_key,
+    reserve_lead,
+    settle_lead,
+)
+from utils.phone_utils import normalizar_telefone_br
 
 env_path = Path(__file__).parent / ".env"
 if env_path.exists():
@@ -23,7 +35,7 @@ HEADERS = {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"}
 all_leads = []
 offset = 0
 while True:
-    req = urllib.request.Request(f"{API_URL}?produto=eq.avgestao&grupo=eq.assistencias&status=in.(novo,pronto_para_enviar)&select=id,nome,telefone,telefone_normalizado&limit=1000&offset={offset}", headers=HEADERS)
+    req = urllib.request.Request(f"{API_URL}?produto=eq.avgestao&grupo=eq.assistencias&status=in.(novo,pronto_para_enviar)&select=id,nome,telefone,telefone_normalizado,produto,grupo&limit=1000&offset={offset}", headers=HEADERS)
     with urllib.request.urlopen(req, context=CTX) as r:
         data = json.loads(r.read().decode())
         if not data: break
@@ -31,67 +43,122 @@ while True:
         if len(data) < 1000: break
         offset += 1000
 
-def is_cel(t):
-    if not t: return False
-    d = t.replace("55","",1) if t.startswith("55") else t
-    d = d.replace(")","").replace("(","").replace(" ","").replace("-","")
-    return d.startswith("21") and len(d) >= 11 and d[2] == "9"
+# Filtra celular usando normalização unificada
+cels = []
+for l in all_leads:
+    tel_norm = normalizar_telefone_lead(l)
+    if tel_norm and tel_norm.startswith("5521") and len(tel_norm) == 13:
+        cels.append(l)
 
-cels = [l for l in all_leads if is_cel(l.get("telefone_normalizado") or l.get("telefone") or "")]
 random.shuffle(cels)
 leads = cels[:7]
 
 MSG = "Boa tarde, pessoal da {nome}! Tudo bem?\n\nAqui é o Vanderson, criador do AVGESTÃO, um sistema feito para organizar assistências técnicas.\n\nCom ele vocês registram o aparelho, abrem a ordem de serviço, enviam o orçamento para aprovação e o cliente acompanha o reparo pelo próprio link.\n\nEu mesmo configuro a conta e deixo tudo pronto para vocês testarem com um atendimento real durante 15 dias.\n\nPosso liberar e configurar o acesso de vocês?"
 
-def marcar(lid, status):
-    body = json.dumps({"status": status, "ultimo_contato_em": datetime.now().isoformat()}).encode()
-    req = urllib.request.Request(f"{API_URL}?id=eq.{lid}", data=body, headers={**HEADERS, "Content-Type": "application/json"}, method="PATCH")
-    with urllib.request.urlopen(req, context=CTX): pass
-
 profile = Path(__file__).parent / ".whatsapp_business_profile"
-for lock in ["SingletonLock", "SingletonCookie", "SingletonSocket"]:
-    p = profile / lock
-    if p.exists(): p.unlink()
 
 from playwright.sync_api import sync_playwright
 
 print(f"Enviando {len(leads)} leads - ate 17:45")
-with sync_playwright() as pw:
-    browser = pw.chromium.launch_persistent_context(user_data_dir=str(profile), channel="chrome", headless=False, args=["--no-sandbox", "--disable-blink-features=AutomationControlled", "--new-instance"], viewport={"width": 800, "height": 900}, locale="pt-BR")
-    page = browser.pages[0] if browser.pages else browser.new_page()
-    for i, lead in enumerate(leads):
-        nome = lead["nome"]
-        tel = (lead.get("telefone_normalizado") or lead.get("telefone") or "").replace(")","").replace("(","").replace(" ","").replace("-","")
-        if not tel.startswith("55"): tel = "55" + tel
-        url = f"https://web.whatsapp.com/send?phone={tel}&text={quote(MSG.format(nome=nome))}"
-        print(f"\n[{i+1}/7] {nome}")
-        try: page.goto(url, wait_until="domcontentloaded", timeout=120000)
-        except: print("   ❌ Erro"); continue
-        time.sleep(8)
-        bt = page.inner_text("body", timeout=5000).lower()[:200]
-        if "escaneie" in bt or "conectar" in bt:
-            print("   ⚠️ QR Code! Escaneie...")
-            for _ in range(36):
-                time.sleep(5)
-                bt = page.inner_text("body", timeout=5000).lower()[:200]
-                if "escaneie" not in bt and "conectar" not in bt: break
-            else: print("   ❌ QR nao escaneado"); continue
-        if "inválido" in bt or "invalid" in bt: print("   ⚠️ Invalido"); marcar(lead["id"], "perdido"); continue
-        try: page.wait_for_selector('div[contenteditable="true"]', timeout=35000)
-        except: print("   ⚠️ Campo nao apareceu"); continue
-        time.sleep(2)
-        btn = page.locator('button[aria-label="Enviar"], button[aria-label="Send"]')
-        if btn.count() > 0: btn.first.click(); print("   ✅ Enviado!")
-        else:
-            ed = page.locator('div[contenteditable="true"]')
-            if ed.count() > 0: ed.first.click(); time.sleep(1); page.keyboard.press("Enter"); print("   ✅ Enviado via Enter!")
-            else: print("   ❌ Botao nao encontrado"); continue
-        time.sleep(4); marcar(lead["id"], "abordado"); print("   ✅ Marcado")
-        if i < len(leads) - 1:
-            print("   ⏳ 7min...")
-            for s in range(420, 0, -1):
-                if s % 60 == 0 or s <= 10: print(f"   {s//60}min {s%60:02d}s", end="\r")
-                time.sleep(1)
-            print()
-    browser.close()
+
+# Adquire lock global do perfil dos senders
+with LockWhatsAppSender() as lock:
+    if not lock.acquired:
+        print("ERRO: Já existe um sender ativo usando o perfil WhatsApp.")
+        sys.exit(1)
+
+    for lock_file in ["SingletonLock", "SingletonCookie", "SingletonSocket"]:
+        p = profile / lock_file
+        if p.exists(): p.unlink()
+
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch_persistent_context(user_data_dir=str(profile), channel="chrome", headless=False, args=["--no-sandbox", "--disable-blink-features=AutomationControlled", "--new-instance"], viewport={"width": 800, "height": 900}, locale="pt-BR")
+        page = browser.pages[0] if browser.pages else browser.new_page()
+        for i, lead in enumerate(leads):
+            nome = lead["nome"]
+            tel_norm = normalizar_telefone_lead(lead)
+            if not tel_norm:
+                print(f"\n[{i+1}/{len(leads)}] {nome} - Telefone inválido")
+                continue
+
+            campaign_key = obter_campaign_key(lead)
+            url = f"https://web.whatsapp.com/send?phone={tel_norm}&text={quote(MSG.format(nome=nome))}"
+
+            print(f"\n[{i+1}/{len(leads)}] {nome}")
+            print(f"   📞 {tel_norm}")
+
+            # Reserva atômica antes de abrir o WhatsApp
+            reserve = reserve_lead(tel_norm, campaign_key, lead["id"], "sender:auto")
+            if not reserve or reserve.get("outcome") not in ("reserved",):
+                print(f"   ⚠️ Reserva recusada: {reserve.get('outcome', 'erro')}")
+                continue
+
+            reservation_id = reserve.get("reservation_id")
+            reservation_token = reserve.get("reservation_token")
+
+            try:
+                page.goto(url, wait_until="domcontentloaded", timeout=120000)
+            except:
+                print("   ❌ Erro")
+                settle_lead(reservation_id, reservation_token, "failed", obs="erro_navegacao")
+                continue
+
+            time.sleep(8)
+            bt = page.inner_text("body", timeout=5000).lower()[:200]
+            if "escaneie" in bt or "conectar" in bt:
+                print("   ⚠️ QR Code! Escaneie...")
+                for _ in range(36):
+                    time.sleep(5)
+                    bt = page.inner_text("body", timeout=5000).lower()[:200]
+                    if "escaneie" not in bt and "conectar" not in bt: break
+                else:
+                    print("   ❌ QR nao escaneado")
+                    settle_lead(reservation_id, reservation_token, "needs_reconciliation", obs="qr_nao_escaneado")
+                    continue
+            if "inválido" in bt or "invalid" in bt:
+                print("   ⚠️ Invalido")
+                settle_lead(reservation_id, reservation_token, "failed", obs="numero_invalido")
+                continue
+            try:
+                page.wait_for_selector('div[contenteditable="true"]', timeout=35000)
+            except:
+                print("   ⚠️ Campo nao apareceu")
+                settle_lead(reservation_id, reservation_token, "needs_reconciliation", obs="campo_nao_apareceu")
+                continue
+            time.sleep(2)
+            btn = page.locator('button[aria-label="Enviar"], button[aria-label="Send"]')
+            if btn.count() > 0:
+                btn.first.click()
+                print("   ✅ Enviado!")
+            else:
+                ed = page.locator('div[contenteditable="true"]')
+                if ed.count() > 0:
+                    ed.first.click()
+                    time.sleep(1)
+                    page.keyboard.press("Enter")
+                    print("   ✅ Enviado via Enter!")
+                else:
+                    print("   ❌ Botao nao encontrado")
+                    settle_lead(reservation_id, reservation_token, "needs_reconciliation", obs="botao_nao_encontrado")
+                    continue
+
+            time.sleep(4)
+            # Finaliza via settle (NÃO faz PATCH separado)
+            settle = settle_lead(
+                reservation_id, reservation_token, "sent",
+                message_timestamp=datetime.now().isoformat(),
+                obs="enviado_7_agora",
+            )
+            if settle and settle.get("outcome") == "settled":
+                print("   ✅ Confirmado no Supabase")
+            else:
+                print(f"   ⚠️ Falha ao finalizar: {settle}")
+
+            if i < len(leads) - 1:
+                print("   ⏳ 7min...")
+                for s in range(420, 0, -1):
+                    if s % 60 == 0 or s <= 10: print(f"   {s//60}min {s%60:02d}s", end="\r")
+                    time.sleep(1)
+                print()
+        browser.close()
 print(f"\n✅ Concluido!")

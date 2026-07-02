@@ -47,18 +47,23 @@ Um unico navegador mantido aberto para todos os leads da sessao.
 Lock de instancia unica via PID file. Usa Chrome instalado (channel=chrome)
 para evitar incompatibilidade de versao do perfil.
 """
-import os, json, urllib.request, ssl, time, random, sys, atexit, signal, ctypes, argparse
-from ctypes import wintypes
+import os, json, urllib.request, ssl, time, random, sys, argparse
 from pathlib import Path
 from urllib.parse import quote
-from datetime import datetime, timedelta
+from datetime import datetime, timezone
 
 ENVIAR_HOJE = 30
 INTERVALO_SEG = 420
 
 BASE_DIR = Path(__file__).parent
 PROFILE_DIR = BASE_DIR / ".whatsapp_business_profile"
-PID_FILE = BASE_DIR / ".enviar_auto.pid"
+
+# Integração lead_outreach: lock global do perfil, normalização unificada,
+# campaign_key centralizada, reserva atômica antes de abrir o WhatsApp,
+# settle atômico após envio. Nenhum PATCH separado em leads.
+sys.path.insert(0, str(BASE_DIR))
+from config.lock_whatsapp_sender import LockWhatsAppSender
+from sender_int import normalizar_telefone_lead, obter_campaign_key, reserve_lead, settle_lead
 
 env_path = BASE_DIR / ".env"
 if env_path.exists():
@@ -74,40 +79,6 @@ SUPABASE_KEY = os.environ.get("SUPABASE_ANON_KEY")
 API_URL = f"{SUPABASE_URL}/rest/v1/leads"
 CTX = ssl.create_default_context()
 HEADERS = {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"}
-
-
-def _pid_alive(pid):
-    kernel32 = ctypes.windll.kernel32
-    PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
-    STILL_ACTIVE = 259
-    handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
-    if not handle:
-        return False
-    code = wintypes.DWORD()
-    kernel32.GetExitCodeProcess(handle, ctypes.byref(code))
-    kernel32.CloseHandle(handle)
-    return code.value == STILL_ACTIVE
-
-
-def acquire_lock():
-    if PID_FILE.exists():
-        try:
-            old = int(PID_FILE.read_text().strip())
-            if old != os.getpid() and _pid_alive(old):
-                print(f"❌ Outra instancia rodando (PID {old}). Abortando.")
-                print(f"   Mate com: Stop-Process -Id {old} -Force")
-                sys.exit(1)
-        except (ValueError, OSError):
-            pass
-    PID_FILE.write_text(str(os.getpid()))
-
-
-def release_lock():
-    try:
-        if PID_FILE.exists():
-            PID_FILE.unlink()
-    except OSError:
-        pass
 
 
 def msg_oficina(lead):
@@ -282,38 +253,6 @@ def fetch_leads():
     return all_leads
 
 
-def is_celular(tel):
-    if not tel:
-        return False
-    d = tel.replace("55", "", 1) if tel.startswith("55") else tel
-    return d.startswith("21") and len(d) >= 11 and d[2] == "9"
-
-
-def marcar(lead_id, status, obs=None):
-    now = datetime.now().isoformat()
-    body = {"status": status, "ultimo_contato_em": now}
-    if status == "abordado":
-        body["proximo_followup_em"] = (datetime.now() + timedelta(days=3)).isoformat()
-    if obs:
-        body["observacoes"] = obs
-    req = urllib.request.Request(
-        f"{API_URL}?id=eq.{lead_id}",
-        data=json.dumps(body).encode(),
-        headers={**HEADERS, "Content-Type": "application/json"},
-        method="PATCH",
-    )
-    try:
-        with urllib.request.urlopen(req, context=CTX) as resp:
-            code = resp.getcode()
-            if code not in (200, 201, 204):
-                print(f"   ⚠️ Supabase respondeu {code} ao marcar {status}")
-                return False
-            return True
-    except Exception as e:
-        print(f"   ⚠️ ERRO ao marcar {status}: {str(e)[:80]}")
-        return False
-
-
 def _body_text(page, limit=400):
     try:
         return page.inner_text("body", timeout=5000)[:limit].lower()
@@ -351,32 +290,50 @@ def _escolher_msg(lead):
 
 def enviar_um(page, lead):
     nome = lead["nome"]
-    tel = lead.get("telefone_normalizado") or lead.get("telefone") or ""
-    if not is_celular(tel):
-        print("   ⏭️ Fixo - pulando")
-        marcar(lead["id"], "perdido", "Telefone fixo")
+    tel_norm = normalizar_telefone_lead(lead)
+    if not tel_norm:
+        print("   ⏭️ Telefone inválido - pulando")
         return False
+    if not (tel_norm.startswith("5521") and len(tel_norm) == 13):
+        print("   ⏭️ Fixo / não-celular DDD 21 - pulando")
+        return False
+
+    campaign_key = obter_campaign_key(lead)
     msg = _escolher_msg(lead)
-    url = f"https://web.whatsapp.com/send?phone={tel}&text={quote(msg)}"
+
+    # Reserva atômica ANTES de abrir o WhatsApp — nenhuma abertura antes da reserva.
+    reserve = reserve_lead(tel_norm, campaign_key, lead["id"], "sender:auto")
+    if not reserve or reserve.get("outcome") != "reserved":
+        outcome = reserve.get("outcome", "erro") if reserve else "sem cliente"
+        print(f"   ⚠️ Reserva recusada: {outcome}")
+        return False
+
+    reservation_id = reserve.get("reservation_id")
+    reservation_token = reserve.get("reservation_token")
+
+    url = f"https://web.whatsapp.com/send?phone={tel_norm}&text={quote(msg)}"
     try:
         page.goto(url, wait_until="domcontentloaded", timeout=120000)
     except Exception as e:
         print(f"   ❌ Erro navegando: {str(e)[:90]}")
+        settle_lead(reservation_id, reservation_token, "failed", obs="erro_navegacao")
         return False
 
     if not _wait_qr(page):
+        settle_lead(reservation_id, reservation_token, "needs_reconciliation", obs="qr_nao_escaneado")
         return False
 
     bt = _body_text(page, 300)
     if "inválido" in bt or "invalid" in bt or "não é válido" in bt:
         print("   ⚠️ Número inválido")
-        marcar(lead["id"], "perdido", "Número inválido")
+        settle_lead(reservation_id, reservation_token, "failed", obs="numero_invalido")
         return False
 
     try:
         page.wait_for_selector('div[contenteditable="true"]', timeout=35000)
     except Exception:
         print("   ⚠️ Campo de texto nao apareceu")
+        settle_lead(reservation_id, reservation_token, "needs_reconciliation", obs="campo_nao_apareceu")
         return False
     time.sleep(2)
 
@@ -393,12 +350,21 @@ def enviar_um(page, lead):
             print("   ✅ Enviado via Enter!")
         else:
             print("   ❌ Botão/campo nao encontrado")
+            settle_lead(reservation_id, reservation_token, "needs_reconciliation", obs="botao_nao_encontrado")
             return False
 
     time.sleep(4)
-    marcar(lead["id"], "abordado")
-    print("   ✅ Marcado no Supabase")
-    return True
+    # Finaliza via settle_outreach (transação única). NENHUM PATCH separado em leads.
+    settle = settle_lead(
+        reservation_id, reservation_token, "sent",
+        message_timestamp=datetime.now(timezone.utc).isoformat(),
+        obs="enviado_auto_avgestao",
+    )
+    if settle and settle.get("outcome") in ("settled", "already_settled"):
+        print("   ✅ Confirmado no Supabase")
+        return True
+    print(f"   ⚠️ Falha ao finalizar: {settle}")
+    return False
 
 
 def _countdown(segundos, label):
@@ -419,15 +385,6 @@ def main():
     qtd = max(1, args.quantidade)
     excluir = [e.strip().lower() for e in args.excluir.split(",") if e.strip()]
 
-    acquire_lock()
-    atexit.register(release_lock)
-
-    def _sig(sig, frame):
-        release_lock()
-        sys.exit(0)
-    signal.signal(signal.SIGINT, _sig)
-    signal.signal(signal.SIGTERM, _sig)
-
     print("=" * 60)
     print(f"  🚗 Envio Automatico AVGESTAO - {datetime.now().strftime('%d/%m/%Y %H:%M')}")
     print(f"  📋 Meta de hoje: {qtd} leads | 7min entre cada (sem pausa de bloco)")
@@ -446,71 +403,83 @@ def main():
             )
         ]
         print(f"   ⚠️ Filtrados: {antes - len(all_leads)} leads excluidos por nicho")
-    cels = [l for l in all_leads if is_celular(l.get("telefone_normalizado") or l.get("telefone") or "")]
+
+    # Filtro por normalização unificada (celular DDD 21 com nono dígito)
+    cels = []
+    for l in all_leads:
+        tel_norm = normalizar_telefone_lead(l)
+        if tel_norm and tel_norm.startswith("5521") and len(tel_norm) == 13:
+            cels.append(l)
     print(f"   Disponiveis: {len(all_leads)} | Com WhatsApp (cel 21 c/ 9): {len(cels)}")
     if not cels:
         print("   Nada para enviar hoje.")
-        release_lock()
         return
     random.shuffle(cels)
     leads = cels[:qtd]
     print(f"\n📋 {len(leads)} leads hoje | 7min cada | sem pausa de bloco\n")
 
-    for lock in ["SingletonLock", "SingletonCookie", "SingletonSocket"]:
-        p = PROFILE_DIR / lock
-        if p.exists():
-            try:
-                p.unlink()
-            except OSError:
-                pass
-
     from playwright.sync_api import sync_playwright
 
     total_ok = 0
-    browser = None
-    try:
-        with sync_playwright() as pw:
-            try:
-                browser = pw.chromium.launch_persistent_context(
-                    user_data_dir=str(PROFILE_DIR),
-                    channel="chrome",
-                    headless=False,
-                    args=["--no-sandbox", "--disable-blink-features=AutomationControlled", "--new-instance"],
-                    viewport={"width": 800, "height": 900},
-                    locale="pt-BR",
-                )
-            except Exception as e:
-                print(f"   channel=chrome falhou ({str(e)[:80]}), tentando chromium bundled...")
-                browser = pw.chromium.launch_persistent_context(
-                    user_data_dir=str(PROFILE_DIR),
-                    headless=False,
-                    args=["--no-sandbox", "--disable-blink-features=AutomationControlled", "--new-instance"],
-                    viewport={"width": 800, "height": 900},
-                    locale="pt-BR",
-                )
-            page = browser.pages[0] if browser.pages else browser.new_page()
+    # Lock global do perfil dos senders — ANTES de remover SingletonLock/abrir Chromium.
+    # Substitui o antigo lock PID-only (.enviar_auto.pid) por um lock de perfil unificado.
+    with LockWhatsAppSender() as lock:
+        if not lock.acquired:
+            print("❌ Já existe um sender ativo usando o perfil WhatsApp. Abortando.")
+            sys.exit(1)
 
-            for i, lead in enumerate(leads):
-                print(f"\n[{i+1}/{len(leads)}] {lead['nome']}")
-                print(f"   📍 {lead.get('cidade','')} | 📞 {lead.get('telefone_normalizado') or lead.get('telefone')}")
+        for lockf in ["SingletonLock", "SingletonCookie", "SingletonSocket"]:
+            p = PROFILE_DIR / lockf
+            if p.exists():
                 try:
-                    ok = enviar_um(page, lead)
+                    p.unlink()
+                except OSError:
+                    pass
+
+        browser = None
+        try:
+            with sync_playwright() as pw:
+                try:
+                    browser = pw.chromium.launch_persistent_context(
+                        user_data_dir=str(PROFILE_DIR),
+                        channel="chrome",
+                        headless=False,
+                        args=["--no-sandbox", "--disable-blink-features=AutomationControlled", "--new-instance"],
+                        viewport={"width": 800, "height": 900},
+                        locale="pt-BR",
+                    )
                 except Exception as e:
-                    print(f"   ❌ Erro inesperado: {str(e)[:90]}")
-                    ok = False
-                if ok:
-                    total_ok += 1
+                    print(f"   channel=chrome falhou ({str(e)[:80]}), tentando chromium bundled...")
+                    browser = pw.chromium.launch_persistent_context(
+                        user_data_dir=str(PROFILE_DIR),
+                        headless=False,
+                        args=["--no-sandbox", "--disable-blink-features=AutomationControlled", "--new-instance"],
+                        viewport={"width": 800, "height": 900},
+                        locale="pt-BR",
+                    )
+                page = browser.pages[0] if browser.pages else browser.new_page()
 
-                if i < len(leads) - 1:
-                    print(f"   ⏳ 7min...")
-                    _countdown(INTERVALO_SEG, "proximo")
+                for i, lead in enumerate(leads):
+                    print(f"\n[{i+1}/{len(leads)}] {lead['nome']}")
+                    print(f"   📍 {lead.get('cidade','')} | 📞 {lead.get('telefone_normalizado') or lead.get('telefone')}")
+                    try:
+                        ok = enviar_um(page, lead)
+                    except Exception as e:
+                        print(f"   ❌ Erro inesperado: {str(e)[:90]}")
+                        ok = False
+                    if ok:
+                        total_ok += 1
 
-            try:
-                browser.close()
-            except Exception:
-                pass
-    finally:
-        release_lock()
+                    if i < len(leads) - 1:
+                        print(f"   ⏳ 7min...")
+                        _countdown(INTERVALO_SEG, "proximo")
+
+                try:
+                    browser.close()
+                except Exception:
+                    pass
+        finally:
+            pass  # LockWhatsAppSender liberado no __exit__
 
     print(f"\n{'='*60}")
     print(f"  ✅ Enviados: {total_ok}/{len(leads)}")
