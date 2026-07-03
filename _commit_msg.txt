@@ -1,0 +1,3 @@
+chore: add supabase init config + wip selector fixes
+
+Co-authored-by: CommandCodeBot <noreply@commandcode.ai>
