@@ -1,0 +1,15 @@
+# Taste (Continuously Learned by [CommandCode][cmd])
+
+[cmd]: https://commandcode.ai/
+
+# git
+- Include /output directory in git tracking (remove from .gitignore) so leads data is accessible from other machines. Confidence: 0.75
+
+# testing
+- Use `python -m pytest` to run tests instead of executing test files directly. Confidence: 0.70
+- Investigate failing tests to identify root cause; fix code or tests rather than dismissing or skipping failures. Confidence: 0.65
+
+# workflow
+- Use dry-run or test mode with limited scope before any write operations or full execution. Confidence: 0.70
+- Save plans and audit reports in /docs directory instead of .commandcode/plans/. Confidence: 0.70
+
