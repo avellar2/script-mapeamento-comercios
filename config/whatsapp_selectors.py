@@ -88,11 +88,11 @@ PHONE_IN_PROFILE_SELECTORS = [
 # ============================================================
 
 # Mensagens enviadas (bolha de saída)
+# WhatsApp Web atual (2026): usa pseudo-elemento CSS ::before com "tail-out"
+# no textContent do msg-container. Nao ha data-testid*="out" nos containers.
+# Deteccao: textContent do msg-container comeca com "tail-out"
 MESSAGE_OUT_SELECTORS = [
-    'div[data-testid="conversation-panel-messages"] div[data-testid*="out"]',
-    'div.message-out',
-    'div[class*="message-out"]',
-    'div[data-testid*="out"]',
+    'div[data-testid="msg-container"]',
 ]
 
 # Mensagens recebidas (bolha de entrada)

@@ -194,7 +194,8 @@ def _dom_matched():
         CONVERSATION_HEADER_SELECTORS[0]: [{"title": None, "text": None, "timestamp": None}],
         PHONE_IN_PROFILE_SELECTORS[0]: [{"title": "+55 21 99999-9999", "text": None, "timestamp": None}],
         BACK_BUTTON_SELECTORS[0]: [{"title": None, "text": None, "timestamp": None}],
-        MESSAGE_OUT_SELECTORS[0]: [{"title": None, "text": MSG_CAMPANHA, "timestamp": "1717200000"}],
+        # WhatsApp Web 2026: msg-container com textContent "tail-out" + mensagem
+        'div[data-testid="msg-container"]': [{"title": None, "text": "tail-out" + MSG_CAMPANHA, "timestamp": "1717200000"}],
         MESSAGE_TEXT_SELECTORS[0]: [{"title": None, "text": MSG_CAMPANHA, "timestamp": None}],
     }
 
@@ -312,7 +313,7 @@ def test_numero_parecido_mas_diferente():
 def test_fingerprint_incompativel_vira_ambiguo():
     """Mensagem de saída com fingerprint incompatível -> AMBIGUOUS, não MATCHED."""
     dom = _dom_matched()
-    dom[MESSAGE_OUT_SELECTORS[0]] = [{"title": None, "text": MSG_NAO_CAMPANHA, "timestamp": "1717200000"}]
+    dom['div[data-testid="msg-container"]'] = [{"title": None, "text": "tail-out" + MSG_NAO_CAMPANHA, "timestamp": "1717200000"}]
     dom[MESSAGE_TEXT_SELECTORS[0]] = [{"title": None, "text": MSG_NAO_CAMPANHA, "timestamp": None}]
     page = FakePage(dom)
     result = asyncio.run(fazer_match_completo(page, "lead-11", PHONE, CK))

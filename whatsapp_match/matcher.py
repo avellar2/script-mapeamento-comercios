@@ -315,70 +315,57 @@ async def detectar_mensagem_saida(page) -> tuple[bool, Optional[str], Optional[s
     """
     Detecta se existe pelo menos uma mensagem de saída na conversa.
 
-    Estratégia otimizada:
-    1. Usa count() imediato nos seletores de outbound
-    2. Inspeciona DOM real: data-testid contendo "out", classe message-out,
-       estrutura do container (posição/ancestral)
-    3. Não depende só de ícones de confirmação
-    4. Para na primeira mensagem de saída encontrada
+    WhatsApp Web atual (2026): usa pseudo-elemento CSS ::before que insere
+    "tail-out" (enviada) ou "tail-in" (recebida) no textContent do msg-container.
+    Filtramos por textContent que começa com "tail-out".
 
     Returns:
         (encontrou, timestamp_mais_recente, texto_da_mensagem)
     """
     t0 = time.time()
     try:
-        # Tenta cada seletor de outbound com count() imediato
-        for selector in MESSAGE_OUT_SELECTORS:
-            try:
-                locator = page.locator(selector)
-                count = await locator.count()
-                if count > 0:
-                    # Pega a última mensagem de saída
-                    last_msg = locator.nth(count - 1)
-                    texto = await extrair_texto_mensagem(last_msg)
+        # Pega todos os msg-containers e filtra por tail-out
+        locator = page.locator('div[data-testid="msg-container"]')
+        count = await locator.count()
+        if count == 0:
+            return False, None, None
 
-                    # Tenta obter timestamp
+        # Itera de tras pra frente (mais recentes primeiro)
+        for i in range(count - 1, -1, -1):
+            try:
+                msg = locator.nth(i)
+                texto = await msg.text_content()
+                if texto and texto.startswith("tail-out"):
+                    # Remove o prefixo "tail-out" do texto
+                    texto_limpo = texto[8:]  # remove "tail-out"
                     timestamp = None
                     try:
-                        ts = await last_msg.get_attribute("data-timestamp")
+                        ts = await msg.get_attribute("data-timestamp")
                         if ts:
                             dt = datetime.fromtimestamp(int(ts), tz=timezone.utc)
                             timestamp = dt.isoformat()
                     except Exception:
                         pass
-
                     elapsed = time.time() - t0
-                    logger.debug("Outbound detectado: %s, %d mensagens (%.2fs)",
-                                selector, count, elapsed)
-                    return True, timestamp, texto
+                    logger.debug("Outbound detectado via tail-out: msg %d/%d (%.2fs)",
+                                i, count, elapsed)
+                    return True, timestamp, texto_limpo
             except Exception:
                 continue
 
-        # Fallback: inspeção do DOM via JS para detectar outbound por estrutura
+        # Fallback JS
         try:
             has_outbound = await page.evaluate("""() => {
-                // Procura mensagens com data-testid contendo "out"
-                const outMsgs = document.querySelectorAll(
-                    'div[data-testid*="out"], div.message-out, div[class*="message-out"]'
-                );
-                if (outMsgs.length > 0) {
-                    return outMsgs.length;
-                }
-                // Fallback: procura por estrutura de bolha de saída
-                // (container com justify-content: flex-end ou similar)
-                const panels = document.querySelectorAll(
-                    'div[data-testid="conversation-panel-messages"] > div'
-                );
-                for (const panel of panels) {
-                    const style = window.getComputedStyle(panel);
-                    if (style.justifyContent === 'flex-end' || style.alignItems === 'flex-end') {
+                const msgs = document.querySelectorAll('div[data-testid="msg-container"]');
+                for (const msg of msgs) {
+                    if (msg.textContent && msg.textContent.startsWith('tail-out')) {
                         return 1;
                     }
                 }
                 return 0;
             }""")
             if has_outbound and has_outbound > 0:
-                logger.debug("Outbound detectado via JS: %d elementos", has_outbound)
+                logger.debug("Outbound detectado via JS fallback")
                 return True, None, None
         except Exception:
             pass
