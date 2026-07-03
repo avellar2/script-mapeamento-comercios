@@ -163,16 +163,17 @@ QR_CODE_SELECTORS = [
 # ============================================================
 
 TIMEOUT_PADRAO = 30000  # 30s
-TIMEOUT_CURTO = 5000    # 5s
+TIMEOUT_CURTO = 1000     # 1s (was 5s)
+TIMEOUT_RAPIDO = 500     # 500ms para checks rapidos
 TIMEOUT_QR = 240000     # 4 min
 
 
 async def encontrar_seletor(page, selectors: list[str], timeout: int = TIMEOUT_CURTO) -> Optional[str]:
     """
-    Tenta cada seletor da lista até encontrar um que corresponda a um elemento.
+    Tenta cada seletor da lista ate encontrar um que corresponda a um elemento.
 
     Args:
-        page: Página do Playwright
+        page: Pagina do Playwright
         selectors: Lista de seletores CSS/XPath
         timeout: Timeout por tentativa em ms
 
@@ -181,6 +182,34 @@ async def encontrar_seletor(page, selectors: list[str], timeout: int = TIMEOUT_C
     """
     for selector in selectors:
         try:
+            el = await page.wait_for_selector(selector, timeout=timeout)
+            if el:
+                return selector
+        except Exception:
+            continue
+    return None
+
+
+async def encontrar_seletor_rapido(page, selectors: list[str], timeout: int = TIMEOUT_RAPIDO) -> Optional[str]:
+    """
+    Versao otimizada: testa count() primeiro (instantaneo), so espera se necessario.
+
+    Args:
+        page: Pagina do Playwright
+        selectors: Lista de seletores CSS/XPath
+        timeout: Timeout maximo por tentativa em ms
+
+    Returns:
+        O primeiro seletor que encontrou um elemento, ou None
+    """
+    for selector in selectors:
+        try:
+            # Tenta count() primeiro — instantaneo se o elemento ja existe
+            locator = page.locator(selector)
+            count = await locator.count()
+            if count > 0:
+                return selector
+            # Se count=0, tenta wait_for_selector com timeout curto
             el = await page.wait_for_selector(selector, timeout=timeout)
             if el:
                 return selector

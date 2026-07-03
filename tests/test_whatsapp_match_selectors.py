@@ -261,7 +261,7 @@ def test_canal_nao_conta():
     dom[canal_sel] = [{"title": None, "text": None, "timestamp": None}]
     page = FakePage(dom)
     result = asyncio.run(fazer_match_completo(page, "lead-6", PHONE, CK))
-    assert result.status == MatchStatus.GROUP
+    assert result.status == MatchStatus.CHANNEL
     assert result.status != MatchStatus.MATCHED
 
 
@@ -272,7 +272,7 @@ def test_comunidade_nao_conta():
     dom[com_sel] = [{"title": None, "text": None, "timestamp": None}]
     page = FakePage(dom)
     result = asyncio.run(fazer_match_completo(page, "lead-7", PHONE, CK))
-    assert result.status == MatchStatus.GROUP
+    assert result.status == MatchStatus.COMMUNITY
     assert result.status != MatchStatus.MATCHED
 
 
