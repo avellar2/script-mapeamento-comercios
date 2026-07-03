@@ -65,7 +65,7 @@ CREATE INDEX IF NOT EXISTS idx_lead_outreach_phone
 -- ============================================================
 CREATE OR REPLACE FUNCTION public.normalizar_telefone_br_sql(p_valor TEXT)
 RETURNS TEXT
-LANGUAGE plpgsql IMMUTABLE SET search_path = public, pg_temp, extensions
+LANGUAGE plpgsql IMMUTABLE SET search_path = pg_catalog, public
 AS $$
 DECLARE
   v_digitos TEXT;
@@ -121,7 +121,7 @@ $$;
 -- ============================================================
 CREATE OR REPLACE FUNCTION public.interaction_type_from_campaign_key(p_campaign_key TEXT)
 RETURNS TEXT
-LANGUAGE plpgsql IMMUTABLE SET search_path = public, pg_temp, extensions
+LANGUAGE plpgsql IMMUTABLE SET search_path = pg_catalog, public
 AS $$
 DECLARE
   v_parts TEXT[];
@@ -161,7 +161,7 @@ CREATE OR REPLACE FUNCTION public.validate_lead_campaign(
   p_phone_normalized TEXT,
   p_campaign_key     TEXT
 ) RETURNS TEXT
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp, extensions
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public
 AS $$
 DECLARE
   v_telefone TEXT;
@@ -223,7 +223,7 @@ $$;
 -- ============================================================
 CREATE OR REPLACE FUNCTION public.outreach_transition_allowed(p_from TEXT, p_to TEXT)
 RETURNS BOOLEAN
-LANGUAGE sql IMMUTABLE SET search_path = public, pg_temp, extensions
+LANGUAGE sql IMMUTABLE SET search_path = pg_catalog, public
 AS $$
   SELECT (p_from, p_to) IN (
     ('reserved','sent'),
@@ -246,14 +246,14 @@ CREATE OR REPLACE FUNCTION public.reserve_outreach(
   p_lead_id          UUID,
   p_source           TEXT DEFAULT 'sender:auto'
 ) RETURNS JSONB
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp, extensions
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public
 AS $$
 DECLARE
   v_existing   public.lead_outreach%ROWTYPE;
   v_validation TEXT;
   v_now        TIMESTAMPTZ := now();
   v_ttl        CONSTANT INTEGER := 1800;
-  v_token      UUID := gen_random_uuid();
+  v_token      UUID := extensions.gen_random_uuid();
   v_id         UUID;
 BEGIN
   -- validação de parâmetros
@@ -364,7 +364,7 @@ CREATE OR REPLACE FUNCTION public.settle_outreach(
   p_campaign_match      BOOLEAN DEFAULT NULL,
   p_obs                 TEXT DEFAULT NULL
 ) RETURNS JSONB
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp, extensions
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public
 AS $$
 DECLARE
   v_row        public.lead_outreach%ROWTYPE;
@@ -381,7 +381,7 @@ BEGIN
     RETURN jsonb_build_object('outcome', 'invalid_args');
   END IF;
 
-  v_token_hash := encode(digest(p_reservation_token::text, 'sha256'), 'hex');
+  v_token_hash := encode(extensions.digest(p_reservation_token::text, 'sha256'), 'hex');
 
   -- busca a reserva e trava a linha
   SELECT * INTO v_row
@@ -507,7 +507,7 @@ CREATE OR REPLACE FUNCTION public.confirm_outreach_from_whatsapp(
   p_campaign_match     BOOLEAN,
   p_source             TEXT DEFAULT 'whatsapp_reconciliation'
 ) RETURNS JSONB
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp, extensions
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public
 AS $$
 DECLARE
   v_row        public.lead_outreach%ROWTYPE;
@@ -654,7 +654,7 @@ CREATE OR REPLACE FUNCTION public.release_reconciliation(
   p_campaign_key     TEXT,
   p_reason           TEXT DEFAULT 'manual_review'
 ) RETURNS JSONB
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp, extensions
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public
 AS $$
 DECLARE
   v_row public.lead_outreach%ROWTYPE;
@@ -708,7 +708,7 @@ CREATE OR REPLACE FUNCTION public.get_outreach_state(
   p_phone_normalized TEXT,
   p_campaign_key     TEXT
 ) RETURNS JSONB
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp, extensions
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public
 AS $$
 DECLARE
   v_row public.lead_outreach%ROWTYPE;
