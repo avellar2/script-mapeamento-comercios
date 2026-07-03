@@ -129,21 +129,44 @@ def test_normalizar_ddd_invalido_10():
 
 
 def test_variantes_busca_celular():
-    """Gera variantes para celular com 13 dígitos."""
+    """Gera UMA variante nacional para celular (DDD + 9 dígitos)."""
     variantes = variantes_busca_telefone("5521999999999")
-    assert "+5521999999999" in variantes
-    assert "5521999999999" in variantes
-    assert "21999999999" in variantes
-    assert "(21) 99999-9999" in variantes
+    assert len(variantes) == 1
+    assert variantes[0] == "21999999999"
+    # Não deve conter +55, 55, ou formatos alternativos
+    assert not any("55" in v for v in variantes)
+    assert not any("+" in v for v in variantes)
+    assert not any("(" in v for v in variantes)
 
 
 def test_variantes_busca_fixo():
-    """Gera variantes para fixo com 12 dígitos."""
+    """Gera UMA variante nacional para fixo (DDD + 8 dígitos)."""
     variantes = variantes_busca_telefone("552133333333")
-    assert "+552133333333" in variantes
-    assert "552133333333" in variantes
-    assert "2133333333" in variantes
-    assert "(21) 3333-3333" in variantes
+    assert len(variantes) == 1
+    assert variantes[0] == "2133333333"
+    assert not any("55" in v for v in variantes)
+    assert not any("+" in v for v in variantes)
+
+
+def test_variantes_busca_uma_variante():
+    """Sempre retorna no máximo 1 variante."""
+    assert len(variantes_busca_telefone("5521999999999")) == 1
+    assert len(variantes_busca_telefone("552133333333")) == 1
+
+
+def test_variantes_busca_sem_internacional():
+    """Não gera variante internacional (+55 ou 55)."""
+    variantes = variantes_busca_telefone("5521999999999")
+    for v in variantes:
+        assert not v.startswith("+")
+        assert not v.startswith("55")
+
+
+def test_variantes_busca_sem_sem_nono():
+    """Não gera variante sem nono dígito para celular."""
+    variantes = variantes_busca_telefone("5521999999999")
+    for v in variantes:
+        assert len(v) == 11  # celular com nono dígito
 
 
 def test_variantes_busca_invalido():
@@ -151,3 +174,9 @@ def test_variantes_busca_invalido():
     assert variantes_busca_telefone("") == []
     assert variantes_busca_telefone(None) == []
     assert variantes_busca_telefone("123") == []
+
+
+def test_variantes_busca_ddd_invalido():
+    """DDD inválido retorna lista vazia."""
+    assert variantes_busca_telefone("5500999999999") == []
+    assert variantes_busca_telefone("5510999999999") == []
