@@ -210,6 +210,71 @@ async def _fechar_modal(page) -> bool:
         except Exception:
             pass
 
+        # Fallback JavaScript: tenta fechar o dialog via JS
+        try:
+            fechou_js = await page.evaluate("""
+                () => {
+                    const dialogs = document.querySelectorAll('[role="dialog"][aria-modal="true"]');
+                    if (dialogs.length === 0) return true;
+                    
+                    for (const d of dialogs) {
+                        // 1. Tenta encontrar botao de fechar por texto seguro
+                        const textos_seguros = ['fechar', 'close', 'ok', 'continuar', 'continue',
+                                                 'entendi', 'got it', 'agora não', 'not now',
+                                                 'mais tarde', 'maybe later', 'x', '✓', '👍'];
+                        const botoes = d.querySelectorAll('button, [role="button"], a[role="button"]');
+                        for (const b of botoes) {
+                            const texto = (b.textContent || '').trim().toLowerCase();
+                            const aria = (b.getAttribute('aria-label') || '').toLowerCase();
+                            const testid = (b.getAttribute('data-testid') || '').toLowerCase();
+                            for (const seguro of textos_seguros) {
+                                if (texto.includes(seguro) || aria.includes(seguro) || testid.includes(seguro)) {
+                                    if (!b.hasAttribute('disabled')) {
+                                        b.click();
+                                        return true;
+                                    }
+                                }
+                            }
+                        }
+                        
+                        // 2. Tenta encontrar SVG/X icon
+                        const x_icons = d.querySelectorAll('span[data-icon="x"], span[data-icon="close"], ' +
+                                                          'svg[data-icon="x"], svg[data-icon="close"], ' +
+                                                          '[data-testid*="x"], [data-testid*="close"]');
+                        for (const icon of x_icons) {
+                            const parent = icon.closest('button, [role="button"], a');
+                            if (parent && !parent.hasAttribute('disabled')) {
+                                parent.click();
+                                return true;
+                            }
+                            if (!icon.closest('button') && !icon.closest('[role="button"]')) {
+                                // Tenta clicar no proprio icone
+                                icon.click();
+                                return true;
+                            }
+                        }
+                        
+                        // 3. Tenta pressionar Enter no primeiro botao visivel
+                        for (const b of botoes) {
+                            const rect = b.getBoundingClientRect();
+                            if (rect.width > 0 && rect.height > 0 && !b.hasAttribute('disabled')) {
+                                b.click();
+                                return true;
+                            }
+                        }
+                    }
+                    return false;
+                }
+            """)
+            if fechou_js:
+                await page.wait_for_timeout(500)
+                count = await dialog.count()
+                if count == 0:
+                    logger.debug("Modal fechado via JavaScript fallback")
+                    return True
+        except Exception:
+            pass
+
         # Modal persistente
         logger.warning("Modal persistente não pôde ser fechado")
         return False
