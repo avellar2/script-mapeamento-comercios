@@ -136,8 +136,6 @@ _BOTOES_SEGUROS_MODAL = [
     'div[data-testid="confirm-popup"] span[data-icon="close"]',
     'div[data-testid="confirm-popup"] svg[data-icon="x"]',
     'div[data-testid="confirm-popup"] svg[data-icon="close"]',
-    # Qualquer botão dentro do popup que não seja destrutivo
-    'div[data-testid="confirm-popup"] button:not([aria-label*="Enviar" i]):not([aria-label*="Apagar" i]):not([aria-label*="Excluir" i]):not([aria-label*="Bloquear" i]):not([aria-label*="Denunciar" i]):not([aria-label*="Sair" i]):not([aria-label*="Desconectar" i])',
 ]
 
 
@@ -239,8 +237,7 @@ async def _fechar_modal(page) -> bool:
                         
                         // 2. Tenta encontrar SVG/X icon
                         const x_icons = d.querySelectorAll('span[data-icon="x"], span[data-icon="close"], ' +
-                                                          'svg[data-icon="x"], svg[data-icon="close"], ' +
-                                                          '[data-testid*="x"], [data-testid*="close"]');
+                                                          'svg[data-icon="x"], svg[data-icon="close"]');
                         for (const icon of x_icons) {
                             const parent = icon.closest('button, [role="button"], a');
                             if (parent && !parent.hasAttribute('disabled')) {
@@ -250,15 +247,6 @@ async def _fechar_modal(page) -> bool:
                             if (!icon.closest('button') && !icon.closest('[role="button"]')) {
                                 // Tenta clicar no proprio icone
                                 icon.click();
-                                return true;
-                            }
-                        }
-                        
-                        // 3. Tenta pressionar Enter no primeiro botao visivel
-                        for (const b of botoes) {
-                            const rect = b.getBoundingClientRect();
-                            if (rect.width > 0 && rect.height > 0 && !b.hasAttribute('disabled')) {
-                                b.click();
                                 return true;
                             }
                         }
