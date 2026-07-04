@@ -64,6 +64,7 @@ class MatchStatus(Enum):
     AMBIGUOUS_CONTACT = "ambiguous_contact"  # Contato salvo por nome, número não confirmável
     ERROR = "error"                   # Erro durante a pesquisa
     SEARCH_FIELD_NOT_FOUND = "search_field_not_found"  # Campo de busca nao encontrado
+    MODAL_BLOCKED = "modal_blocked"   # Modal/dialog bloqueou o campo de busca
     LOGIN_REQUIRED = "login_required"  # WhatsApp Web nao autenticado (QR code)
 
 
@@ -107,27 +108,143 @@ async def _detectar_tela_login(page) -> bool:
     return False
 
 
+# Botões seguros para fechar modais (nunca clicar em botões destrutivos)
+_BOTOES_SEGUROS_MODAL = [
+    'div[role="dialog"] [role="button"][aria-label*="Fechar" i]',
+    'div[role="dialog"] [role="button"][aria-label*="Close" i]',
+    'div[role="dialog"] [role="button"][aria-label*="Agora não" i]',
+    'div[role="dialog"] [role="button"][aria-label*="Not now" i]',
+    'div[role="dialog"] [role="button"][aria-label*="Mais tarde" i]',
+    'div[role="dialog"] [role="button"][aria-label*="Maybe later" i]',
+    'div[role="dialog"] [role="button"][aria-label*="OK" i]',
+    'div[role="dialog"] [role="button"][aria-label*="Continuar" i]',
+    'div[role="dialog"] [role="button"][aria-label*="Continue" i]',
+    'div[role="dialog"] button[aria-label*="Fechar" i]',
+    'div[role="dialog"] button[aria-label*="Close" i]',
+    'div[role="dialog"] button[aria-label*="Agora não" i]',
+    'div[role="dialog"] button[aria-label*="Not now" i]',
+    'div[role="dialog"] button[aria-label*="OK" i]',
+    'div[role="dialog"] button[aria-label*="Continuar" i]',
+    'div[data-testid="confirm-popup"] [role="button"]',
+    'div[data-testid="confirm-popup"] button',
+]
+
+
+async def _fechar_modal(page) -> bool:
+    """
+    Detecta e fecha modais/dialogs do WhatsApp Web que bloqueiam o campo de busca.
+
+    Estratégia:
+    1. Verifica se existe [role="dialog"] visível
+    2. Tenta fechar com Escape
+    3. Caso continue, clica em botão seguro (Fechar, OK, Continuar, etc.)
+    4. Nunca clica em botões destrutivos (enviar, apagar, bloquear, etc.)
+
+    Returns:
+        True se fechou o modal ou se não havia modal, False se não conseguiu fechar
+    """
+    try:
+        # Verifica se existe dialog visível
+        dialog = page.locator('[role="dialog"][aria-modal="true"]')
+        count = await dialog.count()
+        if count == 0:
+            return True  # Não há modal
+
+        # Tenta Escape primeiro
+        try:
+            # Playwright usa page.keyboard.press, FakePage usa keyboard_press
+            keyboard = getattr(page, "keyboard", None)
+            if keyboard and hasattr(keyboard, "press"):
+                await keyboard.press("Escape")
+            elif hasattr(page, "keyboard_press"):
+                await page.keyboard_press("Escape")
+            await page.wait_for_timeout(500)
+        except Exception:
+            pass
+
+        # Verifica se o dialog sumiu
+        count = await dialog.count()
+        if count == 0:
+            logger.debug("Modal fechado com Escape")
+            return True
+
+        # Tenta clicar em botão seguro
+        for selector in _BOTOES_SEGUROS_MODAL:
+            try:
+                btn = page.locator(selector).first
+                if await btn.is_visible(timeout=500):
+                    await btn.click()
+                    await page.wait_for_timeout(500)
+                    # Verifica se fechou
+                    count = await dialog.count()
+                    if count == 0:
+                        logger.debug(f"Modal fechado com botão: {selector}")
+                        return True
+            except Exception:
+                continue
+
+        # Tenta clicar fora do modal ( backdrop )
+        try:
+            if hasattr(page, "mouse"):
+                mouse = page.mouse
+                if hasattr(mouse, "click"):
+                    await mouse.click(0, 0)
+            elif hasattr(page, "mouse_click"):
+                await page.mouse_click(0, 0)
+            await page.wait_for_timeout(500)
+            count = await dialog.count()
+            if count == 0:
+                logger.debug("Modal fechado clicando fora")
+                return True
+        except Exception:
+            pass
+
+        # Modal persistente
+        logger.warning("Modal persistente não pôde ser fechado")
+        return False
+
+    except Exception as e:
+        logger.warning(f"Erro ao fechar modal: {e}")
+        return False
+
+
 async def pesquisar_telefone(page, telefone: str) -> tuple[bool, Optional[str]]:
     """
     Pesquisa um telefone no campo de busca do WhatsApp Web.
+
+    Antes de pesquisar, verifica e fecha modais/dialogs que possam bloquear.
 
     Args:
         page: Página do Playwright
         telefone: Telefone canônico ou variante
 
     Returns:
-        (encontrou, seletor_usado) — encontrou pode ser True, False, ou "login_required"
+        (encontrou, seletor_usado) — encontrou pode ser True, False, "login_required", ou "modal_blocked"
     """
     t0 = time.time()
+
+    # Fecha modal/dialog se existir
+    modal_fechado = await _fechar_modal(page)
+    if not modal_fechado:
+        logger.warning("Modal bloqueia o campo de busca")
+        return "modal_blocked", None
 
     # Encontra o campo de busca (usando count() primeiro, rápido)
     search_selector = await encontrar_seletor_rapido(page, SEARCH_BOX_SELECTORS, TIMEOUT_CURTO)
     if not search_selector:
-        if await _detectar_tela_login(page):
-            logger.warning("WhatsApp Web nao autenticado (QR code visivel)")
-            return "login_required", None
-        logger.warning("Campo de busca não encontrado")
-        return False, None
+        # Tenta fechar modal novamente caso tenha aparecido entre as checagens
+        modal_fechado = await _fechar_modal(page)
+        if not modal_fechado:
+            logger.warning("Modal bloqueia o campo de busca (segunda tentativa)")
+            return "modal_blocked", None
+
+        search_selector = await encontrar_seletor_rapido(page, SEARCH_BOX_SELECTORS, TIMEOUT_CURTO)
+        if not search_selector:
+            if await _detectar_tela_login(page):
+                logger.warning("WhatsApp Web nao autenticado (QR code visivel)")
+                return "login_required", None
+            logger.warning("Campo de busca não encontrado")
+            return False, None
 
     try:
         search_box = page.locator(search_selector)
@@ -139,6 +256,15 @@ async def pesquisar_telefone(page, telefone: str) -> tuple[bool, Optional[str]]:
         await page.wait_for_timeout(800)  # reduzido de 1000ms
         return True, search_selector
     except Exception as e:
+        # Verifica se foi modal interceptando
+        dialog = page.locator('[role="dialog"][aria-modal="true"]')
+        try:
+            dcount = await dialog.count()
+            if dcount > 0:
+                logger.warning("Modal interceptou click no campo de busca")
+                return "modal_blocked", None
+        except Exception:
+            pass
         logger.warning("Erro ao pesquisar telefone %s: %s", telefone, e)
         return False, None
 
@@ -457,6 +583,12 @@ async def fazer_match_completo(
             if encontrado == "login_required":
                 result.status = MatchStatus.LOGIN_REQUIRED
                 result.timings = timings
+                return result
+            if encontrado == "modal_blocked":
+                result.status = MatchStatus.MODAL_BLOCKED
+                result.timings = timings
+                if diagnostic_dir:
+                    await capturar_diagnostico(page, diagnostic_dir, f"match_{lead_id[:8]}_modal")
                 return result
             if not encontrado:
                 variants_tried += 1

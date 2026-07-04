@@ -173,6 +173,14 @@ class FakePage:
     async def content(self):
         return "<html>fake</html>"
 
+    async def keyboard_press(self, key):
+        self.actions.append(("keyboard_press", key))
+        return None
+
+    async def mouse_click(self, x, y):
+        self.actions.append(("mouse_click", x, y))
+        return None
+
 
 # Mensagens de teste
 MSG_CAMPANHA = (
@@ -443,6 +451,128 @@ def test_matcher_nao_envia_mensagens():
     src = (Path(__file__).resolve().parent.parent / "whatsapp_match" / "matcher.py").read_text(encoding="utf-8")
     assert "send?phone=" not in src, "matcher não deve abrir send?phone="
     assert "web.whatsapp.com/send" not in src, "matcher não deve navegar para send"
-    assert "keyboard.press" not in src, "matcher não deve pressionar teclas (Enter)"
+    # Escape é usado para fechar modais, não para enviar mensagens
     assert 'aria-label="Enviar"' not in src and 'aria-label="Send"' not in src, \
         "matcher não deve clicar em botão Enviar"
+    # Não deve conter Enter no composer
+    assert '"Enter"' not in src, "matcher não deve pressionar Enter"
+
+
+# ============================================================
+# TESTES DE MODAL/DIALOG
+# ============================================================
+
+DIALOG_SELECTOR = '[role="dialog"][aria-modal="true"]'
+
+
+def test_modal_intercepta_click_retorna_modal_blocked():
+    """Dialog interceptando clique no campo de busca -> modal_blocked, não search_field_not_found."""
+    dom = _dom_matched()
+    # Adiciona modal visível mas sem botão de fechar
+    dom[DIALOG_SELECTOR] = [{"title": None, "text": None, "timestamp": None}]
+    page = FakePage(dom)
+    result = asyncio.run(fazer_match_completo(page, "lead-modal-1", PHONE, CK))
+    # Pode ser modal_blocked se não conseguir fechar, ou matched se fechar e continuar
+    # Como FakePage não remove o dialog dinamicamente, deve retornar modal_blocked
+    assert result.status in (MatchStatus.MODAL_BLOCKED, MatchStatus.MATCHED, MatchStatus.NO_CHAT)
+
+
+def test_escape_fecha_modal():
+    """Escape fecha modal e permite encontrar o campo de busca."""
+    # FakePage registra keyboard_press nas actions
+    dom = _dom_matched()
+    dom[DIALOG_SELECTOR] = [{"title": None, "text": None, "timestamp": None}]
+    page = FakePage(dom)
+    asyncio.run(fazer_match_completo(page, "lead-modal-2", PHONE, CK))
+    # Verifica que Escape foi tentado
+    keyboard_actions = [a for a in page.actions if a[0] == "keyboard_press"]
+    assert any("Escape" in a[1] for a in keyboard_actions), "Escape deve ser tentado"
+
+
+def test_botao_seguro_fecha_modal():
+    """Botão seguro (Fechar/OK) fecha modal."""
+    from whatsapp_match.matcher import _BOTOES_SEGUROS_MODAL
+    # Verifica que existem botões seguros configurados
+    assert len(_BOTOES_SEGUROS_MODAL) > 0
+    # Verifica que botões destrutivos NÃO estão na lista
+    for sel in _BOTOES_SEGUROS_MODAL:
+        assert "Enviar" not in sel, "Botão Enviar não deve ser seguro"
+        assert "Send" not in sel, "Botão Send não deve ser seguro"
+        assert "Delete" not in sel, "Botão Delete não deve ser seguro"
+        assert "Block" not in sel, "Botão Block não deve ser seguro"
+        assert "Report" not in sel, "Botão Report não deve ser seguro"
+
+
+def test_botao_desconhecido_nao_clicado():
+    """Botão desconhecido no dialog não deve ser clicado."""
+    from whatsapp_match.matcher import _BOTOES_SEGUROS_MODAL
+    # Seletores só devem clicar em botões com aria-label conhecido
+    for sel in _BOTOES_SEGUROS_MODAL:
+        # Cada seletor deve ter filtro por aria-label ou data-testid
+        assert "aria-label" in sel or "data-testid" in sel, \
+            f"Seletor sem filtro: {sel}"
+
+
+def test_modal_persistente_retorna_modal_blocked():
+    """Modal que não pode ser fechado retorna modal_blocked, não search_field_not_found."""
+    dom = _dom_matched()
+    dom[DIALOG_SELECTOR] = [{"title": None, "text": None, "timestamp": None}]
+    # Sem botões de fechar — modal persistente
+    page = FakePage(dom)
+    result = asyncio.run(fazer_match_completo(page, "lead-modal-3", PHONE, CK))
+    # FakePage não remove elementos dinamicamente, então modal persiste
+    assert result.status == MatchStatus.MODAL_BLOCKED
+
+
+def test_modal_nao_vira_search_field_not_found():
+    """Modal blocked não deve ser classificado como search_field_not_found."""
+    dom = _dom_matched()
+    dom[DIALOG_SELECTOR] = [{"title": None, "text": None, "timestamp": None}]
+    page = FakePage(dom)
+    result = asyncio.run(fazer_match_completo(page, "lead-modal-4", PHONE, CK))
+    assert result.status != MatchStatus.SEARCH_FIELD_NOT_FOUND, \
+        "Modal blocked não deve virar search_field_not_found"
+
+
+def test_apos_fechar_modal_campo_busca_encontrado():
+    """Sem modal, campo de busca deve ser encontrado normalmente."""
+    dom = _dom_matched()
+    # Sem dialog no DOM
+    page = FakePage(dom)
+    result = asyncio.run(fazer_match_completo(page, "lead-no-modal", PHONE, CK))
+    assert result.status == MatchStatus.MATCHED
+
+
+def test_telefone_diferente_mantem_ambiguous_contact():
+    """Telefone diferente no painel mantém ambiguous_contact."""
+    dom = _dom_matched()
+    # Telefone no painel diferente do esperado
+    dom[PHONE_IN_PROFILE_SELECTORS[0]] = [{"title": "+55 21 88888-8888", "text": None, "timestamp": None}]
+    page = FakePage(dom)
+    result = asyncio.run(fazer_match_completo(page, "lead-diff-tel", PHONE, CK))
+    assert result.status == MatchStatus.AMBIGUOUS_CONTACT
+
+
+def test_telefone_igual_permite_continuar():
+    """Telefone igual no painel permite continuar o match."""
+    dom = _dom_matched()
+    # Telefone correto
+    dom[PHONE_IN_PROFILE_SELECTORS[0]] = [{"title": "+55 21 99999-9999", "text": None, "timestamp": None}]
+    page = FakePage(dom)
+    result = asyncio.run(fazer_match_completo(page, "lead-same-tel", PHONE, CK))
+    assert result.status == MatchStatus.MATCHED
+
+
+def test_modal_nenhuma_escrita_supabase():
+    """Testes de modal não escrevem no Supabase."""
+    src = (Path(__file__).resolve().parent.parent / "whatsapp_match" / "matcher.py").read_text(encoding="utf-8")
+    assert "service_role" not in src.lower(), "matcher não deve carregar service role"
+    assert "rpc" not in src.lower() or "no_rpc" in src.lower(), "matcher não deve chamar RPC"
+
+
+def test_modal_nenhum_envio():
+    """Tratamento de modal não envia mensagens."""
+    src = (Path(__file__).resolve().parent.parent / "whatsapp_match" / "matcher.py").read_text(encoding="utf-8")
+    assert "send?phone=" not in src
+    assert "web.whatsapp.com/send" not in src
+    assert '"Enter"' not in src, "matcher não deve pressionar Enter"

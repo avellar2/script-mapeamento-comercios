@@ -18,6 +18,7 @@ from .matcher import (
     detectar_mensagem_saida,
     extrair_texto_mensagem,
     fazer_match_completo,
+    _fechar_modal,
 )
 
 __all__ = [
@@ -29,4 +30,5 @@ __all__ = [
     "detectar_mensagem_saida",
     "extrair_texto_mensagem",
     "fazer_match_completo",
+    "_fechar_modal",
 ]
