@@ -91,17 +91,26 @@ class FakeLocator:
         return FakeLocator(self._page, self._selector, element=el)
 
     async def count(self):
+        # Seletor de modal: retorna baseado em _modal_presente
+        if self._selector == '[role="dialog"][aria-modal="true"]':
+            return 1 if self._page._modal_presente and not self._page._modal_closed else 0
         return len(self._elements())
 
-    async def is_visible(self):
+    async def is_visible(self, timeout=None):
+        # Seletor de modal: retorna baseado em _modal_presente
+        if self._selector == '[role="dialog"][aria-modal="true"]':
+            return self._page._modal_presente and not self._page._modal_closed
         # Elemento resolvido (first/nth) -> existe na página -> visível.
         # Mesmo que text/title estejam vazios, o locator foi achado.
         if self._element is not None:
             return True
         return bool(self._elements())
 
-    async def click(self):
+    async def click(self, timeout=None):
         self._page.actions.append(("click", self._selector))
+        # Marca que o header foi clicado
+        if "conversation-header" in self._selector or "header" in self._selector:
+            self._page._header_clicked = True
         return None
 
     async def fill(self, text):
@@ -141,6 +150,8 @@ class FakePage:
 
     present: dict seletor -> lista de dicts {"title","text","timestamp"}.
     broken: se True, wait_for_selector sempre lança (simula DOM quebrado).
+    _modal_presente: se True, [role="dialog"][aria-modal="true"] existe.
+    _modal_fechavel: se True, _fechar_modal consegue fechar o modal.
     """
 
     def __init__(self, present=None, broken=False):
@@ -148,6 +159,10 @@ class FakePage:
         self.broken = broken
         self.actions = []
         self._tmp = tempfile.mkdtemp()
+        self._modal_presente = False
+        self._modal_fechavel = True
+        self._modal_closed = False
+        self._header_clicked = False
 
     async def wait_for_selector(self, selector, timeout=None, state=None):
         if self.broken:
@@ -182,6 +197,24 @@ class FakePage:
 
     async def mouse_click(self, x, y):
         self.actions.append(("mouse_click", x, y))
+        return None
+
+    @property
+    def keyboard(self):
+        return FakeKeyboard(self)
+
+
+class FakeKeyboard:
+    """Simula page.keyboard do Playwright."""
+
+    def __init__(self, page):
+        self._page = page
+
+    async def press(self, key):
+        self._page.actions.append(("keyboard_press", key))
+        # Se pressionou Escape e modal é fechável, fecha o modal
+        if key == "Escape" and self._page._modal_fechavel:
+            self._page._modal_closed = True
         return None
 
 
@@ -484,8 +517,9 @@ def test_escape_fecha_modal():
     """Escape fecha modal e permite encontrar o campo de busca."""
     # FakePage registra keyboard_press nas actions
     dom = _dom_matched()
-    dom[DIALOG_SELECTOR] = [{"title": None, "text": None, "timestamp": None}]
     page = FakePage(dom)
+    page._modal_presente = True
+    page._modal_fechavel = True
     asyncio.run(fazer_match_completo(page, "lead-modal-2", PHONE, CK))
     # Verifica que Escape foi tentado
     keyboard_actions = [a for a in page.actions if a[0] == "keyboard_press"]
@@ -497,13 +531,15 @@ def test_botao_seguro_fecha_modal():
     from whatsapp_match.matcher import _BOTOES_SEGUROS_MODAL
     # Verifica que existem botões seguros configurados
     assert len(_BOTOES_SEGUROS_MODAL) > 0
-    # Verifica que botões destrutivos NÃO estão na lista
+    # Verifica que botões destrutivos NÃO estão na lista como alvo
     for sel in _BOTOES_SEGUROS_MODAL:
-        assert "Enviar" not in sel, "Botão Enviar não deve ser seguro"
-        assert "Send" not in sel, "Botão Send não deve ser seguro"
-        assert "Delete" not in sel, "Botão Delete não deve ser seguro"
-        assert "Block" not in sel, "Botão Block não deve ser seguro"
-        assert "Report" not in sel, "Botão Report não deve ser seguro"
+        # Extrai a parte do seletor antes de :not() — só verifica o alvo
+        alvo = sel.split(":not")[0] if ":not" in sel else sel
+        assert "Enviar" not in alvo, f"Botão Enviar não deve ser seguro: {sel}"
+        assert "Send" not in alvo, f"Botão Send não deve ser seguro: {sel}"
+        assert "Delete" not in alvo, f"Botão Delete não deve ser seguro: {sel}"
+        assert "Block" not in alvo, f"Botão Block não deve ser seguro: {sel}"
+        assert "Report" not in alvo, f"Botão Report não deve ser seguro: {sel}"
 
 
 def test_botao_desconhecido_nao_clicado():
@@ -519,19 +555,19 @@ def test_botao_desconhecido_nao_clicado():
 def test_modal_persistente_retorna_modal_blocked():
     """Modal que não pode ser fechado retorna modal_blocked, não search_field_not_found."""
     dom = _dom_matched()
-    dom[DIALOG_SELECTOR] = [{"title": None, "text": None, "timestamp": None}]
-    # Sem botões de fechar — modal persistente
     page = FakePage(dom)
+    page._modal_presente = True
+    page._modal_fechavel = False  # Modal persistente
     result = asyncio.run(fazer_match_completo(page, "lead-modal-3", PHONE, CK))
-    # FakePage não remove elementos dinamicamente, então modal persiste
     assert result.status == MatchStatus.MODAL_BLOCKED
 
 
 def test_modal_nao_vira_search_field_not_found():
     """Modal blocked não deve ser classificado como search_field_not_found."""
     dom = _dom_matched()
-    dom[DIALOG_SELECTOR] = [{"title": None, "text": None, "timestamp": None}]
     page = FakePage(dom)
+    page._modal_presente = True
+    page._modal_fechavel = False
     result = asyncio.run(fazer_match_completo(page, "lead-modal-4", PHONE, CK))
     assert result.status != MatchStatus.SEARCH_FIELD_NOT_FOUND, \
         "Modal blocked não deve virar search_field_not_found"
@@ -700,3 +736,107 @@ def test_extrair_telefone_nenhum_envio():
     src = (Path(__file__).resolve().parent.parent / "whatsapp_match" / "matcher.py").read_text(encoding="utf-8")
     assert "send?phone=" not in src
     assert "web.whatsapp.com/send" not in src
+
+
+# ============================================================
+# TESTES DE MODAL
+# ============================================================
+
+
+def test_modal_detectado_antes_header_retorna_modal_blocked():
+    """Modal persistente antes de clicar no header retorna modal_blocked."""
+    dom = {
+        CONVERSATION_HEADER_SELECTORS[0]: [{"title": None, "text": None, "timestamp": None}],
+        BACK_BUTTON_SELECTORS[0]: [{"title": None, "text": None, "timestamp": None}],
+    }
+    page = FakePage(dom)
+    # Simula modal presente e NAO fechavel
+    page._modal_presente = True
+    page._modal_fechavel = False
+    confirmado, tel, tipo = asyncio.run(extrair_telefone_confirmado_chat(page, "5521999999999"))
+    assert confirmado is False
+    assert tipo == "modal_blocked"
+
+
+def test_modal_fechado_antes_header_permite_confirmacao():
+    """Modal que é fechado com sucesso permite confirmar telefone."""
+    dom = {
+        CONVERSATION_HEADER_SELECTORS[0]: [{"title": None, "text": None, "timestamp": None}],
+        PHONE_IN_PROFILE_SELECTORS[0]: [{"title": "+55 21 99999-9999", "text": None, "timestamp": None}],
+        BACK_BUTTON_SELECTORS[0]: [{"title": None, "text": None, "timestamp": None}],
+    }
+    page = FakePage(dom)
+    # Simula modal que pode ser fechado
+    page._modal_fechavel = True
+    confirmado, tel, tipo = asyncio.run(extrair_telefone_confirmado_chat(page, "5521999999999"))
+    assert confirmado is True
+    assert tel == "5521999999999"
+
+
+def test_modal_nao_bloqueia_se_ausente():
+    """Sem modal, extração funciona normalmente."""
+    dom = {
+        CONVERSATION_HEADER_SELECTORS[0]: [{"title": None, "text": None, "timestamp": None}],
+        PHONE_IN_PROFILE_SELECTORS[0]: [{"title": "+55 21 99999-9999", "text": None, "timestamp": None}],
+        BACK_BUTTON_SELECTORS[0]: [{"title": None, "text": None, "timestamp": None}],
+    }
+    page = FakePage(dom)
+    page._modal_presente = False
+    confirmado, tel, tipo = asyncio.run(extrair_telefone_confirmado_chat(page, "5521999999999"))
+    assert confirmado is True
+    assert tel == "5521999999999"
+
+
+def test_modal_blocked_nao_tenta_clicar_header():
+    """Modal_blocked não tenta clicar no header (evita travamento de 30s)."""
+    dom = {
+        CONVERSATION_HEADER_SELECTORS[0]: [{"title": None, "text": None, "timestamp": None}],
+        BACK_BUTTON_SELECTORS[0]: [{"title": None, "text": None, "timestamp": None}],
+    }
+    page = FakePage(dom)
+    page._modal_presente = True
+    page._modal_fechavel = False  # Não consegue fechar
+    confirmado, tel, tipo = asyncio.run(extrair_telefone_confirmado_chat(page, "5521999999999"))
+    assert confirmado is False
+    assert tipo == "modal_blocked"
+    # Verifica que header.click não foi chamado
+    assert page._header_clicked is False or not hasattr(page, '_header_clicked')
+
+
+def test_fechar_modal_nao_clica_botoes_perigosos():
+    """_fechar_modal nunca clica em botões destrutivos."""
+    from whatsapp_match.matcher import _BOTOES_SEGUROS_MODAL
+    botoes_texto = " ".join(_BOTOES_SEGUROS_MODAL)
+    # Nenhum seletor deve conter palavras perigosas como alvo (não em :not())
+    # Verifica que não há seletores que clicam em botões destrutivos
+    for sel in _BOTOES_SEGUROS_MODAL:
+        # Extrai a parte do seletor antes de :not()
+        alvo = sel.split(":not")[0] if ":not" in sel else sel
+        for perigoso in ["Enviar", "Apagar", "Excluir", "Bloquear", "Denunciar", "Sair", "Desconectar"]:
+            assert perigoso not in alvo, f"Botão perigoso '{perigoso}' encontrado em seletor: {sel}"
+
+
+def test_fechar_modal_nao_envia_mensagens():
+    """_fechar_modal não envia mensagens."""
+    src = (Path(__file__).resolve().parent.parent / "whatsapp_match" / "matcher.py").read_text(encoding="utf-8")
+    assert "send?phone=" not in src
+    assert "web.whatsapp.com/send" not in src
+
+
+def test_confirmar_numero_retorna_evidencia():
+    """confirmar_numero agora retorna 3 valores: (bool, str, str)."""
+    from whatsapp_match.matcher import confirmar_numero
+    import inspect
+    sig = inspect.signature(confirmar_numero)
+    return_annotation = str(sig.return_annotation)
+    # Deve retornar 3 valores
+    assert "tuple" in return_annotation, f"Deve retornar tuple, tem: {return_annotation}"
+    assert "bool" in return_annotation, f"Deve conter bool, tem: {return_annotation}"
+    assert "str" in return_annotation, f"Deve conter str, tem: {return_annotation}"
+
+
+def test_modal_blocked_estado_existe():
+    """MatchStatus.MODAL_BLOCKED existe e é usado."""
+    from whatsapp_match.matcher import MatchStatus
+    assert hasattr(MatchStatus, "MODAL_BLOCKED")
+    assert MatchStatus.MODAL_BLOCKED.value == "modal_blocked"

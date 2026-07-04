@@ -127,6 +127,17 @@ _BOTOES_SEGUROS_MODAL = [
     'div[role="dialog"] button[aria-label*="Continuar" i]',
     'div[data-testid="confirm-popup"] [role="button"]',
     'div[data-testid="confirm-popup"] button',
+    # Botão específico do popup "As etiquetas agora são as Listas"
+    'div[data-testid="confirm-popup"] button[aria-label*="Fechar" i]',
+    'div[data-testid="confirm-popup"] button[aria-label*="Close" i]',
+    'div[data-testid="confirm-popup"] div[role="button"]',
+    # Botão de fechar com X no popup de confirmação
+    'div[data-testid="confirm-popup"] span[data-icon="x"]',
+    'div[data-testid="confirm-popup"] span[data-icon="close"]',
+    'div[data-testid="confirm-popup"] svg[data-icon="x"]',
+    'div[data-testid="confirm-popup"] svg[data-icon="close"]',
+    # Qualquer botão dentro do popup que não seja destrutivo
+    'div[data-testid="confirm-popup"] button:not([aria-label*="Enviar" i]):not([aria-label*="Apagar" i]):not([aria-label*="Excluir" i]):not([aria-label*="Bloquear" i]):not([aria-label*="Denunciar" i]):not([aria-label*="Sair" i]):not([aria-label*="Desconectar" i])',
 ]
 
 
@@ -399,12 +410,34 @@ async def extrair_telefone_confirmado_chat(page, telefone_canonico: str) -> tupl
 
     # CAMADA 1: Painel de informações (PHONE_IN_PROFILE_SELECTORS)
     try:
-        # Clica no header para abrir painel
+        # ANTES de clicar no header: verifica se existe modal bloqueando
+        modal_check = page.locator('[role="dialog"][aria-modal="true"]')
+        modal_count = await modal_check.count()
+        if modal_count > 0:
+            logger.debug("Modal detectado antes de clicar no header, tentando fechar...")
+            modal_fechado = await _fechar_modal(page)
+            if not modal_fechado:
+                logger.warning("Modal persistente bloqueia header, retornando modal_blocked (%.2fs)", time.time() - t0)
+                return False, None, "modal_blocked"
+
+        # Clica no header para abrir painel (timeout curto para nao travar)
         header_selector = await encontrar_seletor_rapido(page, CONVERSATION_HEADER_SELECTORS, 1000)
         if header_selector:
             header = page.locator(header_selector)
-            await header.click()
-            await page.wait_for_timeout(200)
+            try:
+                await header.click(timeout=5000)
+            except Exception as e:
+                logger.warning("Header click bloqueado por modal: %s (%.2fs)", e, time.time() - t0)
+                # Tenta fechar modal mais uma vez
+                modal_fechado = await _fechar_modal(page)
+                if not modal_fechado:
+                    return False, None, "modal_blocked"
+                # Tenta click novamente
+                try:
+                    await header.click(timeout=5000)
+                except Exception:
+                    logger.warning("Header ainda bloqueado apos fechar modal")
+                    return False, None, "modal_blocked"
 
             # Procura telefone usando PHONE_IN_PROFILE_SELECTORS
             phone_selector = await encontrar_seletor_rapido(page, PHONE_IN_PROFILE_SELECTORS, 2000)
@@ -486,7 +519,7 @@ async def _voltar_painel(page) -> None:
         pass
 
 
-async def confirmar_numero(page, telefone_canonico: str) -> tuple[bool, Optional[str]]:
+async def confirmar_numero(page, telefone_canonico: str) -> tuple[bool, Optional[str], str]:
     """
     Confirma que a conversa aberta pertence ao número correto.
 
@@ -497,10 +530,11 @@ async def confirmar_numero(page, telefone_canonico: str) -> tuple[bool, Optional
         telefone_canonico: Telefone canônico (ex: 5521999999999)
 
     Returns:
-        (confirmado, telefone_encontrado)
+        (confirmado, telefone_encontrado, tipo_evidencia)
+        tipo_evidencia pode ser "modal_blocked" se modal persistente bloqueou
     """
-    confirmado, tel, _ = await extrair_telefone_confirmado_chat(page, telefone_canonico)
-    return confirmado, tel
+    confirmado, tel, evidencia = await extrair_telefone_confirmado_chat(page, telefone_canonico)
+    return confirmado, tel, evidencia
 
 
 async def detectar_grupo(page) -> Optional[str]:
@@ -725,10 +759,20 @@ async def fazer_match_completo(
             timings["open_chat"] = time.time() - t1
             result.chat_found = True
 
+            # Fecha modal de marketing que pode aparecer ao abrir conversa
+            await _fechar_modal(page)
+
             # ETAPA 4: Confirmar número (timeout curto, early exit)
             t1 = time.time()
-            confirmado, tel_encontrado = await confirmar_numero(page, phone_normalized)
+            confirmado, tel_encontrado, evidencia = await confirmar_numero(page, phone_normalized)
             timings["confirm_phone"] = time.time() - t1
+            if evidencia == "modal_blocked":
+                result.status = MatchStatus.MODAL_BLOCKED
+                result.details["phone_found"] = tel_encontrado
+                result.timings = timings
+                if diagnostic_dir:
+                    await capturar_diagnostico(page, diagnostic_dir, f"match_{lead_id[:8]}_modal")
+                return result
             if not confirmado:
                 result.status = MatchStatus.AMBIGUOUS_CONTACT
                 result.details["phone_found"] = tel_encontrado
