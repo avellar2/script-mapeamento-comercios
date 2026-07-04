@@ -208,6 +208,33 @@ async def _fechar_modal(page) -> bool:
         return False
 
 
+async def limpar_campo_busca(page) -> None:
+    """
+    Limpa o campo de busca e volta ao painel lateral entre leads.
+
+    Deve ser chamado entre cada lead para garantir estado limpo.
+    Pressiona Escape para fechar painel de informações e limpa o campo de busca.
+    """
+    try:
+        # Fecha qualquer painel de informações aberto
+        keyboard = getattr(page, "keyboard", None)
+        if keyboard and hasattr(keyboard, "press"):
+            await keyboard.press("Escape")
+        elif hasattr(page, "keyboard_press"):
+            await page.keyboard_press("Escape")
+        await page.wait_for_timeout(300)
+
+        # Limpa o campo de busca
+        search_selector = await encontrar_seletor_rapido(page, SEARCH_BOX_SELECTORS, 1000)
+        if search_selector:
+            search_box = page.locator(search_selector)
+            await search_box.click()
+            await search_box.fill("")
+            await page.wait_for_timeout(200)
+    except Exception as e:
+        logger.debug("Erro ao limpar campo de busca entre leads: %s", e)
+
+
 async def pesquisar_telefone(page, telefone: str) -> tuple[bool, Optional[str]]:
     """
     Pesquisa um telefone no campo de busca do WhatsApp Web.

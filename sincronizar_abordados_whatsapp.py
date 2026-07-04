@@ -316,7 +316,16 @@ def _mascarar(telefone: str) -> str:
 # ============================================================
 
 async def setup_playwright():
-    """Inicializa o Playwright com perfil persistente dedicado."""
+    """
+    Inicializa o Playwright com perfil persistente dedicado.
+
+    Regras do ciclo de vida:
+    - launch_persistent_context chamado exatamente UMA VEZ por lote
+    - Reutiliza página já aberta em web.whatsapp.com se existir
+    - Não cria nova página para cada lead
+    - Fecha about:blank após confirmar que WhatsApp está ativo
+    - Retorna (playwright, (context, page)) para reuso em todo o lote
+    """
     from playwright.async_api import async_playwright
 
     p = await async_playwright().start()
@@ -325,6 +334,7 @@ async def setup_playwright():
     # Garante que o diretório do perfil existe
     PROFILE_DIR.mkdir(parents=True, exist_ok=True)
 
+    # ÚNICO launch_persistent_context por lote
     context = await p.chromium.launch_persistent_context(
         user_data_dir=profile_path,
         headless=False,
@@ -333,17 +343,37 @@ async def setup_playwright():
         ],
     )
 
-    page = await context.new_page()
-    await page.goto("https://web.whatsapp.com", wait_until="domcontentloaded")
+    # Procura página já aberta em web.whatsapp.com
+    wa_page = None
+    for pg in context.pages:
+        if "web.whatsapp.com" in getattr(pg, "url", ""):
+            wa_page = pg
+            logger.info("Reutilizando página existente do WhatsApp")
+            break
+
+    if wa_page is None:
+        # Cria única página do WhatsApp
+        wa_page = await context.new_page()
+        await wa_page.goto("https://web.whatsapp.com", wait_until="domcontentloaded")
+        logger.info("Nova página do WhatsApp aberta")
+
+    # Fecha páginas about:blank que não sejam a do WhatsApp
+    for pg in list(context.pages):
+        if pg is not wa_page and getattr(pg, "url", "") == "about:blank":
+            try:
+                await pg.close()
+                logger.debug("Página about:blank fechada")
+            except Exception:
+                pass
 
     # Aguarda QR code ou login
     try:
-        await page.wait_for_selector('div[data-testid="chat-list"]', timeout=120000)
+        await wa_page.wait_for_selector('div[data-testid="chat-list"]', timeout=120000)
         logger.info("WhatsApp Web carregado com sessão ativa")
     except Exception:
         logger.info("Aguardando QR code...")
         try:
-            await page.wait_for_selector('div[data-testid="chat-list"]', timeout=240000)
+            await wa_page.wait_for_selector('div[data-testid="chat-list"]', timeout=240000)
             logger.info("WhatsApp Web carregado")
         except Exception:
             logger.error("Timeout ao aguardar login do WhatsApp")
@@ -351,7 +381,7 @@ async def setup_playwright():
             await p.stop()
             return None, None
 
-    return p, (context, page)
+    return p, (context, wa_page)
 
 
 # ============================================================
@@ -454,6 +484,13 @@ async def executar_sincronizacao(
                 campaign_key=campaign_key,
                 diagnostic_dir=str(diagnostic_dir),
             )
+
+            # Limpa campo de busca e volta ao painel lateral
+            try:
+                from whatsapp_match import limpar_campo_busca
+                await limpar_campo_busca(page)
+            except Exception as e:
+                logger.debug("Erro ao limpar campo entre leads: %s", e)
 
             logger.info("  Status: %s | Chat: %s | Saída: %s | Match: %s",
                         result.status.value,
