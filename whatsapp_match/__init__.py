@@ -19,6 +19,7 @@ from .matcher import (
     extrair_texto_mensagem,
     fazer_match_completo,
     _fechar_modal,
+    extrair_telefone_confirmado_chat,
 )
 
 __all__ = [
@@ -31,4 +32,5 @@ __all__ = [
     "extrair_texto_mensagem",
     "fazer_match_completo",
     "_fechar_modal",
+    "extrair_telefone_confirmado_chat",
 ]

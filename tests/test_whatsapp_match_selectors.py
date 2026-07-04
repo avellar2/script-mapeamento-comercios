@@ -118,6 +118,9 @@ class FakeLocator:
             return self._element.get("title")
         if name == "data-timestamp":
             return self._element.get("timestamp")
+        # Suporte para outros atributos (href, aria-label, data-id, etc.)
+        if name in self._element:
+            return self._element.get(name)
         return self._element.get(name)
 
     async def text_content(self):
@@ -576,3 +579,124 @@ def test_modal_nenhum_envio():
     assert "send?phone=" not in src
     assert "web.whatsapp.com/send" not in src
     assert '"Enter"' not in src, "matcher não deve pressionar Enter"
+
+
+# ============================================================
+# TESTES DE EXTRACAO DE TELEFONE
+# ============================================================
+
+from whatsapp_match.matcher import extrair_telefone_confirmado_chat
+from utils.phone_utils import normalizar_telefone_br
+
+
+def test_telefone_extraido_por_span_title():
+    """Telefone extraído por PHONE_IN_PROFILE_SELECTORS deve ser confirmado."""
+    dom = {
+        CONVERSATION_HEADER_SELECTORS[0]: [{"title": None, "text": None, "timestamp": None}],
+        PHONE_IN_PROFILE_SELECTORS[0]: [{"title": "+55 21 99999-9999", "text": None, "timestamp": None}],
+        BACK_BUTTON_SELECTORS[0]: [{"title": None, "text": None, "timestamp": None}],
+    }
+    page = FakePage(dom)
+    confirmado, tel, tipo = asyncio.run(extrair_telefone_confirmado_chat(page, "5521999999999"))
+    assert confirmado is True
+    assert tel == "5521999999999"
+    assert tipo == "phone_profile"
+
+
+def test_telefone_extraido_por_tel_link():
+    """Telefone extraído por link tel: deve ser confirmado."""
+    dom = {
+        CONVERSATION_HEADER_SELECTORS[0]: [{"title": None, "text": None, "timestamp": None}],
+        'a[href*="tel:"]': [{"title": None, "text": None, "timestamp": None, "href": "tel:+5521999999999"}],
+        BACK_BUTTON_SELECTORS[0]: [{"title": None, "text": None, "timestamp": None}],
+    }
+    page = FakePage(dom)
+    confirmado, tel, tipo = asyncio.run(extrair_telefone_confirmado_chat(page, "5521999999999"))
+    assert confirmado is True
+    assert tel == "5521999999999"
+    assert tipo == "tel_link"
+
+
+def test_telefone_extraido_por_aria_label():
+    """Telefone extraído por aria-label deve ser confirmado."""
+    dom = {
+        CONVERSATION_HEADER_SELECTORS[0]: [{"title": None, "text": None, "timestamp": None}],
+        # O código usa '[aria-label*="+55"], [aria-label*="55"]'
+        '[aria-label*="+55"], [aria-label*="55"]': [{"title": None, "text": None, "timestamp": None, "aria-label": "+55 21 99999-9999"}],
+        BACK_BUTTON_SELECTORS[0]: [{"title": None, "text": None, "timestamp": None}],
+    }
+    page = FakePage(dom)
+    confirmado, tel, tipo = asyncio.run(extrair_telefone_confirmado_chat(page, "5521999999999"))
+    assert confirmado is True
+    assert tel == "5521999999999"
+
+
+def test_telefone_extraido_por_jid():
+    """Telefone extraído por JID deve ser confirmado."""
+    dom = {
+        CONVERSATION_HEADER_SELECTORS[0]: [{"title": None, "text": None, "timestamp": None}],
+        '[data-id*="@s.whatsapp.net"]': [{"title": None, "text": None, "timestamp": None, "data-id": "5521999999999@s.whatsapp.net"}],
+        BACK_BUTTON_SELECTORS[0]: [{"title": None, "text": None, "timestamp": None}],
+    }
+    page = FakePage(dom)
+    confirmado, tel, tipo = asyncio.run(extrair_telefone_confirmado_chat(page, "5521999999999"))
+    assert confirmado is True
+    assert tel == "5521999999999"
+    assert tipo == "jid"
+
+
+def test_telefone_nacional_e_55_sao_equivalentes():
+    """Telefone nacional (21999999999) e com 55 (5521999999999) são equivalentes."""
+    assert normalizar_telefone_br("21999999999") == "5521999999999"
+    assert normalizar_telefone_br("5521999999999") == "5521999999999"
+
+
+def test_numero_parcial_nao_confirma():
+    """Número parcial (últimos 4 dígitos) não deve confirmar."""
+    dom = {
+        CONVERSATION_HEADER_SELECTORS[0]: [{"title": None, "text": None, "timestamp": None}],
+        PHONE_IN_PROFILE_SELECTORS[0]: [{"title": "9999", "text": None, "timestamp": None}],
+        BACK_BUTTON_SELECTORS[0]: [{"title": None, "text": None, "timestamp": None}],
+    }
+    page = FakePage(dom)
+    confirmado, tel, tipo = asyncio.run(extrair_telefone_confirmado_chat(page, "5521999999999"))
+    assert confirmado is False
+
+
+def test_nome_igual_nao_confirma():
+    """Apenas nome igual não deve confirmar telefone."""
+    dom = {
+        CONVERSATION_HEADER_SELECTORS[0]: [{"title": None, "text": None, "timestamp": None}],
+        PHONE_IN_PROFILE_SELECTORS[0]: [],  # Sem telefone no painel
+        BACK_BUTTON_SELECTORS[0]: [{"title": None, "text": None, "timestamp": None}],
+    }
+    page = FakePage(dom)
+    confirmado, tel, tipo = asyncio.run(extrair_telefone_confirmado_chat(page, "5521999999999"))
+    assert confirmado is False
+
+
+def test_chat_diferente_mantem_ambiguous_contact():
+    """Chat com telefone diferente mantém ambiguous_contact."""
+    dom = {
+        CONVERSATION_HEADER_SELECTORS[0]: [{"title": None, "text": None, "timestamp": None}],
+        PHONE_IN_PROFILE_SELECTORS[0]: [{"title": "+55 21 88888-8888", "text": None, "timestamp": None}],
+        BACK_BUTTON_SELECTORS[0]: [{"title": None, "text": None, "timestamp": None}],
+    }
+    page = FakePage(dom)
+    confirmado, tel, tipo = asyncio.run(extrair_telefone_confirmado_chat(page, "5521999999999"))
+    assert confirmado is False
+    assert tel is None
+
+
+def test_extrair_telefone_nenhuma_escrita():
+    """Extração de telefone não escreve no Supabase."""
+    src = (Path(__file__).resolve().parent.parent / "whatsapp_match" / "matcher.py").read_text(encoding="utf-8")
+    assert "service_role" not in src.lower()
+    assert "rpc" not in src.lower() or "no_rpc" in src.lower()
+
+
+def test_extrair_telefone_nenhum_envio():
+    """Extração de telefone não envia mensagens."""
+    src = (Path(__file__).resolve().parent.parent / "whatsapp_match" / "matcher.py").read_text(encoding="utf-8")
+    assert "send?phone=" not in src
+    assert "web.whatsapp.com/send" not in src

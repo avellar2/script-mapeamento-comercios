@@ -350,34 +350,36 @@ async def abrir_conversa(page) -> bool:
         return False
 
 
-async def confirmar_numero(page, telefone_canonico: str) -> tuple[bool, Optional[str]]:
+async def extrair_telefone_confirmado_chat(page, telefone_canonico: str) -> tuple[bool, Optional[str], str]:
     """
-    Confirma que a conversa aberta pertence ao número correto.
+    Extrai o telefone da conversa atual em camadas, da mais confiável para a menos.
 
-    Estratégia otimizada:
-    1. Consulta todos os seletores de header com timeout curto
-    2. Abre painel de info só se necessário
-    3. Para imediatamente quando confirmar
-    4. Orçamento total: 3-6s
+    Ordem de preferência:
+    1. Número explícito no painel de informações (PHONE_IN_PROFILE_SELECTORS)
+    2. Link tel: no painel
+    3. aria-label/title contendo telefone
+    4. Identificador técnico JID no DOM
+    5. Header exibindo explicitamente o número
 
     Args:
         page: Página do Playwright
         telefone_canonico: Telefone canônico (ex: 5521999999999)
 
     Returns:
-        (confirmado, telefone_encontrado)
+        (confirmado, telefone_encontrado, tipo_evidencia)
     """
     t0 = time.time()
 
-    # Tenta obter telefone do header (rápido, sem abrir painel)
+    # CAMADA 1: Painel de informações (PHONE_IN_PROFILE_SELECTORS)
     try:
+        # Clica no header para abrir painel
         header_selector = await encontrar_seletor_rapido(page, CONVERSATION_HEADER_SELECTORS, 1000)
         if header_selector:
             header = page.locator(header_selector)
             await header.click()
             await page.wait_for_timeout(200)
 
-            # Procura telefone no painel de informações
+            # Procura telefone usando PHONE_IN_PROFILE_SELECTORS
             phone_selector = await encontrar_seletor_rapido(page, PHONE_IN_PROFILE_SELECTORS, 2000)
             if phone_selector:
                 phone_el = page.locator(phone_selector).first
@@ -387,18 +389,91 @@ async def confirmar_numero(page, telefone_canonico: str) -> tuple[bool, Optional
                     encontrado = normalizar_telefone_br(phone_text)
                     if encontrado and encontrado == telefone_canonico:
                         elapsed = time.time() - t0
-                        logger.debug("Número confirmado: %s (%.2fs)", telefone_canonico, elapsed)
-                        return True, encontrado
+                        logger.debug("Número confirmado via PHONE_IN_PROFILE: %s (%.2fs)", telefone_canonico, elapsed)
+                        await _voltar_painel(page)
+                        return True, encontrado, "phone_profile"
 
-            # Volta para a conversa
-            back_selector = await encontrar_seletor_rapido(page, BACK_BUTTON_SELECTORS, 1000)
-            if back_selector:
-                await page.locator(back_selector).first.click()
-                await page.wait_for_timeout(200)
+            # CAMADA 2: Link tel:
+            tel_links = page.locator('a[href*="tel:"]')
+            count = await tel_links.count()
+            for i in range(count):
+                href = await tel_links.nth(i).get_attribute("href")
+                if href:
+                    tel_str = href.replace("tel:", "").replace("+", "").replace(" ", "").replace("-", "").replace("(", "").replace(")", "")
+                    encontrado = normalizar_telefone_br(tel_str)
+                    if encontrado and encontrado == telefone_canonico:
+                        elapsed = time.time() - t0
+                        logger.debug("Número confirmado via tel: %s (%.2fs)", telefone_canonico, elapsed)
+                        await _voltar_painel(page)
+                        return True, encontrado, "tel_link"
+
+            # CAMADA 3: aria-label com telefone
+            aria_phone = page.locator('[aria-label*="+55"], [aria-label*="55"]')
+            count = await aria_phone.count()
+            for i in range(count):
+                label = await aria_phone.nth(i).get_attribute("aria-label")
+                if label:
+                    encontrado = normalizar_telefone_br(label)
+                    if encontrado and encontrado == telefone_canonico:
+                        elapsed = time.time() - t0
+                        logger.debug("Número confirmado via aria-label: %s (%.2fs)", telefone_canonico, elapsed)
+                        await _voltar_painel(page)
+                        return True, encontrado, "aria_label"
+
+            # CAMADA 4: JID no DOM
+            jid_elements = page.locator('[data-id*="@s.whatsapp.net"]')
+            count = await jid_elements.count()
+            for i in range(count):
+                data_id = await jid_elements.nth(i).get_attribute("data-id")
+                if data_id and "@s.whatsapp.net" in data_id:
+                    jid_num = data_id.split("@")[0]
+                    if jid_num.startswith("55"):
+                        encontrado = normalizar_telefone_br(jid_num)
+                        if encontrado and encontrado == telefone_canonico:
+                            elapsed = time.time() - t0
+                            logger.debug("Número confirmado via JID: %s (%.2fs)", telefone_canonico, elapsed)
+                            await _voltar_painel(page)
+                            return True, encontrado, "jid"
+
+            # Volta para conversa (nenhuma camada confirmou)
+            await _voltar_painel(page)
+
     except Exception as e:
-        logger.warning("Erro ao confirmar número: %s (%.2fs)", e, time.time() - t0)
+        logger.warning("Erro ao extrair telefone: %s (%.2fs)", e, time.time() - t0)
+        try:
+            await _voltar_painel(page)
+        except Exception:
+            pass
 
-    return False, None
+    return False, None, "none"
+
+
+async def _voltar_painel(page) -> None:
+    """Volta do painel de informações para a conversa."""
+    try:
+        back_selector = await encontrar_seletor_rapido(page, BACK_BUTTON_SELECTORS, 1000)
+        if back_selector:
+            await page.locator(back_selector).first.click()
+            await page.wait_for_timeout(200)
+    except Exception:
+        pass
+
+
+async def confirmar_numero(page, telefone_canonico: str) -> tuple[bool, Optional[str]]:
+    """
+    Confirma que a conversa aberta pertence ao número correto.
+
+    Delega para extrair_telefone_confirmado_chat() que usa extração em camadas.
+
+    Args:
+        page: Página do Playwright
+        telefone_canonico: Telefone canônico (ex: 5521999999999)
+
+    Returns:
+        (confirmado, telefone_encontrado)
+    """
+    confirmado, tel, _ = await extrair_telefone_confirmado_chat(page, telefone_canonico)
+    return confirmado, tel
 
 
 async def detectar_grupo(page) -> Optional[str]:
