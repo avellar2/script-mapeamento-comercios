@@ -265,3 +265,46 @@ A sequência correta é:
 6. entregar
 7. testar anúncio
 8. transformar em recorrência
+
+## Captação de Leads RJ (run ativo)
+
+Run `run_20260629_014644_583c55` — 92 cidades do RJ, grupo assistências, 5 subnichos (celular, computadores, impressoras, eletrodomésticos, eletrônicos). Ordem alfabética, teto 90 leads/cidade.
+
+**Status atual:** 420/552 tarefas concluídas, 127 pendentes, ~1.808 leads. Parado em São Fidélis.
+
+**Retomar:**
+```bash
+cd C:\projetos\script-mapear-comércios
+python executar_campanha_avgestao.py --etapas mapear --resume --run-id run_20260629_014644_583c55
+```
+
+**Consultar andamento:**
+```bash
+python executar_campanha_avgestao.py --status --run-id run_20260629_014644_583c55
+```
+
+**Requisitos:** Python 3.12, Playwright + Chromium instalado, mesmo caminho `C:\projetos\script-mapear-comércios\`.
+
+**Correções aplicadas:**
+- `mapear_comercios.py`: timeout 45→90s, PlaywrightTimeoutError, _avaliar_saude_pagina(), retry 1+1, proteção items.count(), reload seguro, logs, instrumentação
+- `config/lock.py`: os.write via fd no Windows com msvcrt.locking() — corrige PermissionError
+- 346 testes passando
+
+**NUNCA** executar resume/captação/Chromium/alterar arquivos/locks/matar sem autorização.
+
+## WhatsApp Matcher (branch feat/protecao-duplicidade-whatsapp)
+
+Otimização do matcher de conversas no WhatsApp Web:
+- `variantes_busca_telefone`: 8 variantes → 1 (DDD+número, sem 55). Celular: 11 dígitos, Fixo: 10 dígitos
+- `TIMEOUT_CURTO`: 5s → 1s, `encontrar_seletor_rapido` com `count()` imediato
+- `abrir_conversa`: espera composta `asyncio.gather`, orçamento 8s
+- `detectar_grupo`: `count()` imediato, classifica channel/community/group
+- `detectar_mensagem_saida`: `count()` + fallback JS DOM (`data-testid*="out"`, `message-out`)
+- Controle positivo TECM: MATCHED em 13.71s
+- Dry-run 10 leads: ~10s/lead (antes ~66s)
+- Commit `19555c2`
+
+## Clientes AVGESTÃO
+
+1. **Universo do Celular** (Posse - Nova Iguaçu, conserto de celular) — ativou 27/06/2026. R$49/mês.
+2. **Oficina automotiva C&B** (tel 21 965004338) — respondeu sim em 02/07 após envio em 24/06. Pendente: pedir email válido, configurar conta, redefinir senha.
