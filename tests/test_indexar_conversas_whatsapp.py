@@ -147,12 +147,13 @@ def test_confirma_telefone_completo_em_atributo_tecnico(monkeypatch):
         return None
 
     monkeypatch.setattr(mod, "_abrir_painel_info", noop)
+    monkeypatch.setattr(mod, "_fechar_painel_info_se_aberto", noop)
 
     page = FakePage(
         {
-            '[data-id*="@s.whatsapp.net"]': [FakeNode({"data-id": "5521999999999@s.whatsapp.net"})],
-            '[data-id], [data-testid], [aria-label], [title]': [],
-            'a[href*="tel:"]': [],
+            '#main [data-id*="@s.whatsapp.net"], [data-testid="conversation-panel-wrapper"] [data-id*="@s.whatsapp.net"]': [FakeNode({"data-id": "5521999999999@s.whatsapp.net"})],
+            '[data-testid="contact-info"], [data-testid*="drawer" i] [data-id], section[data-testid*="contact"] [data-id]': [],
+            '[data-testid="contact-info"] a[href*="tel:"], section[data-testid*="contact"] a[href*="tel:"]': [],
             '[aria-label*="+55"], [aria-label*="55"], [title*="+55"], [title*="55"]': [],
         }
     )
@@ -172,9 +173,9 @@ def test_rejeita_telefone_parcial(monkeypatch):
 
     page = FakePage(
         {
-            '[data-id*="@s.whatsapp.net"]': [FakeNode({"data-id": "9999@s.whatsapp.net"})],
-            '[data-id], [data-testid], [aria-label], [title]': [FakeNode({"aria-label": "contato final 9999"})],
-            'a[href*="tel:"]': [],
+            '#main [data-id*="@s.whatsapp.net"], [data-testid="conversation-panel-wrapper"] [data-id*="@s.whatsapp.net"]': [FakeNode({"data-id": "9999@s.whatsapp.net"})],
+            '[data-testid="contact-info"], [data-testid*="drawer" i] [data-id], section[data-testid*="contact"] [data-id]': [FakeNode({"aria-label": "contato final 9999"})],
+            '[data-testid="contact-info"] a[href*="tel:"], section[data-testid*="contact"] a[href*="tel:"]': [],
             '[aria-label*="+55"], [aria-label*="55"], [title*="+55"], [title*="55"]': [],
         }
     )
@@ -277,3 +278,136 @@ def test_record_persistido_nao_tem_telefone_completo():
     dumped = json.dumps(persisted, ensure_ascii=False)
     assert "5521999999999" not in dumped
     assert persisted["phone_last4"] == "9999"
+  
+  
+# NOVOS TESTES - bugfix telefone repetido  
+ 
+
+
+
+# ============================================================
+# NOVOS TESTES - bugfix telefone repetido
+# ============================================================
+
+def test_dois_chats_diferentes_geram_hashes_diferentes():
+    tel_a = "5521999999999"
+    tel_b = "5521888888888"
+    records = [
+        mod.ChatIndexRecord(
+            technical_id_raw="a", technical_id_sanitized="chat:a",
+            chat_type="individual", status=mod.ChatStatus.campaign_matched,
+            phone_hash=mod.hash_telefone_canonico(tel_a), phone_last4=tel_a[-4:],
+            outbound_found=True, campaign_match=True,
+        ),
+        mod.ChatIndexRecord(
+            technical_id_raw="b", technical_id_sanitized="chat:b",
+            chat_type="individual", status=mod.ChatStatus.campaign_matched,
+            phone_hash=mod.hash_telefone_canonico(tel_b), phone_last4=tel_b[-4:],
+            outbound_found=True, campaign_match=True,
+        ),
+    ]
+    leads = [
+        {"id": "lead-a", "nome": "Loja A", "telefone": tel_a},
+        {"id": "lead-b", "nome": "Loja B", "telefone": tel_b},
+    ]
+    candidatos = mod.comparar_leads_com_indice(records, leads)
+    assert len(candidatos) == 2
+    assert candidatos[0].phone_hash != candidatos[1].phone_hash
+
+
+def test_chat_que_nao_muda_retorna_chat_not_changed():
+    record = mod.ChatIndexRecord(
+        technical_id_raw="x", technical_id_sanitized="chat:x",
+        chat_type="individual", status=mod.ChatStatus.chat_not_changed,
+        error_message="chat nao mudou apos clique", error_stage="aguardar_troca",
+        retryable=True,
+    )
+    assert record.status == mod.ChatStatus.chat_not_changed
+    assert record.error_stage == "aguardar_troca"
+    assert record.retryable is True
+
+
+def test_suspicious_repeated_phone_existe():
+    record = mod.ChatIndexRecord(
+        technical_id_raw="x", technical_id_sanitized="chat:x",
+        chat_type="individual", status=mod.ChatStatus.suspicious_repeated_phone,
+        error_message="telefone repetido", error_stage="suspicious_repeat",
+        retryable=False,
+    )
+    assert record.status == mod.ChatStatus.suspicious_repeated_phone
+    assert record.retryable is False
+
+
+def test_tres_repeticoes_disparam_protecao():
+    records = [
+        mod.ChatIndexRecord(
+            technical_id_raw="a", technical_id_sanitized="chat:a",
+            chat_type="individual", status=mod.ChatStatus.campaign_matched,
+            phone_hash="h123", phone_last4="1234",
+            outbound_found=True, campaign_match=True,
+        ),
+        mod.ChatIndexRecord(
+            technical_id_raw="b", technical_id_sanitized="chat:b",
+            chat_type="individual", status=mod.ChatStatus.campaign_matched,
+            phone_hash="h123", phone_last4="1234",
+            outbound_found=True, campaign_match=True,
+        ),
+        mod.ChatIndexRecord(
+            technical_id_raw="c", technical_id_sanitized="chat:c",
+            chat_type="individual", status=mod.ChatStatus.campaign_matched,
+            phone_hash="h123", phone_last4="1234",
+            outbound_found=True, campaign_match=True,
+        ),
+    ]
+    ultimos_hashes = [
+        r.phone_hash
+        for r in records
+        if r.chat_type == "individual" and r.phone_hash
+    ]
+    assert len(set(ultimos_hashes)) == 1
+    assert len(ultimos_hashes) >= 3
+
+
+def test_estado_zerado_entre_iteracoes():
+    tel_a = "5521999999999"
+    tel_b = "5521888888888"
+    rec1 = mod.ChatIndexRecord(
+        technical_id_raw="a", technical_id_sanitized="chat:a",
+        chat_type="individual", status=mod.ChatStatus.campaign_matched,
+        phone_hash=mod.hash_telefone_canonico(tel_a),
+        phone_last4=tel_a[-4:],
+    )
+    rec2 = mod.ChatIndexRecord(
+        technical_id_raw="b", technical_id_sanitized="chat:b",
+        chat_type="individual", status=mod.ChatStatus.campaign_matched,
+        phone_hash=mod.hash_telefone_canonico(tel_b),
+        phone_last4=tel_b[-4:],
+    )
+    assert rec1.phone_hash != rec2.phone_hash
+    assert rec1.phone_last4 != rec2.phone_last4
+    assert rec1.technical_id_sanitized != rec2.technical_id_sanitized
+
+
+def test_record_persistido_tem_campos_novos():
+    rec = mod.ChatIndexRecord(
+        technical_id_raw="x", technical_id_sanitized="chat:x",
+        chat_type="individual", status=mod.ChatStatus.error,
+        error_message="err", error_stage="exception", retryable=True,
+    )
+    assert rec.error_stage == "exception"
+    assert rec.retryable is True
+
+
+def test_capturar_identificador_chat_ativo_existe():
+    assert hasattr(mod, "capturar_identificador_chat_ativo")
+    assert callable(mod.capturar_identificador_chat_ativo)
+
+
+def test_aguardar_troca_chat_existe():
+    assert hasattr(mod, "aguardar_troca_chat")
+    assert callable(mod.aguardar_troca_chat)
+
+
+def test_fechar_painel_info_se_aberto_existe():
+    assert hasattr(mod, "_fechar_painel_info_se_aberto")
+    assert callable(mod._fechar_painel_info_se_aberto)

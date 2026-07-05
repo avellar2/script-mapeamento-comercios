@@ -65,6 +65,7 @@ OUTPUT_DIR = Path("output/avgestao/whatsapp_reverse_index")
 CHECKPOINT_FILE = OUTPUT_DIR / "checkpoint.json"
 DEFAULT_LIMIT = 20
 MAX_IDLE_ROUNDS = 4
+CHANGE_TIMEOUT_MS = 3000
 SCROLL_STEP = 760
 SCROLL_PAUSE_MS = 650
 MAX_OUTBOUND_SCAN = 12
@@ -104,6 +105,8 @@ class ChatStatus(str, Enum):
     no_outbound = "no_outbound"
     phone_unconfirmed = "phone_unconfirmed"
     chat_unsupported = "chat_unsupported"
+    chat_not_changed = "chat_not_changed"
+    suspicious_repeated_phone = "suspicious_repeated_phone"
     error = "error"
 
 
@@ -122,6 +125,8 @@ class ChatIndexRecord:
     evidence: str = ""
     message_fingerprint: str = ""
     error_message: str = ""
+    error_stage: str = ""
+    retryable: bool = True
 
     def to_persisted_dict(self) -> dict[str, Any]:
         return {
@@ -477,6 +482,63 @@ async def varrer_ate_estabilizar(
 # Conversa aberta: classificação / telefone / campanha
 # ---------------------------------------------------------------------------
 
+async def capturar_identificador_chat_ativo(page) -> str:
+    """Captura um identificador estável do chat atualmente aberto."""
+    try:
+        result = await page.evaluate(
+            """() => {
+                const header = document.querySelector('header');
+                if (!header) return '';
+                const titleEl = header.querySelector('[title], span[title]');
+                const title = titleEl ? (titleEl.getAttribute('title') || titleEl.textContent || '') : '';
+                const aria = header.getAttribute('aria-label') || '';
+                return (aria + '|' + title).substring(0, 200);
+            }"""
+        )
+        return result or ""
+    except Exception:
+        return ""
+
+
+async def aguardar_troca_chat(page, prev_identifier: str, timeout_ms: int = CHANGE_TIMEOUT_MS) -> bool:
+    """Aguarda o identificador do chat ativo mudar em relação ao anterior."""
+    import asyncio as _asyncio
+    deadline = _asyncio.get_event_loop().time() + timeout_ms / 1000.0
+    while _asyncio.get_event_loop().time() < deadline:
+        current = await capturar_identificador_chat_ativo(page)
+        if current and current != prev_identifier:
+            return True
+        await page.wait_for_timeout(200)
+    return False
+
+
+async def _fechar_painel_info_se_aberto(page) -> None:
+    """Fecha painel de informações se estiver aberto (vestígio do chat anterior)."""
+    try:
+        close_btns = page.locator(
+            'button[aria-label*="Fechar" i], '
+            'button[aria-label*="Close" i], '
+            'div[role="button"][aria-label*="close" i]'
+        )
+        count = await close_btns.count()
+        for i in range(min(count, 3)):
+            try:
+                await close_btns.nth(i).click(timeout=2000)
+                await page.wait_for_timeout(300)
+            except Exception:
+                pass
+    except Exception:
+        pass
+    # fallback: Escape para fechar painéis
+    try:
+        keyboard = getattr(page, "keyboard", None)
+        if keyboard and hasattr(keyboard, "press"):
+            await keyboard.press("Escape")
+            await page.wait_for_timeout(200)
+    except Exception:
+        pass
+
+
 async def classificar_conversa_aberta(page) -> str:
     try:
         tipo_grupo = await detectar_grupo(page)
@@ -507,45 +569,60 @@ async def _abrir_painel_info(page) -> None:
 
 
 async def extrair_telefone_da_conversa(page) -> tuple[Optional[str], str]:
+    """Extrai telefone do chat ATUAL, com escopo restrito para evitar vestígios."""
+    # Fecha painel antigo, abre o do chat atual
+    await _fechar_painel_info_se_aberto(page)
     await _abrir_painel_info(page)
 
-    # 1) JID / atributo técnico contendo telefone
+    # 1) JID no main/conversation panel - escopo restrito
     try:
-        jid_elements = page.locator('[data-id*="@s.whatsapp.net"]')
+        jid_elements = page.locator(
+            '#main [data-id*="@s.whatsapp.net"], '
+            '[data-testid="conversation-panel-wrapper"] [data-id*="@s.whatsapp.net"]'
+        )
         count = await jid_elements.count()
         for i in range(count):
             el = jid_elements.nth(i)
+            raw = None
+            for attr in ("data-id",):
+                try:
+                    raw = await el.get_attribute(attr)
+                except Exception:
+                    pass
+            telefone = normalizar_telefone_br(raw or "")
+            if telefone:
+                return telefone, "jid"
+    except Exception:
+        pass
+
+    # 2) telefone no painel lateral (info drawer) apenas
+    try:
+        drawer_els = page.locator(
+            '[data-testid="contact-info"], '
+            '[data-testid*="drawer" i] [data-id], '
+            'section[data-testid*="contact"] [data-id]'
+        )
+        count = await drawer_els.count()
+        for i in range(count):
+            el = drawer_els.nth(i)
+            raw = None
             for attr in ("data-id", "aria-label", "title"):
                 try:
                     raw = await el.get_attribute(attr)
                 except Exception:
-                    raw = None
-                telefone = normalizar_telefone_br(raw or "")
-                if telefone:
-                    return telefone, "jid"
+                    pass
+            telefone = normalizar_telefone_br(raw or "")
+            if telefone:
+                return telefone, f"drawer:{attr}"
     except Exception:
         pass
 
-    # 2) telefone explícito em atributo técnico
+    # 3) link tel: no painel lateral
     try:
-        attr_candidates = page.locator('[data-id], [data-testid], [aria-label], [title]')
-        count = await attr_candidates.count()
-        for i in range(count):
-            el = attr_candidates.nth(i)
-            for attr in ("data-id", "data-testid", "aria-label", "title"):
-                try:
-                    raw = await el.get_attribute(attr)
-                except Exception:
-                    raw = None
-                telefone = normalizar_telefone_br(raw or "")
-                if telefone:
-                    return telefone, f"attr:{attr}"
-    except Exception:
-        pass
-
-    # 3) link tel:
-    try:
-        tel_links = page.locator('a[href*="tel:"]')
+        tel_links = page.locator(
+            '[data-testid="contact-info"] a[href*="tel:"], '
+            'section[data-testid*="contact"] a[href*="tel:"]'
+        )
         count = await tel_links.count()
         for i in range(count):
             href = await tel_links.nth(i).get_attribute("href")
@@ -555,7 +632,7 @@ async def extrair_telefone_da_conversa(page) -> tuple[Optional[str], str]:
     except Exception:
         pass
 
-    # 4) painel de informações
+    # 4) painel de informações (seletores específicos)
     try:
         for selector in PHONE_IN_PROFILE_SELECTORS:
             try:
@@ -570,19 +647,6 @@ async def extrair_telefone_da_conversa(page) -> tuple[Optional[str], str]:
                 telefone = normalizar_telefone_br(raw or "")
                 if telefone:
                     return telefone, "info_panel"
-    except Exception:
-        pass
-
-    # 5) aria-label/title contendo número completo
-    try:
-        aria_candidates = page.locator('[aria-label*="+55"], [aria-label*="55"], [title*="+55"], [title*="55"]')
-        count = await aria_candidates.count()
-        for i in range(count):
-            el = aria_candidates.nth(i)
-            raw = await el.get_attribute("aria-label") or await el.get_attribute("title") or await el.text_content()
-            telefone = normalizar_telefone_br(raw or "")
-            if telefone:
-                return telefone, "aria_title"
     except Exception:
         pass
 
@@ -689,10 +753,22 @@ async def processar_card(page, card: dict[str, Any], campaign_key: str, diagnost
     raw_tech = str(card.get("rawTechnicalId") or "")
     tech_sanitized = str(card.get("chat_key") or sanitizar_identificador_tecnico(raw_tech))
     row_index = int(card.get("rowIndex") or 0)
-    display_name = str(card.get("title") or card.get("ariaLabel") or "")
     chat_type_hint = str(card.get("chat_type_hint") or "individual")
 
+    # --- ZERAR ESTADO entre iterações ---
+    telefone_extraido: Optional[str] = None
+    phone_hash_local: str = ""
+    phone_last4_local: str = ""
+    evidence_local: str = ""
+    outbound_found_local: bool = False
+    anchor_count_local: int = 0
+    campaign_match_local: bool = False
+
     try:
+        # 1) Capturar identificador do chat atual ANTES de clicar no novo
+        prev_identifier = await capturar_identificador_chat_ativo(page)
+
+        # 2) Clicar no novo chat
         if not await abrir_chat_por_indice(page, row_index):
             return ChatIndexRecord(
                 technical_id_raw=raw_tech,
@@ -700,6 +776,33 @@ async def processar_card(page, card: dict[str, Any], campaign_key: str, diagnost
                 chat_type=chat_type_hint,
                 status=ChatStatus.error,
                 error_message="não foi possível abrir o chat",
+                error_stage="abrir_chat",
+                retryable=True,
+            )
+
+        # 3) Aguardar troca real do chat
+        if not await aguardar_troca_chat(page, prev_identifier):
+            return ChatIndexRecord(
+                technical_id_raw=raw_tech,
+                technical_id_sanitized=tech_sanitized,
+                chat_type=chat_type_hint,
+                status=ChatStatus.chat_not_changed,
+                error_message="chat não mudou após clique",
+                error_stage="aguardar_troca",
+                retryable=True,
+            )
+
+        # 4) Validar que o chat novo é diferente
+        new_identifier = await capturar_identificador_chat_ativo(page)
+        if new_identifier == prev_identifier and prev_identifier:
+            return ChatIndexRecord(
+                technical_id_raw=raw_tech,
+                technical_id_sanitized=tech_sanitized,
+                chat_type=chat_type_hint,
+                status=ChatStatus.chat_not_changed,
+                error_message="identificador não alterou após troca",
+                error_stage="validar_troca",
+                retryable=True,
             )
 
         await _fechar_modal(page)
@@ -712,64 +815,43 @@ async def processar_card(page, card: dict[str, Any], campaign_key: str, diagnost
                 status=ChatStatus.chat_unsupported,
             )
 
-        telefone, evidence = await extrair_telefone_da_conversa(page)
+        telefone, evidence_local = await extrair_telefone_da_conversa(page)
         if not telefone:
             return ChatIndexRecord(
                 technical_id_raw=raw_tech,
                 technical_id_sanitized=tech_sanitized,
                 chat_type=chat_type,
                 status=ChatStatus.phone_unconfirmed,
-                evidence=evidence,
+                evidence=evidence_local,
             )
 
-        outbound_found, status, timestamp, fp, anchor_count = await detectar_outbound_campanha(page, campaign_key)
-        if status == ChatStatus.no_outbound.value:
-            record = ChatIndexRecord(
-                technical_id_raw=raw_tech,
-                technical_id_sanitized=tech_sanitized,
-                chat_type=chat_type,
-                status=ChatStatus.no_outbound,
-                phone_hash=hash_telefone_canonico(telefone),
-                phone_last4=telefone[-4:],
-                outbound_found=False,
-                anchor_count=0,
-                campaign_match=False,
-                timestamp_technical=None,
-                evidence=evidence,
-            )
-        elif status == ChatStatus.outbound_other_campaign.value:
-            record = ChatIndexRecord(
-                technical_id_raw=raw_tech,
-                technical_id_sanitized=tech_sanitized,
-                chat_type=chat_type,
-                status=ChatStatus.outbound_other_campaign,
-                phone_hash=hash_telefone_canonico(telefone),
-                phone_last4=telefone[-4:],
-                outbound_found=True,
-                anchor_count=anchor_count,
-                campaign_match=False,
-                timestamp_technical=timestamp,
-                evidence=evidence,
-                message_fingerprint=fp,
-            )
-        else:
-            record = ChatIndexRecord(
-                technical_id_raw=raw_tech,
-                technical_id_sanitized=tech_sanitized,
-                chat_type=chat_type,
-                status=ChatStatus.campaign_matched,
-                phone_hash=hash_telefone_canonico(telefone),
-                phone_last4=telefone[-4:],
-                outbound_found=outbound_found,
-                anchor_count=anchor_count,
-                campaign_match=True,
-                timestamp_technical=timestamp,
-                evidence=evidence,
-                message_fingerprint=fp,
-            )
+        telefone_extraido = telefone
+        phone_hash_local = hash_telefone_canonico(telefone)
+        phone_last4_local = telefone[-4:]
+
+        outbound_found_local, status, timestamp, fp, anchor_count_local = await detectar_outbound_campanha(page, campaign_key)
+        campaign_match_local = (status == ChatStatus.campaign_matched.value)
+
+        record = ChatIndexRecord(
+            technical_id_raw=raw_tech,
+            technical_id_sanitized=tech_sanitized,
+            chat_type=chat_type,
+            status=ChatStatus(status),
+            phone_hash=phone_hash_local,
+            phone_last4=phone_last4_local,
+            outbound_found=outbound_found_local,
+            anchor_count=anchor_count_local,
+            campaign_match=campaign_match_local,
+            timestamp_technical=timestamp,
+            evidence=evidence_local,
+            message_fingerprint=fp if fp else "",
+        )
 
         return record
+
     except Exception as exc:
+        exc_name = type(exc).__name__
+        exc_msg = str(exc)[:240]
         try:
             await capturar_diagnostico(page, diagnostic_dir, prefixo=f"index_{tech_sanitized[:10]}")
         except Exception:
@@ -779,7 +861,9 @@ async def processar_card(page, card: dict[str, Any], campaign_key: str, diagnost
             technical_id_sanitized=tech_sanitized,
             chat_type=chat_type_hint,
             status=ChatStatus.error,
-            error_message=str(exc)[:240],
+            error_message=f"{exc_name}: {exc_msg}",
+            error_stage="exception",
+            retryable=True,
         )
     finally:
         try:
@@ -927,6 +1011,28 @@ async def indexar_conversas_whatsapp(
                 raw_cards_all.append(card)
                 result = await processar_card(page, card, campaign_key, diagnostic_dir)
                 records.append(result)
+
+                # Proteção: detectar telefone repetido suspeito (3+ consecutivos com mesmo hash)
+                if result.phone_hash and result.chat_type == "individual":
+                    ultimos = [r for r in records[-4:-1] if r.chat_type == "individual" and r.phone_hash]
+                    if len(ultimos) >= 2:
+                        todos_iguais = all(r.phone_hash == result.phone_hash for r in ultimos)
+                        if todos_iguais:
+                            logger.warning(
+                                "suspicious_repeated_phone: %d chats consecutivos com hash=%s... "
+                                "(último: %s)",
+                                len(ultimos) + 1,
+                                result.phone_hash[:16],
+                                result.technical_id_sanitized,
+                            )
+                            if len(ultimos) >= 3:
+                                result.status = ChatStatus.suspicious_repeated_phone
+                                result.error_message = (
+                                    f"telefone repetido em {len(ultimos) + 1} chats consecutivos - "
+                                    "possível vestígio de chat anterior"
+                                )
+                                result.error_stage = "suspicious_repeat"
+                                result.retryable = False
                 total_processed += 1
                 last_chat_key = result.technical_id_sanitized
                 processed_keys.add(last_chat_key)
