@@ -398,9 +398,9 @@ def test_record_persistido_tem_campos_novos():
     assert rec.retryable is True
 
 
-def test_capturar_identificador_chat_ativo_existe():
-    assert hasattr(mod, "capturar_identificador_chat_ativo")
-    assert callable(mod.capturar_identificador_chat_ativo)
+def test_capturar_assinatura_chat_ativo_existe():
+    assert hasattr(mod, "capturar_assinatura_chat_ativo")
+    assert callable(mod.capturar_assinatura_chat_ativo)
 
 
 def test_aguardar_troca_chat_existe():

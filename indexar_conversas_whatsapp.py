@@ -65,7 +65,7 @@ OUTPUT_DIR = Path("output/avgestao/whatsapp_reverse_index")
 CHECKPOINT_FILE = OUTPUT_DIR / "checkpoint.json"
 DEFAULT_LIMIT = 20
 MAX_IDLE_ROUNDS = 4
-CHANGE_TIMEOUT_MS = 3000
+CHANGE_TIMEOUT_MS = 5000
 SCROLL_STEP = 760
 SCROLL_PAUSE_MS = 650
 MAX_OUTBOUND_SCAN = 12
@@ -106,6 +106,7 @@ class ChatStatus(str, Enum):
     phone_unconfirmed = "phone_unconfirmed"
     chat_unsupported = "chat_unsupported"
     chat_not_changed = "chat_not_changed"
+    chat_click_failed = "chat_click_failed"
     suspicious_repeated_phone = "suspicious_repeated_phone"
     error = "error"
 
@@ -127,6 +128,10 @@ class ChatIndexRecord:
     error_message: str = ""
     error_stage: str = ""
     retryable: bool = True
+    signature_before: str = ""
+    signature_after: str = ""
+    card_selected: bool = False
+    panel_loaded: bool = False
 
     def to_persisted_dict(self) -> dict[str, Any]:
         return {
@@ -482,33 +487,79 @@ async def varrer_ate_estabilizar(
 # Conversa aberta: classificação / telefone / campanha
 # ---------------------------------------------------------------------------
 
-async def capturar_identificador_chat_ativo(page) -> str:
-    """Captura um identificador estável do chat atualmente aberto."""
+async def capturar_assinatura_chat_ativo(page) -> str:
+    """Gera assinatura SHA-256 do chat ativo usando sinais do #main."""
     try:
-        result = await page.evaluate(
+        sinais = await page.evaluate(
             """() => {
-                const header = document.querySelector('header');
-                if (!header) return '';
-                const titleEl = header.querySelector('[title], span[title]');
-                const title = titleEl ? (titleEl.getAttribute('title') || titleEl.textContent || '') : '';
-                const aria = header.getAttribute('aria-label') || '';
-                return (aria + '|' + title).substring(0, 200);
+                const main = document.querySelector('#main');
+                if (!main) return [];
+
+                const signals = [];
+
+                const headerInMain = main.querySelector('header');
+                if (headerInMain) {
+                    const hTitle = headerInMain.getAttribute('title') || '';
+                    const hAria = headerInMain.getAttribute('aria-label') || '';
+                    const hDataId = headerInMain.getAttribute('data-id') || '';
+                    signals.push('h:' + [hAria, hTitle, hDataId].filter(Boolean).join('|'));
+                }
+
+                const msgs = main.querySelectorAll('[data-id]');
+                const msgIds = [];
+                for (const m of msgs) {
+                    const d = m.getAttribute('data-id');
+                    if (d && d.length > 4) msgIds.push(d);
+                }
+                if (msgIds.length > 0) {
+                    signals.push('m1:' + msgIds[0]);
+                    signals.push('mN:' + msgIds[msgIds.length - 1]);
+                }
+
+                const contactEls = main.querySelectorAll(
+                    '[data-testid="conversation-header"], '
+                    + '[data-testid="conversation-info-header"]'
+                );
+                for (const el of contactEls) {
+                    const id = el.getAttribute('data-id') || '';
+                    const aria = el.getAttribute('aria-label') || '';
+                    if (id || aria) signals.push('c:' + (id || aria));
+                }
+
+                const selected = document.querySelector(
+                    '[aria-selected="true"], '
+                    + '[data-testid="chat-list-item"][aria-current], '
+                    + 'div[role="row"][aria-selected="true"]'
+                );
+                if (selected) {
+                    const sId = selected.getAttribute('data-id') || '';
+                    const sAria = selected.getAttribute('aria-label') || '';
+                    signals.push('sel:' + (sId || sAria));
+                }
+
+                return signals;
             }"""
         )
-        return result or ""
+
+        if not sinais:
+            return ""
+        raw = "||".join(str(s) for s in sinais)
+        return "sig:" + hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24]
     except Exception:
         return ""
 
 
-async def aguardar_troca_chat(page, prev_identifier: str, timeout_ms: int = CHANGE_TIMEOUT_MS) -> bool:
-    """Aguarda o identificador do chat ativo mudar em relação ao anterior."""
+async def aguardar_troca_chat(page, prev_signature: str, timeout_ms: int = CHANGE_TIMEOUT_MS) -> bool:
+    """Aguarda assinatura do #main mudar após clique em novo chat."""
     import asyncio as _asyncio
     deadline = _asyncio.get_event_loop().time() + timeout_ms / 1000.0
     while _asyncio.get_event_loop().time() < deadline:
-        current = await capturar_identificador_chat_ativo(page)
-        if current and current != prev_identifier:
+        current = await capturar_assinatura_chat_ativo(page)
+        if not prev_signature and current:
             return True
-        await page.wait_for_timeout(200)
+        if current and current != prev_signature:
+            return True
+        await page.wait_for_timeout(250)
     return False
 
 
@@ -725,25 +776,42 @@ async def _fechar_contexto_chat(page) -> None:
 
 
 async def abrir_chat_por_indice(page, row_index: int) -> bool:
+    """Clica no card da lista pelo indice visual e aguarda o painel #main comecar a carregar."""
     try:
         resultado = await page.evaluate(
             """(rowIndex) => {
-                const list = document.querySelector('div[data-testid="chat-list"], div[aria-label*="lista de conversas" i], div[aria-label*="chat list" i]');
+                const list = document.querySelector(
+                    'div[data-testid="chat-list"], '
+                    + 'div[aria-label*="lista de conversas" i], '
+                    + 'div[aria-label*="chat list" i]'
+                );
                 if (!list) return false;
-                const rows = Array.from(list.querySelectorAll('div[role="row"], div[data-testid="chat-list-item"], div[data-testid="cell-frame-container"], div[tabindex="-1"]'));
+                const rows = Array.from(list.querySelectorAll(
+                    'div[role="row"], '
+                    + 'div[data-testid="chat-list-item"], '
+                    + 'div[data-testid="cell-frame-container"], '
+                    + 'div[tabindex="-1"]'
+                ));
                 const row = rows[rowIndex];
                 if (!row) return false;
+
+                const clickTarget = row.querySelector(
+                    '[role="button"], '
+                    + '[data-testid="chat-list-item"] > div, '
+                    + 'div[tabindex="0"]'
+                ) || row;
+
                 const ev = { bubbles: true, cancelable: true, view: window };
-                row.dispatchEvent(new MouseEvent('mousedown', ev));
-                row.dispatchEvent(new MouseEvent('mouseup', ev));
-                row.dispatchEvent(new MouseEvent('click', ev));
-                if (typeof row.click === 'function') row.click();
+                clickTarget.dispatchEvent(new MouseEvent('mousedown', ev));
+                clickTarget.dispatchEvent(new MouseEvent('mouseup', ev));
+                clickTarget.dispatchEvent(new MouseEvent('click', ev));
+                if (typeof clickTarget.click === 'function') clickTarget.click();
                 return true;
             }""",
             row_index,
         )
         if resultado:
-            await page.wait_for_timeout(700)
+            await page.wait_for_timeout(800)
         return bool(resultado)
     except Exception:
         return False
@@ -763,46 +831,88 @@ async def processar_card(page, card: dict[str, Any], campaign_key: str, diagnost
     outbound_found_local: bool = False
     anchor_count_local: int = 0
     campaign_match_local: bool = False
+    signature_before: str = ""
+    signature_after: str = ""
+    card_selected: bool = False
+    panel_loaded: bool = False
 
     try:
-        # 1) Capturar identificador do chat atual ANTES de clicar no novo
-        prev_identifier = await capturar_identificador_chat_ativo(page)
+        # 1) Fechar painel de informacoes antigo
+        await _fechar_painel_info_se_aberto(page)
 
-        # 2) Clicar no novo chat
+        # 2) Capturar assinatura do chat ATUAL antes de clicar
+        signature_before = await capturar_assinatura_chat_ativo(page)
+
+        # 3) Clicar no card alvo
         if not await abrir_chat_por_indice(page, row_index):
             return ChatIndexRecord(
                 technical_id_raw=raw_tech,
                 technical_id_sanitized=tech_sanitized,
                 chat_type=chat_type_hint,
-                status=ChatStatus.error,
-                error_message="não foi possível abrir o chat",
+                status=ChatStatus.chat_click_failed,
+                error_message="clique no card nao foi executado",
                 error_stage="abrir_chat",
                 retryable=True,
+                signature_before=signature_before,
             )
 
-        # 3) Aguardar troca real do chat
-        if not await aguardar_troca_chat(page, prev_identifier):
+        # 4) Aguardar troca real do chat
+        if not await aguardar_troca_chat(page, signature_before):
             return ChatIndexRecord(
                 technical_id_raw=raw_tech,
                 technical_id_sanitized=tech_sanitized,
                 chat_type=chat_type_hint,
                 status=ChatStatus.chat_not_changed,
-                error_message="chat não mudou após clique",
+                error_message="assinatura do chat nao mudou apos clique",
                 error_stage="aguardar_troca",
                 retryable=True,
+                signature_before=signature_before,
             )
 
-        # 4) Validar que o chat novo é diferente
-        new_identifier = await capturar_identificador_chat_ativo(page)
-        if new_identifier == prev_identifier and prev_identifier:
+        # 5) Capturar assinatura pos-clique e validar
+        signature_after = await capturar_assinatura_chat_ativo(page)
+
+        # Verificar estado do card
+        try:
+            card_sel = await page.evaluate(
+                """() => {
+                    const sel = document.querySelector('[aria-selected="true"], div[role="row"][aria-selected="true"]');
+                    return !!sel;
+                }"""
+            )
+            card_selected = bool(card_sel)
+        except Exception:
+            card_selected = False
+
+        # Verificar se #main carregou conteudo
+        try:
+            pl = await page.evaluate(
+                """() => {
+                    const main = document.querySelector('#main');
+                    if (!main) return false;
+                    const msgs = main.querySelectorAll('[data-id]');
+                    return msgs.length > 0;
+                }"""
+            )
+            panel_loaded = bool(pl)
+        except Exception:
+            panel_loaded = False
+
+        # Validar troca: primeiro chat ou assinatura diferente
+        troca_ok = (not signature_before and signature_after) or (signature_after and signature_after != signature_before)
+        if not troca_ok:
             return ChatIndexRecord(
                 technical_id_raw=raw_tech,
                 technical_id_sanitized=tech_sanitized,
                 chat_type=chat_type_hint,
                 status=ChatStatus.chat_not_changed,
-                error_message="identificador não alterou após troca",
+                error_message="assinatura nao alterou; possivel clique em chat ja aberto",
                 error_stage="validar_troca",
                 retryable=True,
+                signature_before=signature_before,
+                signature_after=signature_after,
+                card_selected=card_selected,
+                panel_loaded=panel_loaded,
             )
 
         await _fechar_modal(page)
@@ -813,6 +923,10 @@ async def processar_card(page, card: dict[str, Any], campaign_key: str, diagnost
                 technical_id_sanitized=tech_sanitized,
                 chat_type=chat_type,
                 status=ChatStatus.chat_unsupported,
+                signature_before=signature_before,
+                signature_after=signature_after,
+                card_selected=card_selected,
+                panel_loaded=panel_loaded,
             )
 
         telefone, evidence_local = await extrair_telefone_da_conversa(page)
@@ -823,6 +937,10 @@ async def processar_card(page, card: dict[str, Any], campaign_key: str, diagnost
                 chat_type=chat_type,
                 status=ChatStatus.phone_unconfirmed,
                 evidence=evidence_local,
+                signature_before=signature_before,
+                signature_after=signature_after,
+                card_selected=card_selected,
+                panel_loaded=panel_loaded,
             )
 
         telefone_extraido = telefone
@@ -845,6 +963,11 @@ async def processar_card(page, card: dict[str, Any], campaign_key: str, diagnost
             timestamp_technical=timestamp,
             evidence=evidence_local,
             message_fingerprint=fp if fp else "",
+            error_stage="ok",
+            signature_before=signature_before,
+            signature_after=signature_after,
+            card_selected=card_selected,
+            panel_loaded=panel_loaded,
         )
 
         return record
@@ -864,6 +987,10 @@ async def processar_card(page, card: dict[str, Any], campaign_key: str, diagnost
             error_message=f"{exc_name}: {exc_msg}",
             error_stage="exception",
             retryable=True,
+            signature_before=signature_before,
+            signature_after=signature_after,
+            card_selected=card_selected,
+            panel_loaded=panel_loaded,
         )
     finally:
         try:
@@ -937,7 +1064,7 @@ def _acumular_stats(stats: IndexRunStats, result: ChatIndexRecord) -> None:
     elif result.chat_type == "status":
         stats.total_status_ignored += 1
 
-    if result.status == ChatStatus.phone_unconfirmed:
+    if result.status in (ChatStatus.phone_unconfirmed, ChatStatus.chat_not_changed, ChatStatus.chat_click_failed):
         stats.total_status_ignored += 1
     elif result.status == ChatStatus.error:
         stats.total_errors += 1
