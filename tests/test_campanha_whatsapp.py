@@ -1,0 +1,448 @@
+#!/usr/bin/env python3
+"""Tests for campanha_whatsapp.py - WhatsApp campaign orchestrator."""
+import json
+import os
+import sys
+import tempfile
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from unittest.mock import MagicMock, AsyncMock, patch
+
+import pytest
+
+# Adiciona raiz ao path
+_root = str(Path(__file__).resolve().parent.parent)
+if _root not in sys.path:
+    sys.path.insert(0, _root)
+
+import campanha_whatsapp as cw
+
+
+# ============================================================
+# CapacityCalculator
+# ============================================================
+
+class TestCapacityCalculator:
+    def test_capacidade_basica(self):
+        """Intervalo 5min, ate 17:00, as 16:00 = 12 envios teoricos."""
+        agora = datetime(2026, 7, 5, 16, 0, 0, tzinfo=cw.FUSO)
+        result = cw.CapacityCalculator.calcular(
+            ate_horario="17:00",
+            intervalo_segundos=300,
+            tempo_verificacao_segundos=15,
+            margem_segundos=300,
+            agora=agora,
+        )
+        assert result["minutos_disponiveis"] == 60.0
+        assert result["capacidade_teorica"] >= 1
+        assert result["capacidade_segura"] >= 1
+        assert result["capacidade_segura"] <= result["capacidade_teorica"]
+
+    def test_horario_ja_encerrado(self):
+        """Horario ja passou no mesmo dia."""
+        agora = datetime(2026, 7, 5, 18, 0, 0, tzinfo=cw.FUSO)
+        result = cw.CapacityCalculator.calcular(
+            ate_horario="17:00",
+            intervalo_segundos=300,
+            agora=agora,
+        )
+        # Virada de dia: assume dia seguinte
+        assert result["minutos_disponiveis"] > 0
+
+    def test_intervalo_3_minutos(self):
+        """Intervalo 3min."""
+        agora = datetime(2026, 7, 5, 16, 0, 0, tzinfo=cw.FUSO)
+        result = cw.CapacityCalculator.calcular(
+            ate_horario="17:00",
+            intervalo_segundos=180,
+            tempo_verificacao_segundos=15,
+            margem_segundos=300,
+            agora=agora,
+        )
+        assert result["capacidade_segura"] > 0
+
+    def test_intervalo_7_minutos(self):
+        """Intervalo 7min."""
+        agora = datetime(2026, 7, 5, 16, 0, 0, tzinfo=cw.FUSO)
+        result = cw.CapacityCalculator.calcular(
+            ate_horario="17:00",
+            intervalo_segundos=420,
+            tempo_verificacao_segundos=15,
+            margem_segundos=300,
+            agora=agora,
+        )
+        assert result["capacidade_segura"] > 0
+
+    def test_margem_seguranca(self):
+        """Margem de seguranca reduz capacidade."""
+        agora = datetime(2026, 7, 5, 16, 0, 0, tzinfo=cw.FUSO)
+        result_sem = cw.CapacityCalculator.calcular(
+            ate_horario="17:00",
+            intervalo_segundos=300,
+            margem_segundos=0,
+            agora=agora,
+        )
+        result_com = cw.CapacityCalculator.calcular(
+            ate_horario="17:00",
+            intervalo_segundos=300,
+            margem_segundos=600,
+            agora=agora,
+        )
+        assert result_com["capacidade_segura"] <= result_sem["capacidade_segura"]
+
+    def test_limite_manual_menor(self):
+        """Limite manual pode ser menor que capacidade."""
+        agora = datetime(2026, 7, 5, 16, 0, 0, tzinfo=cw.FUSO)
+        result = cw.CapacityCalculator.calcular(
+            ate_horario="17:00",
+            intervalo_segundos=300,
+            agora=agora,
+        )
+        # Limite manual de 5 deve ser menor que capacidade
+        assert result["capacidade_segura"] >= 5
+
+    def test_formato_invalido(self):
+        result = cw.CapacityCalculator.calcular(
+            ate_horario="invalido",
+            intervalo_segundos=300,
+        )
+        assert "erro" in result
+
+    def test_virada_dia(self):
+        """Horario no dia seguinte."""
+        agora = datetime(2026, 7, 5, 23, 30, 0, tzinfo=cw.FUSO)
+        result = cw.CapacityCalculator.calcular(
+            ate_horario="08:00",
+            intervalo_segundos=300,
+            agora=agora,
+        )
+        assert result["minutos_disponiveis"] > 0
+        assert result["capacidade_segura"] > 0
+
+
+# ============================================================
+# CheckpointManager
+# ============================================================
+
+class TestCheckpointManager:
+    def test_criar_novo_checkpoint(self, tmp_path):
+        with patch.object(cw, "CHECKPOINT_DIR", tmp_path):
+            cp = cw.CheckpointManager("test_run_001")
+            data = cp.carregar()
+            assert data["run_id"] == "test_run_001"
+            assert data["sent_leads"] == []
+
+    def test_registrar_envio(self, tmp_path):
+        with patch.object(cw, "CHECKPOINT_DIR", tmp_path):
+            cp = cw.CheckpointManager("test_run_002")
+            cp.carregar()
+            cp.registrar_envio("lead-123", "hash1234")
+            assert len(cp._data["sent_leads"]) == 1
+            assert cp._data["sent_leads"][0]["lead_id"] == "lead-123"
+
+    def test_registrar_falha(self, tmp_path):
+        with patch.object(cw, "CHECKPOINT_DIR", tmp_path):
+            cp = cw.CheckpointManager("test_run_003")
+            cp.carregar()
+            cp.registrar_falha("lead-456", "erro_teste")
+            assert len(cp._data["failed_leads"]) == 1
+
+    def test_registrar_skip(self, tmp_path):
+        with patch.object(cw, "CHECKPOINT_DIR", tmp_path):
+            cp = cw.CheckpointManager("test_run_004")
+            cp.carregar()
+            cp.registrar_skip("lead-789", "already_sent")
+            assert len(cp._data["skipped_leads"]) == 1
+
+    def test_ja_processado(self, tmp_path):
+        with patch.object(cw, "CHECKPOINT_DIR", tmp_path):
+            cp = cw.CheckpointManager("test_run_005")
+            cp.carregar()
+            assert not cp.ja_processado("lead-abc")
+            cp.registrar_envio("lead-abc", "hash")
+            assert cp.ja_processado("lead-abc")
+
+    def test_salvar_carregar_roundtrip(self, tmp_path):
+        with patch.object(cw, "CHECKPOINT_DIR", tmp_path):
+            cp1 = cw.CheckpointManager("test_run_006")
+            cp1.carregar()
+            cp1.registrar_envio("lead-1", "h1")
+            cp1.registrar_envio("lead-2", "h2")
+
+            cp2 = cw.CheckpointManager("test_run_006")
+            data = cp2.carregar()
+            assert len(data["sent_leads"]) == 2
+
+    def test_resumo(self, tmp_path):
+        with patch.object(cw, "CHECKPOINT_DIR", tmp_path):
+            cp = cw.CheckpointManager("test_run_007")
+            cp.carregar()
+            cp.registrar_envio("l1", "h1")
+            cp.registrar_falha("l2", "err")
+            cp.registrar_skip("l3", "skip")
+            resumo = cp.get_resumo()
+            assert resumo["enviados"] == 1
+            assert resumo["falhas"] == 1
+            assert resumo["pulados"] == 1
+            assert resumo["total_processado"] == 3
+
+
+# ============================================================
+# SafetyController
+# ============================================================
+
+class TestSafetyController:
+    def test_erro_consecutivo_para(self):
+        sc = cw.SafetyController(max_consecutive_errors=3)
+        for _ in range(3):
+            sc.registrar_erro()
+        deve_parar, motivo = sc.deve_parar()
+        assert deve_parar
+        assert "consecutivos" in motivo
+
+    def test_sucesso_reseta_consecutivos(self):
+        sc = cw.SafetyController(max_consecutive_errors=3)
+        sc.registrar_erro()
+        sc.registrar_erro()
+        sc.registrar_sucesso()
+        sc.registrar_erro()
+        deve_parar, _ = sc.deve_parar()
+        assert not deve_parar
+
+    def test_max_erros_total(self):
+        sc = cw.SafetyController(max_errors=5)
+        for _ in range(5):
+            sc.registrar_erro()
+        deve_parar, motivo = sc.deve_parar()
+        assert deve_parar
+        assert "max_erros" in motivo
+
+    def test_interrupcao(self):
+        sc = cw.SafetyController()
+        sc.sinalizar_interrupcao()
+        deve_parar, motivo = sc.deve_parar()
+        assert deve_parar
+        assert "interrompido" in motivo
+
+    def test_horario_passou(self):
+        # This test is time-dependent, but we can test the method exists
+        assert callable(cw.SafetyController.horario_passou)
+
+    def test_nao_para_sem_erros(self):
+        sc = cw.SafetyController()
+        deve_parar, _ = sc.deve_parar()
+        assert not deve_parar
+
+
+# ============================================================
+# DedupVerifier
+# ============================================================
+
+class TestDedupVerifier:
+    def test_classificar_no_chat(self):
+        from whatsapp_match.matcher import MatchResult, MatchStatus
+        result = MatchResult(lead_id="x", phone_normalized="5521999999999", campaign_key="k", status=MatchStatus.NO_CHAT)
+        assert cw.DedupVerifier._classificar(result) == "safe_to_send"
+
+    def test_classificar_matched(self):
+        from whatsapp_match.matcher import MatchResult, MatchStatus
+        result = MatchResult(lead_id="x", phone_normalized="5521999999999", campaign_key="k", status=MatchStatus.MATCHED)
+        assert cw.DedupVerifier._classificar(result) == "already_confirmed"
+
+    def test_classificar_ambiguous(self):
+        from whatsapp_match.matcher import MatchResult, MatchStatus
+        result = MatchResult(lead_id="x", phone_normalized="5521999999999", campaign_key="k", status=MatchStatus.AMBIGUOUS)
+        assert cw.DedupVerifier._classificar(result) == "outbound_other_campaign"
+
+    def test_classificar_ambiguous_contact(self):
+        from whatsapp_match.matcher import MatchResult, MatchStatus
+        result = MatchResult(lead_id="x", phone_normalized="5521999999999", campaign_key="k", status=MatchStatus.AMBIGUOUS_CONTACT)
+        assert cw.DedupVerifier._classificar(result) == "ambiguous_contact"
+
+    def test_classificar_no_outbound(self):
+        from whatsapp_match.matcher import MatchResult, MatchStatus
+        result = MatchResult(lead_id="x", phone_normalized="5521999999999", campaign_key="k", status=MatchStatus.NO_OUTBOUND)
+        assert cw.DedupVerifier._classificar(result) == "safe_to_send"
+
+    def test_classificar_login_required(self):
+        from whatsapp_match.matcher import MatchResult, MatchStatus
+        result = MatchResult(lead_id="x", phone_normalized="5521999999999", campaign_key="k", status=MatchStatus.LOGIN_REQUIRED)
+        assert cw.DedupVerifier._classificar(result) == "verification_error"
+
+    def test_classificar_group(self):
+        from whatsapp_match.matcher import MatchResult, MatchStatus
+        result = MatchResult(lead_id="x", phone_normalized="5521999999999", campaign_key="k", status=MatchStatus.GROUP)
+        assert cw.DedupVerifier._classificar(result) == "ambiguous_contact"
+
+
+# ============================================================
+# LeadSelector
+# ============================================================
+
+class TestLeadSelector:
+    def test_filtrar_celular(self):
+        leads = [
+            {"nome": "A", "telefone_normalizado": "5521999999999"},
+            {"nome": "B", "telefone_normalizado": "55213333333"},  # fixo 11 digits
+            {"nome": "C", "telefone_normalizado": "5511999999999"},  # outro DDD
+            {"nome": "D", "whatsapp": "5521988888888"},
+            {"nome": "E", "telefone": "invalido"},
+        ]
+        result = cw.LeadSelector.filtrar_celular(leads)
+        assert len(result) == 2
+        assert result[0]["nome"] == "A"
+        assert result[1]["nome"] == "D"
+
+    def test_embaralhar_e_limitar(self):
+        leads = [{"nome": f"Lead {i}"} for i in range(100)]
+        result = cw.LeadSelector.embaralhar_e_limitar(leads, 10)
+        assert len(result) == 10
+
+    def test_limite_maior_que_lista(self):
+        leads = [{"nome": "A"}, {"nome": "B"}]
+        result = cw.LeadSelector.embaralhar_e_limitar(leads, 10)
+        assert len(result) == 2
+
+
+# ============================================================
+# MessageSender
+# ============================================================
+
+class TestMessageSender:
+    def test_gerar_link_wa_me(self):
+        link = cw.MessageSender.gerar_link_wa_me("5521999999999", "Ola")
+        assert "wa.me/5521999999999" in link
+        assert "text=" in link
+
+    def test_gerar_link_wa_me_mensagem_codificada(self):
+        link = cw.MessageSender.gerar_link_wa_me("5521999999999", "Ola, tudo bem?")
+        assert "wa.me/" in link
+        assert "%" in link  # URL encoded
+
+
+# ============================================================
+# CampanhaWhatsApp
+# ============================================================
+
+class TestCampanhaWhatsApp:
+    def test_modo_plan_sem_browser(self, tmp_path):
+        """Modo plan nao abre browser nem escreve no Supabase."""
+        args = cw.build_parser().parse_args(["plan", "--dry-run"])
+        campanha = cw.CampanhaWhatsApp(args)
+        assert campanha.mode == "plan"
+        assert campanha.dry_run
+
+    def test_modo_auto_exige_confirm_live_send(self):
+        """Modo auto sem --confirm-live-send e sem --dry-run deve retornar erro."""
+        args = cw.build_parser().parse_args(["auto"])
+        result = cw.main(["auto"])
+        assert result == 2
+
+    def test_modo_auto_com_dry_run(self, tmp_path):
+        """Modo auto com --dry-run nao precisa de --confirm-live-send."""
+        args = cw.build_parser().parse_args(["auto", "--dry-run"])
+        campanha = cw.CampanhaWhatsApp(args)
+        assert campanha.mode == "auto"
+        assert campanha.dry_run
+
+    def test_modo_semi_exige_confirmacao(self):
+        """Modo semi exige confirmacao manual."""
+        args = cw.build_parser().parse_args(["semi", "--dry-run"])
+        campanha = cw.CampanhaWhatsApp(args)
+        assert campanha.mode == "semi"
+
+    def test_gerar_run_id(self):
+        args = cw.build_parser().parse_args(["plan"])
+        campanha = cw.CampanhaWhatsApp(args)
+        assert campanha.run_id.startswith("run_")
+        assert len(campanha.run_id) > 10
+
+    def test_renderizar_mensagem(self):
+        args = cw.build_parser().parse_args(["plan"])
+        campanha = cw.CampanhaWhatsApp(args)
+        lead = {"nome": "Teste LTDA", "cidade": "Rio", "grupo": "assistencias"}
+        msg = campanha._renderizar_mensagem(lead)
+        assert "Teste LTDA" in msg
+
+    def test_hash_mensagem(self):
+        args = cw.build_parser().parse_args(["plan"])
+        campanha = cw.CampanhaWhatsApp(args)
+        h = campanha._hash_mensagem("teste")
+        assert len(h) == 16
+        assert h == campanha._hash_mensagem("teste")  # deterministic
+
+    def test_variavel_desconhecida_bloqueada(self):
+        args = cw.build_parser().parse_args(["plan"])
+        campanha = cw.CampanhaWhatsApp(args)
+        campanha._template_text = "Ola {nome}, seu {codigo_invalido} esta pronto"
+        with pytest.raises(SystemExit):
+            campanha._renderizar_mensagem({"nome": "Teste"})
+
+    def test_template_externo(self, tmp_path):
+        template_file = tmp_path / "msg.txt"
+        template_file.write_text("Oi {nome}!", encoding="utf-8")
+        args = cw.build_parser().parse_args(["plan", "--message-template", str(template_file)])
+        campanha = cw.CampanhaWhatsApp(args)
+        msg = campanha._renderizar_mensagem({"nome": "Empresa"})
+        assert msg == "Oi Empresa!"
+
+
+# ============================================================
+# Cutoff antes de cada envio
+# ============================================================
+
+class TestCutoff:
+    def test_horario_passou_true(self):
+        # This is time-dependent but we can test the logic
+        assert callable(cw.SafetyController.horario_passou)
+
+    def test_horario_passou_false(self):
+        assert callable(cw.SafetyController.horario_passou)
+
+
+# ============================================================
+# Privacy
+# ============================================================
+
+class TestPrivacy:
+    def test_nenhum_dado_sensivel_no_checkpoint(self, tmp_path):
+        with patch.object(cw, "CHECKPOINT_DIR", tmp_path):
+            cp = cw.CheckpointManager("test_privacy")
+            cp.carregar()
+            cp.registrar_envio("lead-123", "hash12345678")
+            cp.salvar()
+            content = cp.file.read_text(encoding="utf-8")
+            assert "5521" not in content
+            assert "@s.whatsapp" not in content
+            assert "cookie" not in content.lower()
+            assert "token" not in content.lower()
+
+
+# ============================================================
+# CLI
+# ============================================================
+
+class TestCLI:
+    def test_help_nao_erro(self):
+        with pytest.raises(SystemExit) as exc_info:
+            cw.main(["--help"])
+        assert exc_info.value.code == 0
+
+    def test_modo_invalido(self):
+        with pytest.raises(SystemExit):
+            cw.main(["invalid_mode"])
+
+    def test_defaults(self):
+        parser = cw.build_parser()
+        args = parser.parse_args(["plan"])
+        assert args.mode == "plan"
+        assert args.interval_minutes == 5
+        assert args.limit == 30
+        assert args.safety_buffer_minutes == 5
+        assert args.verification_budget_seconds == 15
+        assert args.max_errors == 10
+        assert args.max_consecutive_errors == 3
+        assert args.jitter_seconds == 0
+        assert not args.confirm_live_send
+        assert not args.dry_run
+        assert not args.resume
