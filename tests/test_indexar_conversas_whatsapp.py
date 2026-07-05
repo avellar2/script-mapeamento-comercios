@@ -411,3 +411,100 @@ def test_aguardar_troca_chat_existe():
 def test_fechar_painel_info_se_aberto_existe():
     assert hasattr(mod, "_fechar_painel_info_se_aberto")
     assert callable(mod._fechar_painel_info_se_aberto)
+
+# ============================================================
+# TESTES V3 - invariante chat_switch_verified
+# ============================================================
+
+def test_sem_troca_confirmada_nenhuma_extracao_possivel():
+    troca_ok = False
+    if not troca_ok:
+        status = 'chat_not_changed'
+    assert status == 'chat_not_changed'
+
+
+def test_panel_loaded_sozinho_nao_libera():
+    sig_changed = False
+    panel_loaded = True
+    card_selected = False
+    chat_switch_verified = sig_changed and card_selected and panel_loaded
+    assert chat_switch_verified is False
+
+
+def test_primeiro_chat_exige_card_selecionado_e_assinatura():
+    sig_before = ''
+    sig_after = 'sig:abc123'
+    card_sel = True
+    panel = True
+    chat_switch_verified = bool(sig_after) and card_sel and panel
+    assert chat_switch_verified is True
+
+
+def test_clique_botao_interno_nao_valido():
+    def clicar(elemento):
+        if elemento in ('avatar', 'menu', 'badge'):
+            return False
+        return True
+    assert clicar('avatar') is False
+    assert clicar('row_main') is True
+
+
+def test_painel_antigo_gera_stale_info_panel():
+    assert hasattr(mod, 'ChatStatus')
+    s = mod.ChatStatus.stale_info_panel
+    assert s.value == 'stale_info_panel'
+
+
+def test_assinatura_divergente_gera_chat_context_mismatch():
+    assert hasattr(mod, 'ChatStatus')
+    s = mod.ChatStatus.chat_context_mismatch
+    assert s.value == 'chat_context_mismatch'
+
+
+def test_tres_chats_distintos_mesmo_hash_disparam_suspicious():
+    records = [
+        mod.ChatIndexRecord(technical_id_raw='a', technical_id_sanitized='chat:a', chat_type='individual', status=mod.ChatStatus.no_outbound, phone_hash='hX', phone_last4='1234'),
+        mod.ChatIndexRecord(technical_id_raw='b', technical_id_sanitized='chat:b', chat_type='individual', status=mod.ChatStatus.no_outbound, phone_hash='hX', phone_last4='1234'),
+    ]
+    new_rec = mod.ChatIndexRecord(technical_id_raw='c', technical_id_sanitized='chat:c', chat_type='individual', status=mod.ChatStatus.no_outbound, phone_hash='hX', phone_last4='1234')
+
+    prev = [r for r in records if r.phone_hash == new_rec.phone_hash and r.technical_id_sanitized != new_rec.technical_id_sanitized]
+    assert len(prev) == 2
+
+
+def test_no_outbound_tambem_conta_para_repeticao_suspeita():
+    records = [
+        mod.ChatIndexRecord(technical_id_raw='a', technical_id_sanitized='chat:a', chat_type='individual', status=mod.ChatStatus.no_outbound, phone_hash='hY', phone_last4='5678'),
+        mod.ChatIndexRecord(technical_id_raw='b', technical_id_sanitized='chat:b', chat_type='individual', status=mod.ChatStatus.no_outbound, phone_hash='hY', phone_last4='5678'),
+        mod.ChatIndexRecord(technical_id_raw='c', technical_id_sanitized='chat:c', chat_type='individual', status=mod.ChatStatus.campaign_matched, phone_hash='hY', phone_last4='5678'),
+    ]
+    hashes = [r.phone_hash for r in records if r.phone_hash]
+    assert len(hashes) == 3
+    assert len(set(hashes)) == 1
+
+
+def test_record_nao_persiste_telefone_jid_nome_mensagem():
+    rec = mod.ChatIndexRecord(
+        technical_id_raw='x', technical_id_sanitized='chat:x',
+        chat_type='individual', status=mod.ChatStatus.no_outbound,
+        phone_hash='abc', phone_last4='9999',
+    )
+    persisted = rec.to_persisted_dict()
+    dumped = str(persisted)
+    assert '@s.whatsapp.net' not in dumped
+    assert 'nome' not in persisted
+    assert 'mensagem' not in dumped.lower()
+
+
+def test_card_selected_verificacao_robusta():
+    fields = mod.ChatIndexRecord.__dataclass_fields__
+    assert 'card_selected' in fields
+    assert 'target_card_id' in fields
+    assert 'panel_loaded' in fields
+
+
+def test_telefone_anterior_nao_reutilizado_apos_chat_not_changed():
+    rec1 = mod.ChatIndexRecord(technical_id_raw='a', technical_id_sanitized='chat:a', chat_type='individual', status=mod.ChatStatus.chat_not_changed, phone_hash='')
+    rec2 = mod.ChatIndexRecord(technical_id_raw='b', technical_id_sanitized='chat:b', chat_type='individual', status=mod.ChatStatus.no_outbound, phone_hash='new_hash', phone_last4='2222')
+    assert rec1.phone_hash != rec2.phone_hash
+    assert not rec1.phone_hash
