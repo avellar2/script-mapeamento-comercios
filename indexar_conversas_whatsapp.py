@@ -573,54 +573,71 @@ async def aguardar_troca_chat(page, prev_signature: str, timeout_ms: int = CHANG
     return False
 
 
-async def _fechar_painel_info_se_aberto(page) -> None:
-    """Fecha painel de informacoes e confirma que desapareceu do DOM."""
-    try:
-        # Escape primeiro (fecha qualquer drawer/popup)
-        keyboard = getattr(page, "keyboard", None)
-        if keyboard and hasattr(keyboard, "press"):
-            await keyboard.press("Escape")
-            await page.wait_for_timeout(300)
-    except Exception:
-        pass
+async def painel_info_aberto(page) -> bool:
+    """Detecta se o painel real de informacoes do contato esta aberto.
 
-    # Tenta botoes de fechar explicitos
+    Usa exclusivamente data-testid="chat-info-drawer" que e o unico
+    elemento que representa o painel de informacoes do contato no WhatsApp Web.
+    Elementos drawer-* (drawer-left, drawer-right, drawer-fullscreen, etc.)
+    sao estrutura permanente do shell e NAO indicam painel aberto.
+    """
     try:
-        close_btns = page.locator(
-            'button[aria-label*="Fechar" i], '
-            'button[aria-label*="Close" i], '
-            'div[role="button"][aria-label*="close" i]'
+        return await page.evaluate(
+            """() => {
+                const drawer = document.querySelector('[data-testid="chat-info-drawer"]');
+                if (!drawer) return false;
+                const rect = drawer.getBoundingClientRect();
+                return rect.width > 0 && rect.height > 0;
+            }"""
         )
-        count = await close_btns.count()
-        for i in range(min(count, 3)):
-            try:
-                await close_btns.nth(i).click(timeout=2000)
-                await page.wait_for_timeout(300)
-            except Exception:
-                pass
     except Exception:
-        pass
+        return False
 
-    # Confirma que o drawer de informacoes desapareceu
+
+async def _fechar_painel_info_se_aberto(page) -> str:
+    """Fecha o painel real de informacoes do contato.
+
+    Returns:
+        "closed" - painel ja estava fechado ou foi fechado com sucesso
+        "stale_info_panel" - painel nao desapareceu apos timeout
+        "info_panel_close_button_missing" - botao de fechar nao encontrado
+    """
+    if not await painel_info_aberto(page):
+        return "closed"
+
+    # Botao de fechar dentro do chat-info-drawer
+    close_btn = page.locator(
+        '[data-testid="chat-info-drawer"] button[aria-label="Fechar"], '
+        '[data-testid="chat-info-drawer"] button[aria-label="Close"]'
+    )
     try:
-        import asyncio as _asyncio
-        deadline = _asyncio.get_event_loop().time() + 2.0
-        while _asyncio.get_event_loop().time() < deadline:
-            visible = await page.evaluate(
-                """() => {
-                    const drawer = document.querySelector(
-                        '[data-testid="contact-info"], '
-                        + '[data-testid*="drawer" i], '
-                        + 'section[data-testid*="contact"]'
-                    );
-                    return !!drawer;
-                }"""
-            )
-            if not visible:
-                return
-            await page.wait_for_timeout(200)
+        count = await close_btn.count()
     except Exception:
-        pass
+        count = 0
+
+    if count == 0:
+        # Fallback: botao na regiao direita visivel
+        try:
+            fallback = page.locator('button[aria-label="Fechar"]')
+            fb_count = await fallback.count()
+            if fb_count > 0:
+                await fallback.first.click(timeout=3000)
+            else:
+                return "info_panel_close_button_missing"
+        except Exception:
+            return "info_panel_close_button_missing"
+    else:
+        await close_btn.first.click(timeout=3000)
+
+    # Aguardar chat-info-drawer desaparecer (timeout 1s)
+    import asyncio as _asyncio
+    deadline = _asyncio.get_event_loop().time() + 1.0
+    while _asyncio.get_event_loop().time() < deadline:
+        if not await painel_info_aberto(page):
+            return "closed"
+        await page.wait_for_timeout(100)
+
+    return "stale_info_panel"
 
 
 async def classificar_conversa_aberta(page) -> str:
@@ -679,12 +696,10 @@ async def extrair_telefone_da_conversa(page) -> tuple[Optional[str], str]:
     except Exception:
         pass
 
-    # 2) telefone no painel lateral (info drawer) apenas
+    # 2) telefone no painel real de informacoes (chat-info-drawer)
     try:
         drawer_els = page.locator(
-            '[data-testid="contact-info"], '
-            '[data-testid*="drawer" i] [data-id], '
-            'section[data-testid*="contact"] [data-id]'
+            '[data-testid="chat-info-drawer"] [data-id]'
         )
         count = await drawer_els.count()
         for i in range(count):
@@ -701,11 +716,10 @@ async def extrair_telefone_da_conversa(page) -> tuple[Optional[str], str]:
     except Exception:
         pass
 
-    # 3) link tel: no painel lateral
+    # 3) link tel: no painel real de informacoes
     try:
         tel_links = page.locator(
-            '[data-testid="contact-info"] a[href*="tel:"], '
-            'section[data-testid*="contact"] a[href*="tel:"]'
+            '[data-testid="chat-info-drawer"] a[href*="tel:"]'
         )
         count = await tel_links.count()
         for i in range(count):
@@ -863,22 +877,20 @@ async def processar_card(page, card: dict[str, Any], campaign_key: str, diagnost
 
     try:
         # 1) Fechar painel antigo + confirmar ausencia
-        await _fechar_painel_info_se_aberto(page)
-        stale = await page.evaluate(
-            """() => {
-                const drawer = document.querySelector(
-                    '[data-testid="contact-info"], '
-                    + '[data-testid*="drawer" i]'
-                );
-                return !!drawer;
-            }"""
-        )
-        if stale:
+        close_result = await _fechar_painel_info_se_aberto(page)
+        if close_result == "stale_info_panel":
             return ChatIndexRecord(
                 technical_id_raw=raw_tech, technical_id_sanitized=tech_sanitized,
                 chat_type=chat_type_hint, status=ChatStatus.stale_info_panel,
-                error_message="painel de informacoes nao fechou", error_stage="fechar_painel",
-                retryable=True, target_card_id=target_card_id,
+                error_message="chat-info-drawer nao desapareceu apos fechamento",
+                error_stage="fechar_painel", retryable=True, target_card_id=target_card_id,
+            )
+        if close_result == "info_panel_close_button_missing":
+            return ChatIndexRecord(
+                technical_id_raw=raw_tech, technical_id_sanitized=tech_sanitized,
+                chat_type=chat_type_hint, status=ChatStatus.error,
+                error_message="botao fechar ausente com painel aberto",
+                error_stage="fechar_painel", retryable=True, target_card_id=target_card_id,
             )
 
         # 2) Capturar assinatura antes do clique

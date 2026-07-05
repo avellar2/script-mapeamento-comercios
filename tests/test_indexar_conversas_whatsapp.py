@@ -508,3 +508,127 @@ def test_telefone_anterior_nao_reutilizado_apos_chat_not_changed():
     rec2 = mod.ChatIndexRecord(technical_id_raw='b', technical_id_sanitized='chat:b', chat_type='individual', status=mod.ChatStatus.no_outbound, phone_hash='new_hash', phone_last4='2222')
     assert rec1.phone_hash != rec2.phone_hash
     assert not rec1.phone_hash
+
+
+# ============================================================
+# TESTES V4 - painel_info_aberto / chat-info-drawer
+# ============================================================
+
+class _DrawerPage:
+    """Simula page com chat-info-drawer aberto ou fechado."""
+    def __init__(self, drawer_open=True, drawer_has_button=True, closes_after_click=True):
+        self.drawer_open = drawer_open
+        self.drawer_has_button = drawer_has_button
+        self.closes_after_click = closes_after_click
+        self.clicks = 0
+
+    async def evaluate(self, js):
+        if 'getBoundingClientRect' in js:
+            return self.drawer_open
+        return self.drawer_open
+
+    async def wait_for_timeout(self, ms):
+        pass
+
+    class _First:
+        def __init__(self, page):
+            self._page = page
+        async def click(self, **kw):
+            self._page.clicks += 1
+            if self._page.closes_after_click:
+                self._page.drawer_open = False
+
+    class _Locator:
+        def __init__(self, page, sel):
+            self._page = page
+            self._sel = sel
+        async def count(self):
+            if 'chat-info-drawer' in self._sel and 'button' in self._sel:
+                return 1 if self._page.drawer_has_button else 0
+            if 'Fechar' in self._sel and 'chat-info' not in self._sel:
+                return 0
+            return 0
+        @property
+        def first(self):
+            return _DrawerPage._First(self._page)
+
+    def locator(self, sel):
+        return _DrawerPage._Locator(self, sel)
+
+
+def test_somente_chat_info_drawer_considerado():
+    assert hasattr(mod, 'painel_info_aberto')
+    assert callable(mod.painel_info_aberto)
+
+
+def test_sem_chat_info_drawer_retorna_painel_fechado():
+    import asyncio
+    page = _DrawerPage(drawer_open=False)
+    result = asyncio.run(mod.painel_info_aberto(page))
+    assert result is False
+
+
+def test_chat_info_drawer_aberto_detectado():
+    import asyncio
+    page = _DrawerPage(drawer_open=True)
+    result = asyncio.run(mod.painel_info_aberto(page))
+    assert result is True
+
+
+def test_fechar_painel_retorna_closed_quando_ja_fechado():
+    import asyncio
+    page = _DrawerPage(drawer_open=False)
+    result = asyncio.run(mod._fechar_painel_info_se_aberto(page))
+    assert result == "closed"
+
+
+def test_fechar_painel_retorna_closed_quando_desaparece():
+    import asyncio
+    page = _DrawerPage(drawer_open=True, drawer_has_button=True, closes_after_click=True)
+    result = asyncio.run(mod._fechar_painel_info_se_aberto(page))
+    assert result == "closed"
+    assert page.clicks == 1
+
+
+def test_fechar_painel_retorna_missing_botao():
+    import asyncio
+    page = _DrawerPage(drawer_open=True, drawer_has_button=False, closes_after_click=False)
+    result = asyncio.run(mod._fechar_painel_info_se_aberto(page))
+    assert result == "info_panel_close_button_missing"
+
+
+def test_elementos_drawer_nao_geram_stale_info_panel():
+    import asyncio
+    page = _DrawerPage(drawer_open=False)
+    assert asyncio.run(mod.painel_info_aberto(page)) is False
+
+
+def test_painel_que_nao_desaparece_gera_stale():
+    import asyncio
+    page = _DrawerPage(drawer_open=True, drawer_has_button=True, closes_after_click=False)
+    result = asyncio.run(mod._fechar_painel_info_se_aberto(page))
+    assert result == "stale_info_panel"
+
+
+def test_stale_info_panel_status_existe():
+    s = mod.ChatStatus.stale_info_panel
+    assert s.value == 'stale_info_panel'
+
+
+def test_nenhum_seletor_amplo_drawer_no_codigo():
+    src = open(r"C:\projetos\script-mapear-comercios-whatsapp-dedup\indexar_conversas_whatsapp.py", encoding='utf-8').read()
+    assert 'data-testid*="drawer" i' not in src
+    assert 'section[data-testid*="contact"]' not in src
+
+
+def test_chat_info_drawer_presente_no_codigo():
+    src = open(r"C:\projetos\script-mapear-comercios-whatsapp-dedup\indexar_conversas_whatsapp.py", encoding='utf-8').read()
+    assert 'chat-info-drawer' in src
+
+
+def test_painel_info_aberto_checa_dimensoes():
+    import asyncio
+    page = _DrawerPage(drawer_open=True)
+    assert asyncio.run(mod.painel_info_aberto(page)) is True
+    page2 = _DrawerPage(drawer_open=False)
+    assert asyncio.run(mod.painel_info_aberto(page2)) is False
