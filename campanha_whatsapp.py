@@ -1217,6 +1217,167 @@ class CampanhaWhatsApp:
         print("=" * 60)
         return 0
 
+    def recuperar_reservas_supabase(self, campaign_key: str, release: bool = False,
+                                     lead_id: str | None = None,
+                                     since: str | None = None,
+                                     until_time: str | None = None,
+                                     max_age_minutes: int | None = None,
+                                     limit: int = 50) -> int:
+        """Recupera reservas pendentes consultando o Supabase diretamente.
+
+        Nao depende de checkpoint local. Usa settle_outreach com token
+        armazenado na propria tabela lead_outreach.
+
+        Args:
+            campaign_key: Campaign key para filtrar
+            release: Se True, libera reservas no Supabase
+            lead_id: Filtrar por lead_id especifico
+            since: ISO datetime - filtrar reservas criadas apos
+            until_time: ISO datetime - filtrar reservas criadas antes
+            max_age_minutes: Filtrar reservas com idade maxima em minutos
+            limit: Maximo de reservas a listar
+
+        Returns:
+            0 em sucesso, 2 em erro
+        """
+        # Pre-carregar .env (sender_int._root pode nao apontar para o diretorio correto)
+        env_path = Path(_root) / ".env"
+        if env_path.exists():
+            try:
+                from dotenv import load_dotenv
+                load_dotenv(env_path, override=True)
+            except ImportError:
+                pass
+
+        from sender_int import get_supabase_client
+        from datetime import datetime, timedelta, timezone
+
+        client = get_supabase_client("service_role")
+        if not client:
+            logger.error("Cliente Supabase indisponivel.")
+            return 2
+
+        # Construir query
+        query = client.table("lead_outreach").select(
+            "id,lead_id,phone_normalized,campaign_key,status,"
+            "reservation_token,source,created_at,updated_at"
+        ).eq("campaign_key", campaign_key).eq("status", "reserved")
+
+        if lead_id:
+            query = query.eq("lead_id", lead_id)
+
+        if since:
+            query = query.gte("created_at", since)
+
+        if until_time:
+            query = query.lte("created_at", until_time)
+
+        if max_age_minutes is not None:
+            cutoff = (datetime.now(timezone.utc) - timedelta(minutes=max_age_minutes)).isoformat()
+            query = query.lte("created_at", cutoff)
+
+        query = query.order("created_at", desc=True).limit(limit)
+
+        result = query.execute()
+        reservas = result.data or []
+
+        # Filtrar por idade se max_age_minutes (fallback para garantir)
+        if max_age_minutes is not None:
+            cutoff = datetime.now(timezone.utc) - timedelta(minutes=max_age_minutes)
+            reservas_filtradas = []
+            for r in reservas:
+                created = r.get("created_at", "")
+                if created:
+                    try:
+                        dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
+                        if dt <= cutoff:
+                            reservas_filtradas.append(r)
+                    except (ValueError, TypeError):
+                        pass
+            reservas = reservas_filtradas
+
+        # Header
+        print("\n" + "=" * 60)
+        print("  RECUPERACAO DE RESERVAS PENDENTES (Supabase)")
+        print("=" * 60)
+        print(f"  Campaign key: {campaign_key}")
+        print(f"  Status filtrado: reserved")
+        if lead_id:
+            masked = lead_id[:8] + "****" if len(lead_id) >= 8 else lead_id
+            print(f"  Lead ID: {masked}")
+        if since:
+            print(f"  Desde: {since}")
+        if until_time:
+            print(f"  Ate: {until_time}")
+        if max_age_minutes is not None:
+            print(f"  Idade maxima: {max_age_minutes} minutos")
+        print(f"  Limite: {limit}")
+        print("-" * 60)
+
+        if not reservas:
+            print("  Nenhuma reserva pendente encontrada.")
+            print("=" * 60)
+            return 0
+
+        print(f"  Reservas pendentes: {len(reservas)}")
+        print()
+
+        for r in reservas:
+            lid = r.get("lead_id", "?")
+            masked = lid[:8] + "****" if len(lid) >= 8 else lid
+            rid = r.get("id", "?")
+            rid_short = rid[:8] + "****" if len(rid) >= 8 else rid
+            phone = r.get("phone_normalized", "?")
+            phone_masked = phone[:4] + "****" + phone[-4:] if len(phone) >= 8 else phone
+            has_token = "token_ok" if r.get("reservation_token") else "sem_token"
+            created = str(r.get("created_at", ""))[:19]
+            source = r.get("source", "?")
+            print(f"    {masked}  {phone_masked}  {rid_short}  {has_token}  {created}  {source}")
+
+        if not release:
+            print()
+            print("  Modo dry-run. Nenhuma alteracao feita.")
+            print("  Para liberar: --release-pending --confirm")
+            print("=" * 60)
+            return 0
+
+        # Liberar reservas
+        print()
+        print("  Liberando reservas...")
+        liberados = 0
+        erros = 0
+
+        for r in reservas:
+            rid = r.get("id")
+            rtoken = r.get("reservation_token")
+            lid = r.get("lead_id", "?")
+            masked = lid[:8] + "****" if len(lid) >= 8 else lid
+
+            if not rid or not rtoken:
+                print(f"    {masked}: SEM TOKEN - nao e possivel liberar via RPC")
+                erros += 1
+                continue
+
+            try:
+                from sender_int import settle_lead
+                result = settle_lead(rid, rtoken, "released", obs="recover_reserved_supabase")
+                outcome = result.get("outcome", "?") if result else "error"
+                if outcome in ("released", "settled"):
+                    print(f"    {masked}: LIBERADO (outcome={outcome})")
+                    liberados += 1
+                else:
+                    print(f"    {masked}: ERRO (outcome={outcome})")
+                    erros += 1
+            except Exception as e:
+                print(f"    {masked}: ERRO ({e})")
+                erros += 1
+
+        print()
+        print(f"  Liberados: {liberados}")
+        print(f"  Erros: {erros}")
+        print("=" * 60)
+        return 0
+
     def _abrir_browser_matcher(self):
         """Mantido para compatibilidade. Prefira SessaoWhatsApp."""
         profile_dir = (_root / MATCH_PROFILE).resolve() if not MATCH_PROFILE.is_absolute() else MATCH_PROFILE.resolve()
@@ -1280,9 +1441,11 @@ Exemplos:
   python campanha_whatsapp.py semi --until 17:00 --limit 10
   python campanha_whatsapp.py auto --until 17:00 --confirm-live-send
   python campanha_whatsapp.py auto --resume --run-id <RUN_ID> --confirm-live-send
+  python campanha_whatsapp.py recover-reserved --campaign-key avgestao:assistencias:primeiro_contato:v1 --dry-run
+  python campanha_whatsapp.py recover-reserved --campaign-key avgestao:assistencias:primeiro_contato:v1 --release-pending --confirm
 """,
     )
-    parser.add_argument("mode", choices=["plan", "semi", "auto", "recover"], help="Modo de operacao")
+    parser.add_argument("mode", choices=["plan", "semi", "auto", "recover", "recover-reserved"], help="Modo de operacao")
     parser.add_argument("--until", type=str, default=None, help="Horario limite (HH:MM)")
     parser.add_argument("--interval-minutes", type=int, default=DEFAULT_INTERVAL_MINUTES, help=f"Intervalo entre envios em minutos (padrao: {DEFAULT_INTERVAL_MINUTES})")
     parser.add_argument("--limit", type=int, default=DEFAULT_LIMIT, help=f"Maximo de leads (padrao: {DEFAULT_LIMIT})")
@@ -1312,6 +1475,14 @@ Exemplos:
                         help="Libera reservas pendentes (modo recover)")
     parser.add_argument("--confirm", action="store_true", default=False,
                         help="Confirma operacao de liberacao (modo recover)")
+    parser.add_argument("--lead-id", type=str, default=None,
+                        help="Filtrar por lead_id especifico (modo recover-reserved)")
+    parser.add_argument("--since", type=str, default=None,
+                        help="Filtrar reservas criadas apos data ISO (modo recover-reserved)")
+    parser.add_argument("--until-time", type=str, default=None,
+                        help="Filtrar reservas criadas antes de data ISO (modo recover-reserved)")
+    parser.add_argument("--max-age-minutes", type=int, default=None,
+                        help="Filtrar reservas com idade maxima em minutos (modo recover-reserved)")
     return parser
 
 
@@ -1347,6 +1518,22 @@ def main(argv: list[str] | None = None) -> int:
             logger.warning("Use --release-pending --confirm para liberar reservas. Rodando em dry-run.")
         campanha = CampanhaWhatsApp(args)
         return campanha.recuperar_reservas(args.run_id, release=release)
+
+    if args.mode == "recover-reserved":
+        release = args.release_pending and args.confirm
+        if args.release_pending and not args.confirm:
+            logger.warning("Use --release-pending --confirm para liberar reservas. Rodando em dry-run.")
+        campanha = CampanhaWhatsApp(args)
+        campaign_key = args.campaign_key or PRIMEIRO_CONTATO_V1
+        return campanha.recuperar_reservas_supabase(
+            campaign_key=campaign_key,
+            release=release,
+            lead_id=getattr(args, "lead_id", None),
+            since=getattr(args, "since", None),
+            until_time=getattr(args, "until_time", None),
+            max_age_minutes=getattr(args, "max_age_minutes", None),
+            limit=args.limit,
+        )
 
     if args.mode == "auto" and not args.confirm_live_send and not args.dry_run:
         logger.error("Modo auto requer --confirm-live-send para enviar mensagens reais. Use --dry-run para teste sem envio.")

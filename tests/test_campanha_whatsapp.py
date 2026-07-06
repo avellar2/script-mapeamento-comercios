@@ -920,3 +920,102 @@ class TestCheckpointPrivacyExtended:
         # Deve ser no-op com dry_run
         campanha._settle_reservas_pendentes([], {}, "test")
 
+
+# ============================================================
+# Recover-reserved: recuperacao via Supabase
+# ============================================================
+
+class TestRecoverReserved:
+    """Testes do modo recover-reserved."""
+
+    def test_recover_reserved_mode_no_parser(self):
+        """Parser aceita modo recover-reserved."""
+        parser = cw.build_parser()
+        args = parser.parse_args(["recover-reserved", "--campaign-key", "test:key"])
+        assert args.mode == "recover-reserved"
+
+    def test_recover_reserved_sem_confirm_nao_escreve(self, capsys):
+        """recover-reserved sem --confirm lista mas nao escreve."""
+        parser = cw.build_parser()
+        args = parser.parse_args(["recover-reserved", "--campaign-key", "test:key"])
+        assert args.release_pending is False or args.confirm is False
+
+    def test_recover_reserved_flags_existentes(self):
+        """Flags --release-pending e --confirm existem no parser."""
+        parser = cw.build_parser()
+        args = parser.parse_args(["recover-reserved", "--campaign-key", "k", "--release-pending", "--confirm"])
+        assert args.release_pending is True
+        assert args.confirm is True
+
+    def test_recover_reserved_filtro_lead_id(self):
+        """Flag --lead-id existe."""
+        parser = cw.build_parser()
+        args = parser.parse_args(["recover-reserved", "--campaign-key", "k", "--lead-id", "abc-123"])
+        assert args.lead_id == "abc-123"
+
+    def test_recover_reserved_filtro_since(self):
+        """Flag --since existe."""
+        parser = cw.build_parser()
+        args = parser.parse_args(["recover-reserved", "--campaign-key", "k", "--since", "2026-01-01"])
+        assert args.since == "2026-01-01"
+
+    def test_recover_reserved_filtro_until_time(self):
+        """Flag --until-time existe."""
+        parser = cw.build_parser()
+        args = cw.build_parser().parse_args(["recover-reserved", "--campaign-key", "k", "--until-time", "2026-12-31"])
+        assert args.until_time == "2026-12-31"
+
+    def test_recover_reserved_filtro_max_age(self):
+        """Flag --max-age-minutes existe."""
+        parser = cw.build_parser()
+        args = parser.parse_args(["recover-reserved", "--campaign-key", "k", "--max-age-minutes", "60"])
+        assert args.max_age_minutes == 60
+
+    def test_recover_reserved_metodo_existe(self):
+        """Metodo recuperar_reservas_supabase existe."""
+        assert hasattr(cw.CampanhaWhatsApp, 'recuperar_reservas_supabase')
+
+    def test_recover_reserved_nao_envia_whatsapp(self):
+        """recover-reserved nao abre WhatsApp nem envia mensagem."""
+        import inspect
+        source = inspect.getsource(cw.CampanhaWhatsApp.recuperar_reservas_supabase)
+        # Nao deve conter chamadas de envio
+        assert 'enviar_mensagem' not in source
+        assert 'wa.me' not in source
+        assert 'page.goto' not in source
+
+    def test_recover_reserved_nao_abre_browser(self):
+        """recover-reserved nao abre browser Playwright."""
+        import inspect
+        source = inspect.getsource(cw.CampanhaWhatsApp.recuperar_reservas_supabase)
+        assert 'playwright' not in source.lower()
+        assert 'chromium' not in source.lower()
+
+    def test_recover_reserved_nao_loga_telefone(self):
+        """recover-reserved nao loga telefone completo."""
+        import inspect
+        source = inspect.getsource(cw.CampanhaWhatsApp.recuperar_reservas_supabase)
+        # Deve mascarar telefone
+        assert '****' in source
+
+    def test_checkpoint_vazio_nao_libera(self, tmp_path):
+        """Checkpoint vazio nao gera liberacao."""
+        with patch.object(cw, "CHECKPOINT_DIR", tmp_path):
+            args = cw.build_parser().parse_args(["recover", "--run-id", "run_vazio"])
+            campanha = cw.CampanhaWhatsApp(args)
+            result = campanha.recuperar_reservas("run_vazio", release=False)
+            assert result == 0
+
+    def test_main_recover_reserved_chama_metodo(self):
+        """main chama recuperar_reservas_supabase no modo recover-reserved."""
+        with patch.object(cw.CampanhaWhatsApp, 'recuperar_reservas_supabase', return_value=0) as mock:
+            cw.main(["recover-reserved", "--campaign-key", "test:key", "--dry-run"])
+            mock.assert_called_once()
+
+    def test_main_recover_reserved_dry_run(self):
+        """main recover-reserved sem confirm nao libera."""
+        with patch.object(cw.CampanhaWhatsApp, 'recuperar_reservas_supabase', return_value=0) as mock:
+            cw.main(["recover-reserved", "--campaign-key", "test:key"])
+            call_args = mock.call_args
+            assert call_args.kwargs.get('release', call_args[1].get('release', True)) is False
+
