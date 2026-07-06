@@ -1,0 +1,7 @@
+quando vamos passar pra poxima fase? quando falta pra acabar isso ai? pois eu quero um fluxo o seguinte:
+
+Peço o hermes, para começar a mandar mensagem para leads, como: "hermes, vamos mandar msg pra leads até as 17h30". Ai o hermes faz o calculo e diz que até 17h30 da pra mandar msg para 50 leads, ai ele separa os leads pra mim que estão no suabase. Ao separar os leads do supabase, ele vai pegar esses 50 leads e vai rodar esse script que tamo fazendo agora, pra ver se nenhum lead ainda for abordado ainda, depois dessa verificação, ele começa a mandar as msg para os leads.
+
+
+
+Ai que eu quero, investigar quantos scripts que envia msg para os leads (exceto esse que tamo fazendo agora que é de verificação de duplicidade) e apagar todos, para centralizar tudo nesse script que vamos fazer. Quero na pegada do script que captura leads no google maps pq ele tem --flags. Ai umas das flags que eu quero é automatico ou semi automatico, 3, 5 ou 7 minutos de intervalos entre as msg, e outras flags que vc achar que é bom ter. Esse script vai enviar mesngaem para os leads via wa.me.
