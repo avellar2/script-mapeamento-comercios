@@ -1029,7 +1029,13 @@ def main(argv: list[str] | None = None) -> int:
     if args.mode == "semi" and args.dry_run:
         logger.warning("Modo semi com --dry-run: nenhuma mensagem sera enviada.")
 
-    with LockWhatsAppMatch() as lock:
+    # Plan mode: no lock needed (leads sao apenas lidos, sem browser, sem escrita)
+    if args.mode == "plan":
+        campanha = CampanhaWhatsApp(args)
+        return campanha.run()
+
+    # Semi/Auto: usa lock do perfil de envio para evitar disputa de Chromium
+    with LockWhatsAppSender() as lock:
         if not lock.acquired:
             logger.error("Ja existe uma execucao ativa do fluxo WhatsApp.")
             return 1
