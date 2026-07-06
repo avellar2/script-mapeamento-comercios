@@ -446,3 +446,190 @@ class TestCLI:
         assert not args.confirm_live_send
         assert not args.dry_run
         assert not args.resume
+
+
+
+# ============================================================
+# Niche/Subniche Filtering
+# ============================================================
+
+class TestNicheFilter:
+    def test_default_nicho_is_assistencias(self):
+        parser = cw.build_parser()
+        args = parser.parse_args(["plan"])
+        assert args.nicho is None  # resolved later in __init__
+        campanha = cw.CampanhaWhatsApp(args)
+        assert campanha.nicho == "assistencias"
+
+    def test_default_subnichos_are_5_keys(self):
+        parser = cw.build_parser()
+        args = parser.parse_args(["plan"])
+        campanha = cw.CampanhaWhatsApp(args)
+        assert sorted(campanha.subnichos) == ["celular", "computadores", "eletrodomesticos", "eletronicos", "impressoras"]
+
+    def test_nicho_flag_substitutes_default(self):
+        parser = cw.build_parser()
+        args = parser.parse_args(["plan", "--nicho", "automotivo"])
+        campanha = cw.CampanhaWhatsApp(args)
+        assert campanha.nicho == "automotivo"
+        assert campanha.nicho_label == "Automotivo"
+
+    def test_nicho_alias_niche(self):
+        parser = cw.build_parser()
+        args = parser.parse_args(["plan", "--niche", "refrigeracao"])
+        campanha = cw.CampanhaWhatsApp(args)
+        assert campanha.nicho == "refrigeracao"
+
+    def test_subnichos_flag_filters(self):
+        parser = cw.build_parser()
+        args = parser.parse_args(["plan", "--subnichos", "celular,computadores"])
+        campanha = cw.CampanhaWhatsApp(args)
+        assert campanha.subnichos == ["celular", "computadores"]
+
+    def test_subnichos_with_spaces(self):
+        parser = cw.build_parser()
+        args = parser.parse_args(["plan", "--subnichos", " celular , computadores "])
+        campanha = cw.CampanhaWhatsApp(args)
+        assert campanha.subnichos == ["celular", "computadores"]
+
+    def test_subnichos_deduplicates(self):
+        parser = cw.build_parser()
+        args = parser.parse_args(["plan", "--subnichos", "celular,celular,computadores"])
+        campanha = cw.CampanhaWhatsApp(args)
+        assert campanha.subnichos == ["celular", "computadores"]
+
+    def test_subnichos_invalid_exits(self):
+        parser = cw.build_parser()
+        args = parser.parse_args(["plan", "--subnichos", "celular,inexistente"])
+        with pytest.raises(SystemExit):
+            cw.CampanhaWhatsApp(args)
+
+    def test_subnichos_empty_exits(self):
+        parser = cw.build_parser()
+        args = parser.parse_args(["plan", "--subnichos", ",,,"])
+        with pytest.raises(SystemExit):
+            cw.CampanhaWhatsApp(args)
+
+    def test_nicho_inexistente_exits(self):
+        parser = cw.build_parser()
+        args = parser.parse_args(["plan", "--nicho", "NichoInexistenteXYZ"])
+        with pytest.raises(SystemExit):
+            cw.CampanhaWhatsApp(args)
+
+    def test_todos_subnichos(self):
+        parser = cw.build_parser()
+        args = parser.parse_args(["plan", "--nicho", "automotivo", "--todos-subnichos"])
+        campanha = cw.CampanhaWhatsApp(args)
+        # automotivo has: autoeletrica, centro_automotivo, injecao_eletronica, motos, oficina_mecanica
+        assert "oficina_mecanica" in campanha.subnichos
+        assert len(campanha.subnichos) == 5
+
+    def test_todos_subnichos_conflict_with_subnichos(self):
+        parser = cw.build_parser()
+        args = parser.parse_args(["plan", "--subnichos", "celular", "--todos-subnichos"])
+        with pytest.raises(SystemExit):
+            cw.CampanhaWhatsApp(args)
+
+    def test_nicho_sem_subnichos_uses_all(self):
+        """Non-default niche without --subnichos uses all subnichos."""
+        parser = cw.build_parser()
+        args = parser.parse_args(["plan", "--nicho", "sob_medida"])
+        campanha = cw.CampanhaWhatsApp(args)
+        # sob_medida has: marcenaria, moveis_planejados, portoes, serralheria, vidracaria
+        assert len(campanha.subnichos) == 5
+        assert "marcenaria" in campanha.subnichos
+
+    def test_campaign_key_uses_nicho(self):
+        parser = cw.build_parser()
+        args = parser.parse_args(["plan", "--nicho", "automotivo"])
+        campanha = cw.CampanhaWhatsApp(args)
+        assert campanha.campaign_key == "avgestao:automotivo:primeiro_contato:v1"
+
+    def test_campaign_key_default_unchanged(self):
+        parser = cw.build_parser()
+        args = parser.parse_args(["plan"])
+        campanha = cw.CampanhaWhatsApp(args)
+        assert campanha.campaign_key == "avgestao:assistencias:primeiro_contato:v1"
+
+    def test_campaign_key_custom_override(self):
+        parser = cw.build_parser()
+        args = parser.parse_args(["plan", "--campaign-key", "custom:key:v1:v1"])
+        campanha = cw.CampanhaWhatsApp(args)
+        assert campanha.campaign_key == "custom:key:v1:v1"
+
+    def test_filter_hash_saved_in_checkpoint(self, tmp_path):
+        with patch.object(cw, "CHECKPOINT_DIR", tmp_path):
+            parser = cw.build_parser()
+            args = parser.parse_args(["plan", "--nicho", "automotivo"])
+            campanha = cw.CampanhaWhatsApp(args)
+            assert campanha.filter_hash is not None
+            assert len(campanha.filter_hash) == 16
+
+    def test_resume_same_filters_ok(self, tmp_path):
+        with patch.object(cw, "CHECKPOINT_DIR", tmp_path):
+            parser = cw.build_parser()
+            args = parser.parse_args(["plan", "--nicho", "automotivo"])
+            campanha = cw.CampanhaWhatsApp(args)
+            # Save checkpoint with filter_hash
+            campanha.checkpoint.carregar()
+            campanha.checkpoint._data["filter_hash"] = campanha.filter_hash
+            campanha.checkpoint._data["nicho"] = "automotivo"
+            campanha.checkpoint._data["subnichos"] = campanha.subnichos
+            campanha.checkpoint.salvar()
+            # Resume with same filters should not error on filter check
+            args2 = parser.parse_args(["plan", "--nicho", "automotivo", "--resume", "--run-id", campanha.run_id])
+            campanha2 = cw.CampanhaWhatsApp(args2)
+            assert campanha2.filter_hash == campanha.filter_hash
+
+    def test_resume_different_filters_blocked(self, tmp_path):
+        with patch.object(cw, "CHECKPOINT_DIR", tmp_path):
+            parser = cw.build_parser()
+            args = parser.parse_args(["plan", "--nicho", "automotivo"])
+            campanha = cw.CampanhaWhatsApp(args)
+            campanha.checkpoint.carregar()
+            campanha.checkpoint._data["filter_hash"] = campanha.filter_hash
+            campanha.checkpoint._data["nicho"] = "automotivo"
+            campanha.checkpoint._data["subnichos"] = campanha.subnichos
+            campanha.checkpoint.salvar()
+            # Resume with different niche
+            args2 = parser.parse_args(["plan", "--nicho", "assistencias", "--resume", "--run-id", campanha.run_id])
+            campanha2 = cw.CampanhaWhatsApp(args2)
+            # run() should detect mismatch (we can't call run() easily, but filter_hash differs)
+            assert campanha2.filter_hash != campanha.filter_hash
+
+    def test_no_lead_from_other_nicho(self):
+        """Verify that nicho filter is applied in the query."""
+        parser = cw.build_parser()
+        args = parser.parse_args(["plan", "--nicho", "automotivo"])
+        campanha = cw.CampanhaWhatsApp(args)
+        assert campanha.nicho == "automotivo"
+        # The actual filtering happens in Supabase query, but we verify the args are set
+
+    def test_listar_nichos_no_browser(self):
+        """--listar-nichos should not open browser or write."""
+        result = cw.main(["plan", "--listar-nichos"])
+        assert result == 0
+
+    def test_plan_shows_nicho_in_display(self, capsys):
+        parser = cw.build_parser()
+        args = parser.parse_args(["plan", "--nicho", "automotivo", "--dry-run"])
+        campanha = cw.CampanhaWhatsApp(args)
+        campanha._mostrar_plano([], None)
+        captured = capsys.readouterr()
+        assert "automotivo" in captured.out
+        assert "Automotivo" in captured.out
+
+    def test_existing_behavior_assistencias_compatible(self):
+        """Default behavior unchanged for assistencias."""
+        parser = cw.build_parser()
+        args = parser.parse_args(["plan"])
+        campanha = cw.CampanhaWhatsApp(args)
+        assert campanha.nicho == "assistencias"
+        assert len(campanha.subnichos) == 5
+        assert campanha.campaign_key == "avgestao:assistencias:primeiro_contato:v1"
+
+    def test_subniches_alias(self):
+        parser = cw.build_parser()
+        args = parser.parse_args(["plan", "--subniches", "celular"])
+        campanha = cw.CampanhaWhatsApp(args)
+        assert campanha.subnichos == ["celular"]

@@ -37,7 +37,8 @@ if _root not in sys.path:
 
 from config.lock_whatsapp_sender import LockWhatsAppSender
 from utils.phone_utils import normalizar_telefone_br
-from utils.campaign_key import PRIMEIRO_CONTATO_V1, validar_campaign_key
+from utils.campaign_key import PRIMEIRO_CONTATO_V1, validar_campaign_key, gerar_campaign_key
+from config.avgestao import GRUPOS
 
 logger = logging.getLogger("campanha_whatsapp")
 logging.basicConfig(
@@ -54,6 +55,8 @@ DEFAULT_MAX_ERRORS = 10
 DEFAULT_MAX_CONSECUTIVE_ERRORS = 3
 DEFAULT_JITTER_SECONDS = 0
 DEFAULT_LIMIT = 30
+DEFAULT_NICHO = "assistencias"
+DEFAULT_SUBNICHOS = ["celular", "computadores", "impressoras", "eletrodomesticos", "eletronicos"]
 PROFILE_DIR_NAME = ".whatsapp_business_profile"
 CHECKPOINT_DIR = Path("output/avgestao/campanha_runs")
 
@@ -159,7 +162,13 @@ class LeadSelector:
             self._client = create_client(url, key)
         return self._client
 
-    def buscar_leads(self, statuses: list[str] | None = None, limit: int = DEFAULT_LIMIT) -> list[dict[str, Any]]:
+    def buscar_leads(
+        self,
+        statuses: list[str] | None = None,
+        limit: int = DEFAULT_LIMIT,
+        nicho: str | None = None,
+        subnichos: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
         client = self._get_client()
         if not client:
             return []
@@ -168,10 +177,15 @@ class LeadSelector:
         try:
             query = (
                 client.table("leads")
-                .select("id,nome,whatsapp,telefone,telefone_normalizado,status,produto,grupo")
+                .select("id,nome,whatsapp,telefone,telefone_normalizado,status,produto,grupo,subnicho")
                 .in_("status", statuses)
-                .order("created_at")
+                .eq("produto", "avgestao")
             )
+            if nicho:
+                query = query.eq("grupo", nicho)
+            if subnichos:
+                query = query.in_("subnicho", subnichos)
+            query = query.order("created_at")
             if limit:
                 query = query.limit(limit)
             result = query.execute()
@@ -483,7 +497,6 @@ class CampanhaWhatsApp:
         self.args = args
         self.mode = args.mode
         self.run_id = args.run_id or self._gerar_run_id()
-        self.campaign_key = args.campaign_key
         self.limit = args.limit or DEFAULT_LIMIT
         self.until = args.until
         self.interval_seconds = args.interval_minutes * 60
@@ -491,6 +504,17 @@ class CampanhaWhatsApp:
         self.verification_budget = args.verification_budget_seconds
         self.dry_run = args.dry_run
         self.confirm_live_send = args.confirm_live_send
+
+        # Resolve niche and subnichos
+        self.nicho, self.subnichos, self.nicho_label = self._resolver_nicho()
+
+        # Generate campaign key dynamically based on niche
+        if args.campaign_key and args.campaign_key != PRIMEIRO_CONTATO_V1:
+            self.campaign_key = args.campaign_key
+        else:
+            self.campaign_key = gerar_campaign_key("avgestao", self.nicho, "primeiro_contato", "v1")
+
+        self.filter_hash = self._hash_filtros()
 
         self.lead_selector = LeadSelector()
         self.checkpoint = CheckpointManager(self.run_id)
@@ -506,6 +530,54 @@ class CampanhaWhatsApp:
         agora = datetime.now().strftime("%Y%m%d_%H%M%S")
         sufixo = hashlib.sha1(os.urandom(16)).hexdigest()[:6]
         return f"run_{agora}_{sufixo}"
+
+    def _resolver_nicho(self) -> tuple[str, list[str], str]:
+        """Resolve niche and subnichos from args or defaults."""
+        nicho = getattr(self.args, "nicho", None) or DEFAULT_NICHO
+
+        if nicho not in GRUPOS:
+            available = ", ".join(sorted(GRUPOS.keys()))
+            logger.error("Nicho '%s' nao encontrado. Disponiveis: %s", nicho, available)
+            sys.exit(1)
+
+        grupo_config = GRUPOS[nicho]
+        available_subnichos = sorted(set(s.subnicho_key for s in grupo_config.subnichos))
+
+        todos_subnichos = getattr(self.args, "todos_subnichos", False)
+        subnichos_arg = getattr(self.args, "subnichos", None)
+
+        if todos_subnichos and subnichos_arg:
+            logger.error("--subnichos e --todos-subnichos nao podem ser usados juntos.")
+            sys.exit(1)
+
+        if todos_subnichos:
+            subnichos = available_subnichos
+        elif subnichos_arg:
+            subnichos = [s.strip() for s in subnichos_arg.split(",") if s.strip()]
+            subnichos = list(dict.fromkeys(subnichos))  # deduplicate, preserve order
+            if not subnichos:
+                logger.error("--subnichos nao pode ser vazio.")
+                sys.exit(1)
+            for s in subnichos:
+                if s not in available_subnichos:
+                    logger.error(
+                        "Subnicho '%s' nao existe no nicho '%s'. Disponiveis: %s",
+                        s, nicho, available_subnichos,
+                    )
+                    sys.exit(1)
+        else:
+            # Default behavior
+            if nicho == DEFAULT_NICHO:
+                subnichos = list(DEFAULT_SUBNICHOS)
+            else:
+                subnichos = available_subnichos
+
+        return nicho, subnichos, grupo_config.label
+
+    def _hash_filtros(self) -> str:
+        """Hash of niche+subnichos for checkpoint compatibility check."""
+        raw = f"{self.nicho}:{','.join(sorted(self.subnichos))}"
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
 
     def _carregar_template(self) -> str:
         if self._template_text is not None:
@@ -578,10 +650,35 @@ class CampanhaWhatsApp:
         else:
             capacidade = self.limit
 
+        # Validate resume filter compatibility
+        if self.args.resume:
+            saved_hash = checkpoint_data.get("filter_hash")
+            if saved_hash and saved_hash != self.filter_hash:
+                saved_nicho = checkpoint_data.get("nicho", "?")
+                saved_sub = checkpoint_data.get("subnichos", "?")
+                logger.error(
+                    "Filtros incompativeis com run original. "
+                    "Original: nicho=%s, subnichos=%s. Atual: nicho=%s, subnichos=%s. "
+                    "Use um novo run_id.",
+                    saved_nicho, saved_sub, self.nicho, self.subnichos,
+                )
+                return 1
+
+        # Save niche/subnichos to checkpoint
+        checkpoint_data["nicho"] = self.nicho
+        checkpoint_data["subnichos"] = self.subnichos
+        checkpoint_data["filter_hash"] = self.filter_hash
+        self.checkpoint.salvar()
+
         statuses = self.args.statuses.split(",") if self.args.statuses else ["novo", "pronto_para_enviar"]
-        leads = self.lead_selector.buscar_leads(statuses=statuses, limit=self.limit * 2)
+        leads = self.lead_selector.buscar_leads(
+            statuses=statuses,
+            limit=self.limit * 2,
+            nicho=self.nicho,
+            subnichos=self.subnichos,
+        )
         if not leads:
-            logger.warning("Nenhum lead elegivel encontrado.")
+            logger.warning("Nenhum lead elegivel encontrado para nicho=%s, subnichos=%s.", self.nicho, self.subnichos)
             return 0
 
         leads = LeadSelector.filtrar_celular(leads)
@@ -599,6 +696,8 @@ class CampanhaWhatsApp:
         print("\n" + "=" * 60)
         print("  PLANO DE CAMPANHA")
         print("=" * 60)
+        print(f"  Nicho: {self.nicho_label} ({self.nicho})")
+        print(f"  Subnichos: {len(self.subnichos)} selecionados ({', '.join(self.subnichos)})")
         if cap:
             print(f"  Horario limite: {self.until}")
             print(f"  Minutos disponiveis: {cap.get('minutos_disponiveis', 'N/A')}")
@@ -862,6 +961,10 @@ def build_parser() -> argparse.ArgumentParser:
         epilog="""
 Exemplos:
   python campanha_whatsapp.py plan --until 17:00
+  python campanha_whatsapp.py plan --until 17:00 --nicho "Barbearias"
+  python campanha_whatsapp.py plan --until 17:00 --nicho "Assistencias Tecnicas" --subnichos "Celulares,Computadores"
+  python campanha_whatsapp.py plan --until 17:00 --nicho "Assistencias Tecnicas" --todos-subnichos
+  python campanha_whatsapp.py plan --listar-nichos
   python campanha_whatsapp.py semi --until 17:00 --limit 10
   python campanha_whatsapp.py auto --until 17:00 --confirm-live-send
   python campanha_whatsapp.py auto --resume --run-id <RUN_ID> --confirm-live-send
@@ -885,12 +988,39 @@ Exemplos:
     parser.add_argument("--jitter-seconds", type=int, default=DEFAULT_JITTER_SECONDS, help=f"Jitter maximo entre envios (padrao: {DEFAULT_JITTER_SECONDS})")
     parser.add_argument("--confirm-live-send", action="store_true", help="Confirma envio real no modo auto (obrigatorio para auto)")
     parser.add_argument("--verify-only", action="store_true", help="Apenas verifica duplicidade, nao envia")
+    parser.add_argument("--nicho", "--niche", type=str, default=None, dest="nicho",
+                        help=f"Nicho/categoria de leads (padrao: {DEFAULT_NICHO})")
+    parser.add_argument("--subnichos", "--subniches", type=str, default=None, dest="subnichos",
+                        help="Subnichos separados por virgula (padrao: subnichos do nicho padrao)")
+    parser.add_argument("--listar-nichos", action="store_true", default=False,
+                        help="Lista nichos e subnichos disponiveis e sai")
+    parser.add_argument("--todos-subnichos", action="store_true", default=False,
+                        help="Usa todos os subnichos do nicho selecionado")
     return parser
+
+
+def listar_nichos() -> None:
+    """Print available niches and subnichos."""
+    print("=" * 60)
+    print("  NICHOS DISPONIVEIS")
+    print("=" * 60)
+    for key, grupo in GRUPOS.items():
+        sub_keys = sorted(set(s.subnicho_key for s in grupo.subnichos))
+        default_mark = " (PADRAO)" if key == DEFAULT_NICHO else ""
+        print(f"\n  {key}: {grupo.label}{default_mark}")
+        print(f"    Subnichos: {', '.join(sub_keys)}")
+        if key == DEFAULT_NICHO:
+            print(f"    Subnichos padrao: {', '.join(DEFAULT_SUBNICHOS)}")
+    print("\n" + "=" * 60)
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    if args.listar_nichos:
+        listar_nichos()
+        return 0
 
     if args.mode == "auto" and not args.confirm_live_send and not args.dry_run:
         logger.error("Modo auto requer --confirm-live-send para enviar mensagens reais. Use --dry-run para teste sem envio.")
