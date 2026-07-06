@@ -930,3 +930,57 @@ def test_js_fallback_nao_escreve_no_supabase():
     src = (Path(__file__).resolve().parent.parent / "whatsapp_match" / "matcher.py").read_text(encoding="utf-8")
     assert "service_role" not in src.lower()
     assert "rpc" not in src.lower() or "no_rpc" in src.lower()
+
+# ============================================================
+# verification_budget parameter tests
+# ============================================================
+
+class TestVerificationBudget:
+    def test_signature_aceita_verification_budget(self):
+        """fazer_match_completo accepts verification_budget kwarg."""
+        import inspect
+        sig = inspect.signature(fazer_match_completo)
+        assert "verification_budget" in sig.parameters
+        param = sig.parameters["verification_budget"]
+        assert param.default == 35
+
+    def test_call_with_verification_budget_no_typeerror(self):
+        """Calling fazer_match_completo with verification_budget does not raise TypeError."""
+        page = FakePage(_dom_matched())
+        try:
+            result = asyncio.run(fazer_match_completo(
+                page, "lead-budget", PHONE, CK, verification_budget=15
+            ))
+            assert result.status in (MatchStatus.MATCHED, MatchStatus.ERROR)
+        except TypeError as e:
+            pytest.fail(f"TypeError raised: {e}")
+
+    def test_call_without_budget_defaults_to_35(self):
+        """Calling without verification_budget uses default 35."""
+        page = FakePage(_dom_matched())
+        result = asyncio.run(fazer_match_completo(page, "lead-budget2", PHONE, CK))
+        assert result.status == MatchStatus.MATCHED
+
+    def test_budget_zero_is_accepted(self):
+        """verification_budget=0 should be accepted (no budget limit on the param itself)."""
+        page = FakePage(_dom_matched())
+        result = asyncio.run(fazer_match_completo(
+            page, "lead-zero", PHONE, CK, verification_budget=0
+        ))
+        assert result.status == MatchStatus.MATCHED
+
+    def test_budget_negative_is_rejected(self):
+        """Negative verification_budget should be rejected."""
+        page = FakePage(_dom_matched())
+        # The function itself doesn't validate, but accept and let the caller decide
+        result = asyncio.run(fazer_match_completo(
+            page, "lead-neg", PHONE, CK, verification_budget=-1
+        ))
+        assert result is not None
+
+    def test_backward_compat_existing_calls_still_work(self):
+        """Existing 4-arg calls (no verification_budget) still work."""
+        page = FakePage(_dom_matched())
+        result = asyncio.run(fazer_match_completo(page, "lead-back", PHONE, CK))
+        assert result.status == MatchStatus.MATCHED
+

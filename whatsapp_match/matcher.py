@@ -20,6 +20,7 @@ Anti-falso-positivo:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
@@ -723,6 +724,7 @@ async def fazer_match_completo(
     phone_normalized: str,
     campaign_key: str,
     diagnostic_dir: Optional[str] = None,
+    verification_budget: int = 35,
 ) -> MatchResult:
     """
     Executa o fluxo completo de match para um lead.
