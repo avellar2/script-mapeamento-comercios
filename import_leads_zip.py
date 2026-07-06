@@ -358,12 +358,38 @@ def _mostrar_dry_run(resultado: dict, existentes: dict, amostra: int = 5) -> Non
     total_conflitos = len(conflitos)
     total_novos = len(novos_para_inserir)
 
-    print(f"  Ja existentes no Supabase (mesmo produto/grupo): {total_ja_existentes}")
-    print(f"  Ja existentes em OUTRO grupo: {total_outro_grupo}")
-    print(f"  Ignorados por status protegido (abordado/convertido/etc): {total_protegidos}")
-    print(f"  Conflitos (existe mas sem grupo/produto claro): {total_conflitos}")
+    total_ja_existentes = len(ja_existentes_mesmo_grupo)
+    total_protegidos = len(status_protegido)
+    total_outro_grupo = len(ja_existentes_outro_grupo)
+
+    # Reclassificar conflitos: separar legacy landing em atualizaveis vs conflitos reais
+    atualizaveis_landing = []
+    conflitos_reais = []
+    for lead, existente in conflitos:
+        produto_ex = existente.get('produto', '')
+        grupo_ex = existente.get('grupo', '')
+        # landing sem grupo = atualizavel seguro
+        if produto_ex == 'landing' and (not grupo_ex or grupo_ex.strip() == ''):
+            atualizaveis_landing.append((lead, existente))
+        else:
+            conflitos_reais.append((lead, existente))
+
+    total_atualizaveis_landing = len(atualizaveis_landing)
+    total_conflitos_reais = len(conflitos_reais)
+    total_novos = len(novos_para_inserir)
+
+    total_campanha = total_novos + total_atualizaveis_landing + total_ja_existentes
+
+    print(f"  Ja existentes mesmo produto/grupo: {total_ja_existentes}")
+    print(f"  Ja protegidos (abordado/convertido/etc): {total_protegidos}")
+    print(f"  Atualizaveis de landing sem grupo: {total_atualizaveis_landing}")
+    print(f"    (produto=landing, grupo vazio -> atualizar para avgestao/assistencias)")
+    print(f"  Conflitos nao atualizaveis: {total_conflitos_reais}")
     print(f"  NOVOS que seriam inseridos: {total_novos}")
-    print(f"  (Todos novos com produto={resultado['produto']}, grupo={resultado['grupo']})")
+    print()
+    print(f"  TOTAL que entraria na campanha apos import: {total_campanha}")
+    print(f"    (novos {total_novos} + atualizaveis landing {total_atualizaveis_landing} + ja existentes {total_ja_existentes})")
+    print(f"  (Todos com produto={resultado['produto']}, grupo={resultado['grupo']})")
     print()
 
     # Amostra novos
@@ -402,11 +428,26 @@ def _mostrar_dry_run(resultado: dict, existentes: dict, amostra: int = 5) -> Non
             nome = lead.get('nome', '?')[:35].encode('ascii', errors='replace').decode('ascii')
             print(f"    PROTEG  | {masked:14s} | status={existente.get('status','?'):20s} | {nome[:30]:30s}")
 
-    # Subnicho
-    print(f"\n  Por subnicho (total ZIP):")
-    for k, v in resultado['por_subnicho'].most_common():
+    if atualizaveis_landing:
+        print(f"\n  Amostra ATUALIZAVEIS LANDING ({min(amostra, len(atualizaveis_landing))}):")
+        for lead, existente in atualizaveis_landing[:amostra]:
+            t = lead['telefone_normalizado']
+            masked = t[:4] + "****" + t[-4:] if len(t) >= 8 else "****"
+            nome = lead.get('nome', '?')[:35].encode('ascii', errors='replace').decode('ascii')
+            print(f"    UPDATE  | {masked:14s} | {lead.get('subnicho','?'):15s} | {nome[:30]:30s}")
+
+    # Subnicho — tabela expandida
+    print(f"\n  Por subnicho:")
+    print(f"    {'subnicho':20s} | {'total':>5s} | {'novos':>5s} | {'upd.land':>8s} | {'exist.assist':>12s} | {'proteg':>6s} | {'conflito':>8s}")
+    print(f"    {'-'*20}-+-{'-'*5}-+-{'-'*5}-+-{'-'*8}-+-{'-'*12}-+-{'-'*6}-+-{'-'*8}")
+    for k in resultado['por_subnicho']:
+        total_sub = resultado['por_subnicho'][k]
         novos_sub = sum(1 for l in novos_para_inserir if l.get('subnicho') == k)
-        print(f"    {k:20s}: {v:4d} total  | {novos_sub:4d} novos")
+        upd_sub = sum(1 for l, e in atualizaveis_landing if l.get('subnicho') == k)
+        exist_sub = sum(1 for l, e in ja_existentes_mesmo_grupo if l.get('subnicho') == k)
+        prot_sub = sum(1 for l, e in status_protegido if l.get('subnicho') == k)
+        confl_sub = sum(1 for l, e in conflitos_reais if l.get('subnicho') == k)
+        print(f"    {k:20s} | {total_sub:5d} | {novos_sub:5d} | {upd_sub:8d} | {exist_sub:12d} | {prot_sub:6d} | {confl_sub:8d}")
 
     # Cidades
     print(f"\n  Por cidade (top 10):")
@@ -416,17 +457,57 @@ def _mostrar_dry_run(resultado: dict, existentes: dict, amostra: int = 5) -> Non
     print(f"\n  Comando para importacao real:")
     print(f"  python campanha_whatsapp.py import-leads --from-zip <ZIP> --produto {resultado['produto']} --grupo {resultado['grupo']} --confirm")
     print("=" * 60)
-    if total_novos == 0:
-        print("  Nenhum lead novo para importar — todos ja existem ou estao protegidos.")
-    else:
-        print(f"  {total_novos} leads NOVOS prontos para importar com --confirm.")
+    print(f"  Resumo: {total_novos} novos + {total_atualizaveis_landing} updates landing = {total_novos + total_atualizaveis_landing} operacoes de escrita")
+    print(f"  Campanha total apos import: {total_campanha} leads")
     print("  ZERO ESCRITA — dry-run concluido.")
+
+PROTECTED_STATUSES = ('abordado', 'sent', 'confirmed_from_whatsapp', 'interessado', 'convertido', 'reserved')
+
+
+def _classificar_existentes_contra_lead(lead: dict, existente: dict, produto: str, grupo: str) -> str:
+    """
+    Classifica o que fazer com um lead que ja existe no Supabase.
+
+    Returns: 'protegido' | 'ja_existente' | 'atualizavel_landing' | 'outro_grupo' | 'conflito'
+    """
+    status_ex = existente.get('status', '')
+    produto_ex = existente.get('produto', '')
+    grupo_ex = existente.get('grupo', '')
+
+    if status_ex in PROTECTED_STATUSES:
+        return 'protegido'
+    if produto_ex == produto and grupo_ex == grupo:
+        return 'ja_existente'
+    if produto_ex == 'landing' and (not grupo_ex or grupo_ex.strip() == ''):
+        return 'atualizavel_landing'
+    if grupo_ex and grupo_ex != grupo:
+        return 'outro_grupo'
+    return 'conflito'
+
+
+def _atualizar_lead(sb, lead_id: str, lead: dict) -> bool:
+    """Atualiza produto/grupo/subnicho de um lead legacy. Preserva status e dados existentes."""
+    try:
+        payload = {
+            "produto": lead.get('produto', ''),
+            "grupo": lead.get('grupo', ''),
+            "subnicho": lead.get('subnicho', ''),
+        }
+        # so atualiza origem se nao existir
+        if lead.get('origem'):
+            payload['origem'] = lead.get('origem', '')
+        sb.table("leads").update(payload).eq("id", lead_id).execute()
+        return True
+    except Exception as e:
+        logger.warning("Erro ao atualizar lead %s (id=%s): %s", lead.get("nome", "")[:30], lead_id, e)
+        return False
 
 
 def _executar_importacao(resultado: dict, existentes: dict) -> dict:
-    """Executa importacao real no Supabase."""
+    """Executa importacao real no Supabase: inserts + updates landing seguros."""
     sb = _get_supabase_client()
     inseridos = 0
+    atualizados = 0
     erros = 0
     pulados = 0
 
@@ -434,22 +515,40 @@ def _executar_importacao(resultado: dict, existentes: dict) -> dict:
         tel_norm = lead["telefone_normalizado"]
         if tel_norm in existentes:
             existente = existentes[tel_norm]
-            status_existente = existente.get("status", "")
-            if status_existente in ("abordado", "sent", "confirmed_from_whatsapp", "interessado", "convertido"):
-                logger.info("Pulando %s (status protegido: %s)", tel_norm[:4] + "****" + tel_norm[-4:], status_existente)
+            classificacao = _classificar_existentes_contra_lead(
+                lead, existente, resultado['produto'], resultado['grupo'])
+            status_ex = existente.get('status', '')
+
+            if classificacao == 'protegido':
+                logger.info("Pulando %s (status protegido: %s)", tel_norm[:4] + "****" + tel_norm[-4:], status_ex)
                 pulados += 1
                 continue
-            # Se existente com status novo/pronto, pular tambem (ja existe)
-            logger.info("Pulando %s (ja existente)", tel_norm[:4] + "****" + tel_norm[-4:])
-            pulados += 1
-            continue
+            elif classificacao == 'ja_existente':
+                logger.info("Pulando %s (ja existente)", tel_norm[:4] + "****" + tel_norm[-4:])
+                pulados += 1
+                continue
+            elif classificacao == 'atualizavel_landing':
+                if _atualizar_lead(sb, existente['id'], lead):
+                    atualizados += 1
+                    logger.info("Atualizado landing→%s: %s", resultado['grupo'], tel_norm[:4] + "****" + tel_norm[-4:])
+                else:
+                    erros += 1
+                continue
+            elif classificacao in ('outro_grupo', 'conflito'):
+                logger.info("Pulando %s (conflito/outro grupo: %s)", tel_norm[:4] + "****" + tel_norm[-4:], classificacao)
+                pulados += 1
+                continue
+            else:
+                pulados += 1
+                continue
 
+        # Novo — inserir
         if _inserir_lead(sb, lead):
             inseridos += 1
         else:
             erros += 1
 
-    return {"inseridos": inseridos, "erros": erros, "pulados": pulados}
+    return {"inseridos": inseridos, "atualizados": atualizados, "erros": erros, "pulados": pulados}
 
 
 def importar_leads_zip(zip_path: str, produto: str = "avgestao", grupo: str = "assistencias",
@@ -508,5 +607,5 @@ def importar_leads_zip(zip_path: str, produto: str = "avgestao", grupo: str = "a
 
     # Executar importacao real
     res = _executar_importacao(resultado, existentes)
-    print(f"\nImportacao concluida: {res['inseridos']} inseridos, {res['erros']} erros, {res['pulados']} pulados.")
+    print(f"\nImportacao concluida: {res['inseridos']} inseridos, {res['atualizados']} atualizados (landing), {res['erros']} erros, {res['pulados']} pulados.")
     return 0 if res["erros"] == 0 else 1

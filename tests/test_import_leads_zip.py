@@ -17,6 +17,8 @@ from import_leads_zip import (
     _resolver_subnicho,
     _classificar_leads,
     _ler_xlsx_para_leads,
+    _classificar_existentes_contra_lead,
+    PROTECTED_STATUSES,
     QUERY_PARA_SUBNICHO,
 )
 from utils.phone_utils import normalizar_telefone_br
@@ -259,6 +261,98 @@ class TestDeduplicacao:
         leads = [{"nome": "Outro", "telefone": "21987654321", "source_query": "mecanico"}]
         resultado = _classificar_leads(leads, "avgestao", "assistencias", "zip")
         assert resultado["unicos"] == 0
+
+
+# ============================================================
+# Atualizaveis landing sem grupo
+# ============================================================
+
+class TestAtualizaveisLanding:
+    def test_landing_sem_grupo_vira_atualizavel(self):
+        """produto=landing sem grupo e classificado como atualizavel_landing."""
+        lead = {"subnicho": "celular"}
+        existente = {"produto": "landing", "grupo": "", "status": "novo"}
+        assert _classificar_existentes_contra_lead(lead, existente, "avgestao", "assistencias") == "atualizavel_landing"
+
+    def test_landing_grupo_vazio_vira_atualizavel(self):
+        """produto=landing com grupo vazio e atualizavel."""
+        lead = {"subnicho": "computadores"}
+        existente = {"produto": "landing", "grupo": " ", "status": "novo"}
+        assert _classificar_existentes_contra_lead(lead, existente, "avgestao", "assistencias") == "atualizavel_landing"
+
+    def test_landing_grupo_preenchido_vira_conflito(self):
+        """produto=landing com grupo ja definido e conflito."""
+        lead = {"subnicho": "celular"}
+        existente = {"produto": "landing", "grupo": "mecanicos", "status": "novo"}
+        assert _classificar_existentes_contra_lead(lead, existente, "avgestao", "assistencias") == "outro_grupo"
+
+    def test_abordado_nao_e_atualizavel(self):
+        """Status abordado nunca e atualizavel, mesmo que landing sem grupo."""
+        lead = {"subnicho": "celular"}
+        existente = {"produto": "landing", "grupo": "", "status": "abordado"}
+        assert _classificar_existentes_contra_lead(lead, existente, "avgestao", "assistencias") == "protegido"
+
+    def test_convertido_nao_e_atualizavel(self):
+        """Status convertido nunca e atualizavel."""
+        lead = {"subnicho": "computadores"}
+        existente = {"produto": "landing", "grupo": "", "status": "convertido"}
+        assert _classificar_existentes_contra_lead(lead, existente, "avgestao", "assistencias") == "protegido"
+
+    def test_reserved_nao_e_atualizavel(self):
+        """Status reserved nunca e atualizavel."""
+        lead = {"subnicho": "celular"}
+        existente = {"produto": "landing", "grupo": "", "status": "reserved"}
+        assert _classificar_existentes_contra_lead(lead, existente, "avgestao", "assistencias") == "protegido"
+
+    def test_ja_existente_mesmo_grupo_nao_vira_landing(self):
+        """Lead ja com avgestao/assistencias permanece ja_existente."""
+        lead = {"subnicho": "celular"}
+        existente = {"produto": "avgestao", "grupo": "assistencias", "status": "novo"}
+        assert _classificar_existentes_contra_lead(lead, existente, "avgestao", "assistencias") == "ja_existente"
+
+    def test_outro_produto_vira_conflito(self):
+        """produto=diferente (nem landing nem avgestao) vira conflito."""
+        lead = {"subnicho": "celular"}
+        existente = {"produto": "outro", "grupo": "", "status": "novo"}
+        assert _classificar_existentes_contra_lead(lead, existente, "avgestao", "assistencias") == "conflito"
+
+    def test_grupo_diferente_vira_outro(self):
+        """grupo diferente e tratado como outro_grupo."""
+        lead = {"subnicho": "celular"}
+        existente = {"produto": "avgestao", "grupo": "refrigeracao", "status": "novo"}
+        assert _classificar_existentes_contra_lead(lead, existente, "avgestao", "assistencias") == "outro_grupo"
+
+    def test_sent_e_protegido(self):
+        lead = {"subnicho": "celular"}
+        existente = {"produto": "landing", "grupo": "", "status": "sent"}
+        assert _classificar_existentes_contra_lead(lead, existente, "avgestao", "assistencias") == "protegido"
+
+    def test_interessado_e_protegido(self):
+        lead = {"subnicho": "celular"}
+        existente = {"produto": "landing", "grupo": "", "status": "interessado"}
+        assert _classificar_existentes_contra_lead(lead, existente, "avgestao", "assistencias") == "protegido"
+
+    def test_atualizar_lead_atualiza_produto(self):
+        """_atualizar_lead envia produto correto no update."""
+        from import_leads_zip import _atualizar_lead
+        mock_sb = MagicMock()
+        lead = {"produto": "avgestao", "grupo": "assistencias", "subnicho": "celular", "origem": "zip_x"}
+        lead_id = "abc-123"
+        _atualizar_lead(mock_sb, lead_id, lead)
+        mock_sb.table.assert_called_with("leads")
+        call_args = mock_sb.table().update.call_args[0][0]
+        assert call_args["produto"] == "avgestao"
+        assert call_args["grupo"] == "assistencias"
+        assert call_args["subnicho"] == "celular"
+
+    def test_atualizar_preserva_status(self):
+        """_atualizar_lead NAO envia status no payload de update."""
+        from import_leads_zip import _atualizar_lead
+        mock_sb = MagicMock()
+        lead = {"produto": "avgestao", "grupo": "assistencias", "subnicho": "celular", "status": "novo"}
+        _atualizar_lead(mock_sb, "abc", lead)
+        call_args = mock_sb.table().update.call_args[0][0]
+        assert "status" not in call_args
 
 
 # ============================================================
