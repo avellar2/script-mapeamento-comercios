@@ -489,6 +489,92 @@ class SafetyController:
 
 
 # ============================================================
+# Sessao Playwright
+# ============================================================
+
+class SessaoWhatsApp:
+    """Gerencia uma sessao Playwright para um lote de leads.
+
+    Mantem Playwright, browser context e page vivos durante toda a sessao.
+    O event loop se mantem aberto, impedindo que o transport seja destruido.
+
+    Uso:
+        async with SessaoWhatsApp(profile_dir) as sessao:
+            page = sessao.page
+            for lead in leads:
+                await fazer_algo(page, lead)
+    """
+
+    def __init__(self, profile_dir: Path, headless: bool = False):
+        self.profile_dir = Path(profile_dir)
+        self.headless = headless
+        self._playwright = None
+        self._context = None
+        self._page = None
+        self._aberta = False
+
+    async def __aenter__(self):
+        from playwright.async_api import async_playwright
+        self.profile_dir.mkdir(parents=True, exist_ok=True)
+
+        self._playwright = await async_playwright().start()
+        self._context = await self._playwright.chromium.launch_persistent_context(
+            user_data_dir=str(self.profile_dir),
+            headless=self.headless,
+            args=["--disable-blink-features=AutomationControlled"],
+        )
+
+        for existing in self._context.pages:
+            if "web.whatsapp.com" in getattr(existing, "url", ""):
+                self._page = existing
+                break
+        if self._page is None:
+            self._page = await self._context.new_page()
+            await self._page.goto("https://web.whatsapp.com", wait_until="domcontentloaded")
+        for existing in list(self._context.pages):
+            if existing is not self._page and getattr(existing, "url", "") == "about:blank":
+                try:
+                    await existing.close()
+                except Exception:
+                    pass
+
+        self._aberta = True
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        self._aberta = False
+        if self._context:
+            try:
+                await self._context.close()
+            except Exception:
+                pass
+        if self._playwright:
+            try:
+                await self._playwright.stop()
+            except Exception:
+                pass
+
+    @property
+    def page(self):
+        return self._page
+
+    @property
+    def context(self):
+        return self._context
+
+    def esta_valida(self) -> bool:
+        """Verifica se a sessao esta pronta para uso."""
+        if not self._aberta:
+            return False
+        if self._page is None:
+            return False
+        try:
+            return not self._page.is_closed()
+        except Exception:
+            return False
+
+
+# ============================================================
 # Orquestrador principal
 # ============================================================
 
@@ -722,8 +808,6 @@ class CampanhaWhatsApp:
 
     def _executar_verificar(self, leads: list[dict]) -> int:
         """Verify-only mode: open matcher browser, verify leads, report. No reservation, no sending."""
-        from whatsapp_match.matcher import fazer_match_completo, MatchStatus
-
         logger.info("=" * 60)
         logger.info("Modo: verify-only (apenas verificacao, sem envio)")
         logger.info("=" * 60)
@@ -741,50 +825,14 @@ class CampanhaWhatsApp:
                 logger.error("Perfil de verificacao (whatsapp_match) esta em uso.")
                 return 1
 
-            playwright_obj, context, page = self._abrir_browser_matcher()
-            if not page:
-                logger.error("Nao foi possivel abrir WhatsApp Web (perfil matcher)")
-                return 1
+            results = asyncio.run(self._verificar_leads_async(leads))
 
-            try:
-                results = []
-                for i, lead in enumerate(leads):
-                    if self.safety.deve_parar()[0]:
-                        logger.warning("Parando por seguranca")
-                        break
-
-                    lead_id = lead.get("id", "")
-                    tel_norm = lead.get("_telefone_normalizado", "")
-                    nome = lead.get("nome", "")
-                    masked = tel_norm[:4] + "****" + tel_norm[-4:] if len(tel_norm) >= 8 else "****"
-                    logger.info("[%d/%d] %s (%s)", i+1, len(leads), nome[:40], masked)
-
-                    try:
-                        verification = asyncio.run(
-                            DedupVerifier.verificar(page, lead, self.campaign_key, self.verification_budget)
-                        )
-                    except Exception as e:
-                        verification = {"classification": "verification_error", "error": str(e)[:200]}
-
-                    classification = verification.get("classification", "needs_reconciliation")
-                    logger.info("  Resultado: %s", classification)
-                    results.append({"lead_id": lead_id, "nome": nome[:40], "classification": classification})
-
-                print("\n" + "=" * 60)
-                print("  RESULTADO VERIFY-ONLY")
-                print("=" * 60)
-                for r in results:
-                    print(f"  {r['classification']:30s} {r['nome']}")
-                print("=" * 60)
-            finally:
-                try:
-                    asyncio.run(context.close())
-                except Exception:
-                    pass
-                try:
-                    asyncio.run(playwright_obj.stop())
-                except Exception:
-                    pass
+        print("\n" + "=" * 60)
+        print("  RESULTADO VERIFY-ONLY")
+        print("=" * 60)
+        for r in results:
+            print(f"  {r['classification']:30s} {r['nome']}")
+        print("=" * 60)
 
         return 0
 
@@ -851,8 +899,6 @@ class CampanhaWhatsApp:
             # ------------------------------------------------------------------
             # Phase 1: Verify all reserved leads with matcher profile
             # ------------------------------------------------------------------
-            verificacoes: dict[str, dict] = {}
-
             with LockWhatsAppMatch() as matcher_lock:
                 if not matcher_lock.acquired:
                     logger.error("Perfil de verificacao (whatsapp_match) esta em uso. Abortando.")
@@ -862,57 +908,17 @@ class CampanhaWhatsApp:
                         self.checkpoint.registrar_falha(r["lead"]["id"], "matcher_lock_ocupado")
                     return 1
 
-                playwright_obj, context, page = self._abrir_browser_matcher()
-                if not page:
-                    logger.error("Nao foi possivel abrir WhatsApp Web (perfil matcher)")
-                    for r in reservados:
-                        if not self.dry_run:
-                            settle_lead(r["reservation_id"], r["reservation_token"], "released", obs="matcher_browser_falha")
-                        self.checkpoint.registrar_falha(r["lead"]["id"], "matcher_browser_falha")
-                    return 1
-
-                try:
-                    for i, r in enumerate(reservados):
-                        lead_id = r["lead"]["id"]
-                        logger.info("[%d/%d] Verificando: %s (%s)", i+1, len(reservados), r["nome"][:40], r["masked"])
-
-                        if self.dry_run:
-                            verificacoes[lead_id] = {"classification": "safe_to_send"}
-                            continue
-
-                        try:
-                            verification = asyncio.run(
-                                DedupVerifier.verificar(page, r["lead"], self.campaign_key, self.verification_budget)
-                            )
-                        except Exception as e:
-                            verification = {"classification": "verification_error", "error": str(e)[:200]}
-
-                        classificacao = verification.get("classification", "needs_reconciliation")
-                        logger.info("  Verificacao: %s", classificacao)
-                        verificacoes[lead_id] = verification
-                finally:
-                    try:
-                        asyncio.run(context.close())
-                    except Exception:
-                        pass
-                    try:
-                        asyncio.run(playwright_obj.stop())
-                    except Exception:
-                        pass
+                verificacoes = asyncio.run(self._verificar_leads_async(reservados))
 
             # ------------------------------------------------------------------
             # Phase 2: Send to safe_to_send leads with sender profile
             # ------------------------------------------------------------------
             safe_leads = [r for r in reservados if verificacoes.get(r["lead"]["id"], {}).get("classification") == "safe_to_send"]
+            non_safe = [r for r in reservados if r not in safe_leads]
 
             if not safe_leads:
                 logger.info("Nenhum lead classificado como safe_to_send.")
-                for r in reservados:
-                    lid = r["lead"]["id"]
-                    vc = verificacoes.get(lid, {}).get("classification", "unknown")
-                    if vc != "safe_to_send" and not self.dry_run:
-                        settle_lead(r["reservation_id"], r["reservation_token"], "released", obs=f"dedup_{vc}")
-                    self.checkpoint.registrar_skip(lid, vc)
+                self._settle_nao_seguros(non_safe, verificacoes)
                 return 0
 
             logger.info("Leads safe_to_send: %d", len(safe_leads))
@@ -926,114 +932,9 @@ class CampanhaWhatsApp:
                         self.checkpoint.registrar_falha(r["lead"]["id"], "sender_lock_ocupado")
                     return 1
 
-                playwright_obj2, context2, page2 = self._abrir_browser_sender()
-                if not page2:
-                    logger.error("Nao foi possivel abrir WhatsApp Web (perfil sender)")
-                    for r in safe_leads:
-                        if not self.dry_run:
-                            settle_lead(r["reservation_id"], r["reservation_token"], "released", obs="sender_browser_falha")
-                        self.checkpoint.registrar_falha(r["lead"]["id"], "sender_browser_falha")
-                    return 1
+                asyncio.run(self._enviar_leads_async(safe_leads))
 
-                try:
-                    enviados = 0
-                    for i, r in enumerate(safe_leads):
-                        deve_parar, motivo = self.safety.deve_parar()
-                        if deve_parar:
-                            logger.warning("Parando: %s", motivo)
-                            break
-
-                        if self.until and SafetyController.horario_passou(self.until):
-                            logger.warning("Horario limite atingido")
-                            break
-
-                        lead = r["lead"]
-                        lead_id = lead["id"]
-                        tel_norm = r["tel_norm"]
-                        nome = r["nome"]
-                        masked = r["masked"]
-                        reservation_id = r["reservation_id"]
-                        reservation_token = r["reservation_token"]
-
-                        logger.info("=" * 60)
-                        logger.info("[%d/%d] ENVIO: %s (%s)", enviados+1, len(safe_leads), nome[:40], masked)
-
-                        mensagem = self._renderizar_mensagem(lead)
-                        msg_hash = self._hash_mensagem(mensagem)
-
-                        if self.mode == "semi" and not self.dry_run:
-                            print("\n" + "-" * 60)
-                            print(f"  Lead: {nome}")
-                            print(f"  Telefone: {masked}")
-                            print(f"  Mensagem ({len(mensagem)} chars):")
-                            print("  " + mensagem.replace("\n", "\n  "))
-                            print("-" * 60)
-                            resp = input("  Enviar? (s/N): ").strip().lower()
-                            if resp not in ("s", "sim", "y", "yes"):
-                                logger.info("  Cancelado pelo usuario")
-                                if not self.dry_run:
-                                    settle_lead(reservation_id, reservation_token, "released", obs="cancelado_pelo_usuario")
-                                self.checkpoint.registrar_skip(lead_id, "cancelado_pelo_usuario")
-                                continue
-
-                        if self.dry_run:
-                            logger.info("  [DRY-RUN] Enviaria: %s", masked)
-                            self.checkpoint.registrar_skip(lead_id, "dry_run")
-                            self.safety.registrar_sucesso()
-                            continue
-
-                        logger.info("  Enviando via wa.me...")
-                        link_ok = asyncio.run(MessageSender.abrir_wa_me(page2, tel_norm, mensagem))
-                        if not link_ok:
-                            logger.warning("  Falha ao abrir wa.me")
-                            settle_lead(reservation_id, reservation_token, "failed", obs="wa_me_falha")
-                            self.checkpoint.registrar_falha(lead_id, "wa_me_falha")
-                            self.safety.registrar_erro()
-                            continue
-
-                        enviou = asyncio.run(MessageSender.enviar_mensagem(page2))
-                        if not enviou:
-                            logger.warning("  Falha ao enviar mensagem")
-                            settle_lead(reservation_id, reservation_token, "failed", obs="envio_falha")
-                            self.checkpoint.registrar_falha(lead_id, "envio_falha")
-                            self.safety.registrar_erro()
-                            continue
-
-                        logger.info("  Mensagem enviada com sucesso!")
-                        settle_result = settle_lead(
-                            reservation_id, reservation_token, "sent",
-                            message_timestamp=datetime.now(timezone.utc).isoformat(),
-                            fingerprint=msg_hash, campaign_match=True,
-                        )
-                        if settle_result and settle_result.get("outcome") == "settled":
-                            logger.info("  Settle confirmado")
-                        else:
-                            logger.warning("  Settle: %s", settle_result)
-
-                        self.checkpoint.registrar_envio(lead_id, msg_hash[:8])
-                        self.safety.registrar_sucesso()
-                        enviados += 1
-
-                        if i < len(safe_leads) - 1:
-                            self.safety.aguardar_intervalo()
-
-                    # Settle non-safe leads
-                    for r in reservados:
-                        if r not in safe_leads and not self.dry_run:
-                            lid = r["lead"]["id"]
-                            vc = verificacoes.get(lid, {}).get("classification", "unknown")
-                            settle_lead(r["reservation_id"], r["reservation_token"], "released", obs=f"dedup_{vc}")
-                            self.checkpoint.registrar_skip(lid, vc)
-
-                finally:
-                    try:
-                        asyncio.run(context2.close())
-                    except Exception:
-                        pass
-                    try:
-                        asyncio.run(playwright_obj2.stop())
-                    except Exception:
-                        pass
+            self._settle_nao_seguros(non_safe, verificacoes)
 
             logger.info("=" * 60)
             logger.info("Resumo: %s", self.checkpoint.get_resumo())
@@ -1045,17 +946,194 @@ class CampanhaWhatsApp:
         finally:
             signal.signal(signal.SIGINT, original_handler)
 
+    # ------------------------------------------------------------------
+    # Async helpers — rodam dentro de um unico asyncio.run()
+    # ------------------------------------------------------------------
+
+    async def _verificar_leads_async(self, leads: list[dict]) -> list[dict]:
+        """Verifica todos os leads numa unica sessao Playwright."""
+        from whatsapp_match.matcher import limpar_campo_busca
+
+        results = []
+        profile_dir = (_root / MATCH_PROFILE).resolve() if not MATCH_PROFILE.is_absolute() else MATCH_PROFILE.resolve()
+
+        async with SessaoWhatsApp(profile_dir) as sessao:
+            page = sessao.page
+            if not page:
+                logger.error("Nao foi possivel abrir WhatsApp Web (perfil matcher)")
+                for lead in leads:
+                    results.append({
+                        "lead_id": lead.get("id", ""),
+                        "nome": lead.get("nome", "")[:40],
+                        "classification": "verification_error",
+                    })
+                return results
+
+            for i, lead in enumerate(leads):
+                if self.safety.deve_parar()[0]:
+                    logger.warning("Parando por seguranca")
+                    break
+
+                if not sessao.esta_valida():
+                    logger.error("Sessao invalida antes do lead %d/%d", i+1, len(leads))
+                    for remaining in leads[i:]:
+                        results.append({
+                            "lead_id": remaining.get("id", ""),
+                            "nome": remaining.get("nome", "")[:40],
+                            "classification": "verification_error",
+                        })
+                    break
+
+                lead_id = lead.get("id", "")
+                tel_norm = lead.get("_telefone_normalizado", "")
+                nome = lead.get("nome", "")
+                masked = tel_norm[:4] + "****" + tel_norm[-4:] if len(tel_norm) >= 8 else "****"
+                logger.info("[%d/%d] %s (%s)", i+1, len(leads), nome[:40], masked)
+
+                try:
+                    verification = await DedupVerifier.verificar(page, lead, self.campaign_key, self.verification_budget)
+                except Exception as e:
+                    logger.warning("Erro na verificacao do lead %s: %s", lead_id[:8], e)
+                    verification = {"classification": "verification_error", "error": str(e)[:200]}
+
+                classification = verification.get("classification", "needs_reconciliation")
+                logger.info("  Resultado: %s", classification)
+                results.append({"lead_id": lead_id, "nome": nome[:40], "classification": classification})
+
+                try:
+                    await limpar_campo_busca(page)
+                except Exception:
+                    pass
+
+        return results
+
+    async def _enviar_leads_async(self, safe_leads: list[dict]) -> None:
+        """Envia mensagens para leads seguros numa unica sessao Playwright."""
+        from sender_int import settle_lead
+
+        profile_dir = (_root / SENDER_PROFILE).resolve() if not SENDER_PROFILE.is_absolute() else SENDER_PROFILE.resolve()
+
+        async with SessaoWhatsApp(profile_dir) as sessao:
+            page = sessao.page
+            if not page:
+                logger.error("Nao foi possivel abrir WhatsApp Web (perfil sender)")
+                for r in safe_leads:
+                    if not self.dry_run:
+                        settle_lead(r["reservation_id"], r["reservation_token"], "released", obs="sender_browser_falha")
+                    self.checkpoint.registrar_falha(r["lead"]["id"], "sender_browser_falha")
+                return
+
+            enviados = 0
+            for i, r in enumerate(safe_leads):
+                deve_parar, motivo = self.safety.deve_parar()
+                if deve_parar:
+                    logger.warning("Parando: %s", motivo)
+                    break
+
+                if self.until and SafetyController.horario_passou(self.until):
+                    logger.warning("Horario limite atingido")
+                    break
+
+                if not sessao.esta_valida():
+                    logger.error("Sessao invalida antes do envio %d/%d", i+1, len(safe_leads))
+                    for remaining in safe_leads[i:]:
+                        if not self.dry_run:
+                            settle_lead(remaining["reservation_id"], remaining["reservation_token"], "released", obs="sessao_invalida")
+                        self.checkpoint.registrar_falha(remaining["lead"]["id"], "sessao_invalida")
+                    break
+
+                lead = r["lead"]
+                lead_id = lead["id"]
+                tel_norm = r["tel_norm"]
+                nome = r["nome"]
+                masked = r["masked"]
+                reservation_id = r["reservation_id"]
+                reservation_token = r["reservation_token"]
+
+                logger.info("=" * 60)
+                logger.info("[%d/%d] ENVIO: %s (%s)", enviados+1, len(safe_leads), nome[:40], masked)
+
+                mensagem = self._renderizar_mensagem(lead)
+                msg_hash = self._hash_mensagem(mensagem)
+
+                if self.mode == "semi" and not self.dry_run:
+                    print("\n" + "-" * 60)
+                    print(f"  Lead: {nome}")
+                    print(f"  Telefone: {masked}")
+                    print(f"  Mensagem ({len(mensagem)} chars):")
+                    print("  " + mensagem.replace("\n", "\n  "))
+                    print("-" * 60)
+                    resp = input("  Enviar? (s/N): ").strip().lower()
+                    if resp not in ("s", "sim", "y", "yes"):
+                        logger.info("  Cancelado pelo usuario")
+                        if not self.dry_run:
+                            settle_lead(reservation_id, reservation_token, "released", obs="cancelado_pelo_usuario")
+                        self.checkpoint.registrar_skip(lead_id, "cancelado_pelo_usuario")
+                        continue
+
+                if self.dry_run:
+                    logger.info("  [DRY-RUN] Enviaria: %s", masked)
+                    self.checkpoint.registrar_skip(lead_id, "dry_run")
+                    self.safety.registrar_sucesso()
+                    continue
+
+                logger.info("  Enviando via wa.me...")
+                link_ok = await MessageSender.abrir_wa_me(page, tel_norm, mensagem)
+                if not link_ok:
+                    logger.warning("  Falha ao abrir wa.me")
+                    settle_lead(reservation_id, reservation_token, "failed", obs="wa_me_falha")
+                    self.checkpoint.registrar_falha(lead_id, "wa_me_falha")
+                    self.safety.registrar_erro()
+                    continue
+
+                enviou = await MessageSender.enviar_mensagem(page)
+                if not enviou:
+                    logger.warning("  Falha ao enviar mensagem")
+                    settle_lead(reservation_id, reservation_token, "failed", obs="envio_falha")
+                    self.checkpoint.registrar_falha(lead_id, "envio_falha")
+                    self.safety.registrar_erro()
+                    continue
+
+                logger.info("  Mensagem enviada com sucesso!")
+                settle_result = settle_lead(
+                    reservation_id, reservation_token, "sent",
+                    message_timestamp=datetime.now(timezone.utc).isoformat(),
+                    fingerprint=msg_hash, campaign_match=True,
+                )
+                if settle_result and settle_result.get("outcome") == "settled":
+                    logger.info("  Settle confirmado")
+                else:
+                    logger.warning("  Settle: %s", settle_result)
+
+                self.checkpoint.registrar_envio(lead_id, msg_hash[:8])
+                self.safety.registrar_sucesso()
+                enviados += 1
+
+                if i < len(safe_leads) - 1:
+                    self.safety.aguardar_intervalo()
+
+    def _settle_nao_seguros(self, non_safe: list[dict], verificacoes: dict[str, dict]) -> None:
+        """Finaliza reservas de leads nao seguros."""
+        from sender_int import settle_lead
+        for r in non_safe:
+            lid = r["lead"]["id"]
+            vc = verificacoes.get(lid, {}).get("classification", "unknown")
+            if vc != "safe_to_send" and not self.dry_run:
+                settle_lead(r["reservation_id"], r["reservation_token"], "released", obs=f"dedup_{vc}")
+            self.checkpoint.registrar_skip(lid, vc)
+
     def _abrir_browser_matcher(self):
-        from playwright.async_api import async_playwright
+        """Mantido para compatibilidade. Prefira SessaoWhatsApp."""
         profile_dir = (_root / MATCH_PROFILE).resolve() if not MATCH_PROFILE.is_absolute() else MATCH_PROFILE.resolve()
         return self._abrir_browser_interno(profile_dir)
 
     def _abrir_browser_sender(self):
-        from playwright.async_api import async_playwright
+        """Mantido para compatibilidade. Prefira SessaoWhatsApp."""
         profile_dir = (_root / SENDER_PROFILE).resolve() if not SENDER_PROFILE.is_absolute() else SENDER_PROFILE.resolve()
         return self._abrir_browser_interno(profile_dir)
 
     def _abrir_browser_interno(self, profile_dir: Path):
+        """Mantido para compatibilidade. Prefira SessaoWhatsApp."""
         from playwright.async_api import async_playwright
         profile_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1180,3 +1258,4 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

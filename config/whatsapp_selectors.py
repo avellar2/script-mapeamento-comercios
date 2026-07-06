@@ -230,6 +230,32 @@ async def capturar_diagnostico(page, caminho: Path, prefixo: str = "erro") -> No
     caminho = Path(caminho)
     caminho.mkdir(parents=True, exist_ok=True)
 
+    # Verificar se a page esta disponivel antes de usar
+    if page is None:
+        logger.warning("Pagina indisponivel para diagnostico (page=None)")
+        try:
+            diag = caminho / f"{prefixo}_page_unavailable.txt"
+            diag.write_text("page_unavailable\n", encoding="utf-8")
+        except Exception:
+            pass
+        return
+
+    try:
+        if page.is_closed():
+            logger.warning("Pagina fechada, diagnostico sanitizado")
+            diag = caminho / f"{prefixo}_page_closed.txt"
+            diag.write_text("page_closed\n", encoding="utf-8")
+            return
+    except Exception:
+        # is_closed() pode falhar se o transport esta morto
+        logger.warning("Pagina inacessivel (transport encerrado)")
+        try:
+            diag = caminho / f"{prefixo}_transport_closed.txt"
+            diag.write_text("playwright_transport_closed\n", encoding="utf-8")
+        except Exception:
+            pass
+        return
+
     try:
         # Screenshot
         screenshot_path = caminho / f"{prefixo}_screenshot.png"

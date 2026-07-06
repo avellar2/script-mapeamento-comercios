@@ -183,6 +183,9 @@ class FakePage:
     async def wait_for_timeout(self, ms):
         return None
 
+    def is_closed(self):
+        return False
+
     async def screenshot(self, path=None, full_page=False):
         Path(path).write_bytes(b"FAKE_PNG")
         self.actions.append(("screenshot", path))
