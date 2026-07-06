@@ -789,3 +789,134 @@ class TestSeparatedProfiles:
         match_end = source.find("with LockWhatsAppSender")
         # Check that sender 'with' is not inside match 'with' scope
         assert True  # Structural check passes if imports exist
+
+
+# ============================================================
+# Crash fix: .get() em lista
+# ============================================================
+
+class TestVerificacoesDict:
+    """Verifica que verificacoes retorna dict, nao lista."""
+
+    def test_verificar_leads_async_retorna_dict(self):
+        """_verificar_leads_async deve retornar dict[lead_id, resultado]."""
+        import inspect
+        sig = inspect.signature(cw.CampanhaWhatsApp._verificar_leads_async)
+        annotation = str(sig.return_annotation)
+        assert 'dict' in annotation.lower() or annotation == '<class "inspect._empty">' or 'Dict' in annotation
+
+    def test_executar_usa_dict_get(self):
+        """_executar usa .get() em verificacoes (que agora e dict)."""
+        import inspect
+        source = inspect.getsource(cw.CampanhaWhatsApp._executar)
+        assert 'verificacoes.get(' in source
+
+    def test_settle_nao_seguros_usa_dict_get(self):
+        """_settle_nao_seguros usa .get() em verificacoes (dict)."""
+        import inspect
+        source = inspect.getsource(cw.CampanhaWhatsApp._settle_nao_seguros)
+        assert 'verificacoes.get(' in source
+
+
+# ============================================================
+# Cleanup de reserva em falha
+# ============================================================
+
+class TestCleanupReserva:
+    """Garante que reservas sao finalizadas em qualquer falha."""
+
+    def test_settle_reservas_pendentes_existe(self):
+        """Metodo _settle_reservas_pendentes existe."""
+        assert hasattr(cw.CampanhaWhatsApp, '_settle_reservas_pendentes')
+
+    def test_executar_trata_keyboardinterrupt(self):
+        """_executar trata KeyboardInterrupt e limpa reservas."""
+        import inspect
+        source = inspect.getsource(cw.CampanhaWhatsApp._executar)
+        assert 'KeyboardInterrupt' in source
+        assert '_settle_reservas_pendentes' in source
+
+    def test_executar_trata_exception_generica(self):
+        """_executar trata Exception generica e limpa reservas."""
+        import inspect
+        source = inspect.getsource(cw.CampanhaWhatsApp._executar)
+        assert 'except Exception' in source
+        assert '_settle_reservas_pendentes' in source
+
+    def test_verification_error_nao_abre_sender(self):
+        """verification_error nao e classificado como safe_to_send."""
+        from whatsapp_match.matcher import MatchResult, MatchStatus
+        result = cw.DedupVerifier._classificar(
+            MatchResult(lead_id="x", phone_normalized="5521999999999", campaign_key="k", status=MatchStatus.ERROR)
+        )
+        assert result != "safe_to_send"
+        assert result == "verification_error"
+
+
+# ============================================================
+# Recover mode
+# ============================================================
+
+class TestRecoverMode:
+    """Testes do modo recover."""
+
+    def test_recover_mode_existe_no_parser(self):
+        """Parser aceita modo recover."""
+        parser = cw.build_parser()
+        args = parser.parse_args(["recover", "--run-id", "test_run"])
+        assert args.mode == "recover"
+
+    def test_recover_exige_run_id(self):
+        """Recover sem --run-id retorna erro."""
+        result = cw.main(["recover"])
+        assert result == 2
+
+    def test_recover_dry_run_nao_escreve(self, tmp_path, capsys):
+        """Recover dry-run apenas lista, nao escreve no Supabase."""
+        with patch.object(cw, "CHECKPOINT_DIR", tmp_path):
+            cp = cw.CheckpointManager("test_recover")
+            cp.carregar()
+            cp.registrar_falha("lead-abc", "matcher_error")
+            cp.salvar()
+
+            args = cw.build_parser().parse_args(["recover", "--run-id", "test_recover"])
+            campanha = cw.CampanhaWhatsApp(args)
+            result = campanha.recuperar_reservas("test_recover", release=False)
+            assert result == 0
+
+    def test_release_pending_flag_existe(self):
+        """Flag --release-pending existe."""
+        parser = cw.build_parser()
+        args = parser.parse_args(["recover", "--run-id", "test", "--release-pending", "--confirm"])
+        assert args.release_pending is True
+        assert args.confirm is True
+
+    def test_recuperar_reservas_existe(self):
+        """Metodo recuperar_reservas existe."""
+        assert hasattr(cw.CampanhaWhatsApp, 'recuperar_reservas')
+
+
+# ============================================================
+# Privacy: checkpoint
+# ============================================================
+
+class TestCheckpointPrivacyExtended:
+    """Checkpoint nao salva dados sensiveis."""
+
+    def test_checkpoint_nao_salva_telefone(self, tmp_path):
+        with patch.object(cw, "CHECKPOINT_DIR", tmp_path):
+            cp = cw.CheckpointManager("test_privacy_ext")
+            cp.carregar()
+            cp.registrar_falha("lead-123", "verification_error")
+            cp.salvar()
+            content = cp.file.read_text(encoding="utf-8")
+            assert "5521" not in content
+            assert "@s.whatsapp" not in content
+
+    def test_settle_pendentes_nao_explode_sem_reserva(self):
+        """_settle_reservas_pendentes nao falha com lista vazia."""
+        args = cw.build_parser().parse_args(["plan", "--dry-run"])
+        campanha = cw.CampanhaWhatsApp(args)
+        # Deve ser no-op com dry_run
+        campanha._settle_reservas_pendentes([], {}, "test")
+

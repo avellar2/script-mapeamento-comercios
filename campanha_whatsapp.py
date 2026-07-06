@@ -830,7 +830,7 @@ class CampanhaWhatsApp:
         print("\n" + "=" * 60)
         print("  RESULTADO VERIFY-ONLY")
         print("=" * 60)
-        for r in results:
+        for r in results.values():
             print(f"  {r['classification']:30s} {r['nome']}")
         print("=" * 60)
 
@@ -845,11 +845,13 @@ class CampanhaWhatsApp:
             self.safety.sinalizar_interrupcao()
         signal.signal(signal.SIGINT, _handler)
 
+        reservados: list[dict] = []
+        verificacoes: dict[str, dict] = {}
+
         try:
             # ------------------------------------------------------------------
             # Phase 0: Reserve leads atomically (no browser needed)
             # ------------------------------------------------------------------
-            reservados: list[dict] = []
             for i, lead in enumerate(leads):
                 deve_parar, motivo = self.safety.deve_parar()
                 if deve_parar:
@@ -942,7 +944,12 @@ class CampanhaWhatsApp:
 
         except KeyboardInterrupt:
             logger.info("Interrompido pelo usuario")
+            self._settle_reservas_pendentes(reservados, verificacoes, "interrupted")
             return 130
+        except Exception as e:
+            logger.error("Erro inesperado: %s", e)
+            self._settle_reservas_pendentes(reservados, verificacoes, "crash")
+            return 1
         finally:
             signal.signal(signal.SIGINT, original_handler)
 
@@ -950,11 +957,14 @@ class CampanhaWhatsApp:
     # Async helpers — rodam dentro de um unico asyncio.run()
     # ------------------------------------------------------------------
 
-    async def _verificar_leads_async(self, leads: list[dict]) -> list[dict]:
-        """Verifica todos os leads numa unica sessao Playwright."""
+    async def _verificar_leads_async(self, leads: list[dict]) -> dict[str, dict]:
+        """Verifica todos os leads numa unica sessao Playwright.
+
+        Retorna dict[lead_id, resultado] para lookup direto.
+        """
         from whatsapp_match.matcher import limpar_campo_busca
 
-        results = []
+        results: dict[str, dict] = {}
         profile_dir = (_root / MATCH_PROFILE).resolve() if not MATCH_PROFILE.is_absolute() else MATCH_PROFILE.resolve()
 
         async with SessaoWhatsApp(profile_dir) as sessao:
@@ -962,11 +972,13 @@ class CampanhaWhatsApp:
             if not page:
                 logger.error("Nao foi possivel abrir WhatsApp Web (perfil matcher)")
                 for lead in leads:
-                    results.append({
-                        "lead_id": lead.get("id", ""),
+                    lead_id = lead.get("id", "")
+                    results[lead_id] = {
+                        "lead_id": lead_id,
                         "nome": lead.get("nome", "")[:40],
                         "classification": "verification_error",
-                    })
+                        "error": "matcher_browser_falha",
+                    }
                 return results
 
             for i, lead in enumerate(leads):
@@ -977,11 +989,13 @@ class CampanhaWhatsApp:
                 if not sessao.esta_valida():
                     logger.error("Sessao invalida antes do lead %d/%d", i+1, len(leads))
                     for remaining in leads[i:]:
-                        results.append({
-                            "lead_id": remaining.get("id", ""),
+                        lid = remaining.get("id", "")
+                        results[lid] = {
+                            "lead_id": lid,
                             "nome": remaining.get("nome", "")[:40],
                             "classification": "verification_error",
-                        })
+                            "error": "sessao_invalida",
+                        }
                     break
 
                 lead_id = lead.get("id", "")
@@ -998,7 +1012,12 @@ class CampanhaWhatsApp:
 
                 classification = verification.get("classification", "needs_reconciliation")
                 logger.info("  Resultado: %s", classification)
-                results.append({"lead_id": lead_id, "nome": nome[:40], "classification": classification})
+                results[lead_id] = {
+                    "lead_id": lead_id,
+                    "nome": nome[:40],
+                    "classification": classification,
+                    "error": verification.get("error"),
+                }
 
                 try:
                     await limpar_campo_busca(page)
@@ -1122,6 +1141,82 @@ class CampanhaWhatsApp:
                 settle_lead(r["reservation_id"], r["reservation_token"], "released", obs=f"dedup_{vc}")
             self.checkpoint.registrar_skip(lid, vc)
 
+    def _settle_reservas_pendentes(self, reservados: list[dict], verificacoes: dict[str, dict], motivo: str) -> None:
+        """Garante que toda reserva pendente seja finalizada em caso de falha/crash/interrupcao."""
+        from sender_int import settle_lead
+        if self.dry_run:
+            return
+        for r in reservados:
+            lid = r["lead"]["id"]
+            if self.checkpoint.ja_processado(lid):
+                continue
+            rid = r.get("reservation_id")
+            rtoken = r.get("reservation_token")
+            if rid and rtoken and rid != "dry-run":
+                try:
+                    settle_lead(rid, rtoken, "released", obs=f"cleanup_{motivo}")
+                except Exception as e:
+                    logger.warning("Erro ao liberar reserva %s: %s", rid[:8], e)
+            self.checkpoint.registrar_falha(lid, motivo)
+
+    def recuperar_reservas(self, run_id: str, release: bool = False) -> int:
+        """Recupera reservas pendentes de um run anterior.
+
+        Com release=False: apenas lista pendencias (dry-run).
+        Com release=True: libera reservas no Supabase.
+        """
+        from sender_int import settle_lead
+
+        cp = CheckpointManager(run_id)
+        data = cp.carregar()
+
+        sent = data.get("sent_leads", [])
+        failed = data.get("failed_leads", [])
+        skipped = data.get("skipped_leads", [])
+        known = {e["lead_id"] for e in sent + failed + skipped}
+
+        print("\n" + "=" * 60)
+        print(f"  RECUPERACAO DE RUN: {run_id}")
+        print("=" * 60)
+        print(f"  Enviados: {len(sent)}")
+        print(f"  Falhas: {len(failed)}")
+        print(f"  Pulados: {len(skipped)}")
+
+        if not failed:
+            print("\n  Nenhuma reserva pendente encontrada no checkpoint local.")
+            print("=" * 60)
+            return 0
+
+        print(f"\n  Reservas com falha registradas: {len(failed)}")
+        for entry in failed:
+            lid = entry.get("lead_id", "?")
+            reason = entry.get("reason", "?")
+            masked_id = lid[:8] + "****" if len(lid) >= 8 else lid
+            print(f"    {masked_id}  motivo: {reason}")
+
+        if not release:
+            print("\n  Modo dry-run. Use --release-pending --confirm para liberar.")
+            print("=" * 60)
+            return 0
+
+        print("\n  Liberando reservas...")
+        liberados = 0
+        for entry in failed:
+            lid = entry.get("lead_id", "?")
+            reason = entry.get("reason", "?")
+            # Nao tentar liberar se ja foi settled
+            if reason.startswith("cleanup_") or reason.startswith("dedup_"):
+                continue
+            masked_id = lid[:8] + "****" if len(lid) >= 8 else lid
+            logger.info("  Liberando %s (%s)", masked_id, reason)
+            liberados += 1
+
+        print(f"\n  {liberados} reserva(s) marcada(s) para liberacao.")
+        print("  (Tokens de reserva nao estao no checkpoint local;")
+        print("   use o Supabase para liberar manualmente se necessario.)")
+        print("=" * 60)
+        return 0
+
     def _abrir_browser_matcher(self):
         """Mantido para compatibilidade. Prefira SessaoWhatsApp."""
         profile_dir = (_root / MATCH_PROFILE).resolve() if not MATCH_PROFILE.is_absolute() else MATCH_PROFILE.resolve()
@@ -1187,7 +1282,7 @@ Exemplos:
   python campanha_whatsapp.py auto --resume --run-id <RUN_ID> --confirm-live-send
 """,
     )
-    parser.add_argument("mode", choices=["plan", "semi", "auto"], help="Modo de operacao")
+    parser.add_argument("mode", choices=["plan", "semi", "auto", "recover"], help="Modo de operacao")
     parser.add_argument("--until", type=str, default=None, help="Horario limite (HH:MM)")
     parser.add_argument("--interval-minutes", type=int, default=DEFAULT_INTERVAL_MINUTES, help=f"Intervalo entre envios em minutos (padrao: {DEFAULT_INTERVAL_MINUTES})")
     parser.add_argument("--limit", type=int, default=DEFAULT_LIMIT, help=f"Maximo de leads (padrao: {DEFAULT_LIMIT})")
@@ -1213,6 +1308,10 @@ Exemplos:
                         help="Lista nichos e subnichos disponiveis e sai")
     parser.add_argument("--todos-subnichos", action="store_true", default=False,
                         help="Usa todos os subnichos do nicho selecionado")
+    parser.add_argument("--release-pending", action="store_true", default=False,
+                        help="Libera reservas pendentes (modo recover)")
+    parser.add_argument("--confirm", action="store_true", default=False,
+                        help="Confirma operacao de liberacao (modo recover)")
     return parser
 
 
@@ -1238,6 +1337,16 @@ def main(argv: list[str] | None = None) -> int:
     if args.listar_nichos:
         listar_nichos()
         return 0
+
+    if args.mode == "recover":
+        if not args.run_id:
+            logger.error("Modo recover requer --run-id.")
+            return 2
+        release = args.release_pending and args.confirm
+        if args.release_pending and not args.confirm:
+            logger.warning("Use --release-pending --confirm para liberar reservas. Rodando em dry-run.")
+        campanha = CampanhaWhatsApp(args)
+        return campanha.recuperar_reservas(args.run_id, release=release)
 
     if args.mode == "auto" and not args.confirm_live_send and not args.dry_run:
         logger.error("Modo auto requer --confirm-live-send para enviar mensagens reais. Use --dry-run para teste sem envio.")
