@@ -1513,7 +1513,7 @@ Exemplos:
   python campanha_whatsapp.py recover-reserved --campaign-key avgestao:assistencias:primeiro_contato:v1 --release-pending --confirm
 """,
     )
-    parser.add_argument("mode", choices=["plan", "semi", "auto", "recover", "recover-reserved"], help="Modo de operacao")
+    parser.add_argument("mode", choices=["plan", "semi", "auto", "recover", "recover-reserved", "import-leads"], help="Modo de operacao")
     parser.add_argument("--until", type=str, default=None, help="Horario limite (HH:MM)")
     parser.add_argument("--interval-minutes", type=int, default=DEFAULT_INTERVAL_MINUTES, help=f"Intervalo entre envios em minutos (padrao: {DEFAULT_INTERVAL_MINUTES})")
     parser.add_argument("--limit", type=int, default=DEFAULT_LIMIT, help=f"Maximo de leads (padrao: {DEFAULT_LIMIT})")
@@ -1551,6 +1551,12 @@ Exemplos:
                         help="Filtrar reservas criadas antes de data ISO (modo recover-reserved)")
     parser.add_argument("--max-age-minutes", type=int, default=None,
                         help="Filtrar reservas com idade maxima em minutos (modo recover-reserved)")
+    parser.add_argument("--from-zip", type=str, default=None,
+                        help="Caminho para ZIP/XLSX de leads (modo import-leads)")
+    parser.add_argument("--produto", type=str, default="avgestao",
+                        help="Produto para importacao (padrao: avgestao)")
+    parser.add_argument("--grupo", type=str, default="assistencias",
+                        help="Grupo para importacao (padrao: assistencias)")
     return parser
 
 
@@ -1576,6 +1582,17 @@ def main(argv: list[str] | None = None) -> int:
     if args.listar_nichos:
         listar_nichos()
         return 0
+
+    if args.mode == "import-leads":
+        from import_leads_zip import importar_leads_zip
+        from_zip = getattr(args, "from_zip", None)
+        if not from_zip:
+            logger.error("Modo import-leads requer --from-zip <caminho>.")
+            return 2
+        dry_run = args.dry_run or not args.confirm
+        produto = getattr(args, "produto", "avgestao")
+        grupo = getattr(args, "grupo", "assistencias")
+        return importar_leads_zip(from_zip, produto=produto, grupo=grupo, dry_run=dry_run, confirm=args.confirm)
 
     if args.mode == "recover":
         if not args.run_id:
