@@ -881,8 +881,12 @@ async def fazer_match_completo(
             result.status = MatchStatus.NO_CHAT
             logger.info("Busca executada, %d variantes testadas, nenhuma conversa encontrada", variants_tried)
         else:
-            result.status = MatchStatus.SEARCH_FIELD_NOT_FOUND
-            logger.warning("Campo de busca nao encontrado em %d variantes", variants_tried)
+            if not variantes:
+                result.status = MatchStatus.SEARCH_FIELD_NOT_FOUND
+                logger.warning("telefone_normalizado_invalido_sem_variantes: phone_normalized=%s", phone_normalized)
+            else:
+                result.status = MatchStatus.SEARCH_FIELD_NOT_FOUND
+                logger.warning("Campo de busca nao encontrado em %d variantes", variants_tried)
             if diagnostic_dir:
                 await capturar_diagnostico(page, diagnostic_dir, f"match_{lead_id[:8]}_nosearch")
 

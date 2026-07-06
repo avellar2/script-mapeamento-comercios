@@ -957,9 +957,41 @@ class CampanhaWhatsApp:
     # Async helpers — rodam dentro de um unico asyncio.run()
     # ------------------------------------------------------------------
 
+    def _extrair_dados_verificacao(self, item: dict) -> dict:
+        """Extrai dados de verificacao suportando lead puro (case A) e wrapper de reserva (case B).
+
+        Case A — lead puro:
+            {"id": "...", "_telefone_normalizado": "...", "nome": "..."}
+
+        Case B — wrapper de reserva:
+            {"lead": {...}, "tel_norm": "...", "reservation_id": "...",
+             "reservation_token": "...", "nome": "..."}
+
+        Retorna dict com: lead, lead_id, tel_norm, nome, reservation_id, reservation_token.
+        """
+        if "lead" in item and isinstance(item["lead"], dict):
+            lead = item["lead"]
+            return {
+                "lead": lead,
+                "lead_id": lead.get("id", ""),
+                "tel_norm": item.get("tel_norm", lead.get("_telefone_normalizado", "")),
+                "nome": item.get("nome", lead.get("nome", "")),
+                "reservation_id": item.get("reservation_id", ""),
+                "reservation_token": item.get("reservation_token", ""),
+            }
+        return {
+            "lead": item,
+            "lead_id": item.get("id", ""),
+            "tel_norm": item.get("_telefone_normalizado", ""),
+            "nome": item.get("nome", ""),
+            "reservation_id": item.get("reservation_id", ""),
+            "reservation_token": item.get("reservation_token", ""),
+        }
+
     async def _verificar_leads_async(self, leads: list[dict]) -> dict[str, dict]:
         """Verifica todos os leads numa unica sessao Playwright.
 
+        Aceita tanto leads puros (case A) quanto wrappers de reserva (case B).
         Retorna dict[lead_id, resultado] para lookup direto.
         """
         from whatsapp_match.matcher import limpar_campo_busca
@@ -967,45 +999,81 @@ class CampanhaWhatsApp:
         results: dict[str, dict] = {}
         profile_dir = (_root / MATCH_PROFILE).resolve() if not MATCH_PROFILE.is_absolute() else MATCH_PROFILE.resolve()
 
+        # Validar e extrair dados de cada item antes de abrir o browser
+        items_validados = []
+        for item in leads:
+            dados = self._extrair_dados_verificacao(item)
+            lid = dados["lead_id"]
+            tel_norm = dados["tel_norm"]
+            nome = dados["nome"]
+
+            # Validar telefone antes de abrir browser
+            if not tel_norm:
+                logger.warning("Lead %s: tel normalizado vazio — verification_error", lid[:8] if lid else "?")
+                results[lid] = {
+                    "lead_id": lid,
+                    "nome": nome[:40],
+                    "classification": "verification_error",
+                    "error": "missing_phone_normalized",
+                }
+                continue
+
+            if not tel_norm.startswith("55") or len(tel_norm) < 10:
+                logger.warning("Lead %s: tel normalizado invalido '%s' — verification_error",
+                               lid[:8] if lid else "?", tel_norm)
+                results[lid] = {
+                    "lead_id": lid,
+                    "nome": nome[:40],
+                    "classification": "verification_error",
+                    "error": "invalid_phone_normalized",
+                }
+                continue
+
+            items_validados.append(dados)
+
+        if not items_validados:
+            logger.warning("Nenhum lead com telefone valido para verificar.")
+            return results
+
         async with SessaoWhatsApp(profile_dir) as sessao:
             page = sessao.page
             if not page:
                 logger.error("Nao foi possivel abrir WhatsApp Web (perfil matcher)")
-                for lead in leads:
-                    lead_id = lead.get("id", "")
-                    results[lead_id] = {
-                        "lead_id": lead_id,
-                        "nome": lead.get("nome", "")[:40],
+                for dados in items_validados:
+                    lid = dados["lead_id"]
+                    results[lid] = {
+                        "lead_id": lid,
+                        "nome": dados["nome"][:40],
                         "classification": "verification_error",
                         "error": "matcher_browser_falha",
                     }
                 return results
 
-            for i, lead in enumerate(leads):
+            for i, dados in enumerate(items_validados):
                 if self.safety.deve_parar()[0]:
                     logger.warning("Parando por seguranca")
                     break
 
                 if not sessao.esta_valida():
-                    logger.error("Sessao invalida antes do lead %d/%d", i+1, len(leads))
-                    for remaining in leads[i:]:
-                        lid = remaining.get("id", "")
+                    logger.error("Sessao invalida antes do lead %d/%d", i+1, len(items_validados))
+                    for rest in items_validados[i:]:
+                        lid = rest["lead_id"]
                         results[lid] = {
                             "lead_id": lid,
-                            "nome": remaining.get("nome", "")[:40],
+                            "nome": rest["nome"][:40],
                             "classification": "verification_error",
                             "error": "sessao_invalida",
                         }
                     break
 
-                lead_id = lead.get("id", "")
-                tel_norm = lead.get("_telefone_normalizado", "")
-                nome = lead.get("nome", "")
+                lead_id = dados["lead_id"]
+                tel_norm = dados["tel_norm"]
+                nome = dados["nome"]
                 masked = tel_norm[:4] + "****" + tel_norm[-4:] if len(tel_norm) >= 8 else "****"
-                logger.info("[%d/%d] %s (%s)", i+1, len(leads), nome[:40], masked)
+                logger.info("[%d/%d] %s (%s)", i+1, len(items_validados), nome[:40], masked)
 
                 try:
-                    verification = await DedupVerifier.verificar(page, lead, self.campaign_key, self.verification_budget)
+                    verification = await DedupVerifier.verificar(page, dados["lead"], self.campaign_key, self.verification_budget)
                 except Exception as e:
                     logger.warning("Erro na verificacao do lead %s: %s", lead_id[:8], e)
                     verification = {"classification": "verification_error", "error": str(e)[:200]}
