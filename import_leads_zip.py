@@ -10,6 +10,7 @@ import asyncio
 import io
 import json
 import logging
+import os
 import re
 import sys
 import zipfile
@@ -309,7 +310,7 @@ def _safe_float(val):
 
 
 def _mostrar_dry_run(resultado: dict, existentes: dict, amostra: int = 5) -> None:
-    """Exibe relatorio de dry-run."""
+    """Exibe relatorio de dry-run com dedup contra Supabase."""
     print("\n" + "=" * 60)
     print("  DRY-RUN — Importacao de Leads")
     print("=" * 60)
@@ -321,40 +322,104 @@ def _mostrar_dry_run(resultado: dict, existentes: dict, amostra: int = 5) -> Non
     print(f"  Sem telefone: {resultado['sem_telefone']}")
     print(f"  Telefone valido: {resultado['telefone_valido']}")
     print(f"  Telefone invalido: {resultado['telefone_invalido']}")
-    print(f"  Duplicados internos: {resultado['duplicados_internos']}")
-    print(f"  Unicos validos: {resultado['unicos']}")
+    print(f"  Duplicados internos (ZIP): {resultado['duplicados_internos']}")
+    print(f"  Unicos validos (ZIP): {resultado['unicos']}")
+    print()
 
-    ja_existentes = sum(1 for t in resultado['validos'] if t['telefone_normalizado'] in existentes)
-    protegidos = sum(1 for t in resultado['validos']
-                     if t['telefone_normalizado'] in existentes
-                     and existentes[t['telefone_normalizado']].get('status') in ('abordado', 'sent', 'confirmed_from_whatsapp', 'interessado', 'convertido'))
-    novos = resultado['unicos'] - len([t for t in resultado['validos'] if t['telefone_normalizado'] in existentes])
+    # Classificar contra Supabase
+    novos_para_inserir = []
+    ja_existentes_mesmo_grupo = []
+    ja_existentes_outro_grupo = []
+    status_protegido = []
+    conflitos = []
 
-    print(f"  Ja existentes no Supabase: {ja_existentes}")
-    print(f"    (protegidos — status nao 'novo'): {protegidos}")
-    print(f"  Novos que seriam inseridos: {novos}")
+    for lead in resultado['validos']:
+        tel_norm = lead['telefone_normalizado']
+        if tel_norm in existentes:
+            existente = existentes[tel_norm]
+            status_ex = existente.get('status', '')
+            produto_ex = existente.get('produto', '')
+            grupo_ex = existente.get('grupo', '')
 
-    print(f"\n  Por subnicho:")
+            if status_ex in ('abordado', 'sent', 'confirmed_from_whatsapp', 'interessado', 'convertido'):
+                status_protegido.append((lead, existente))
+            elif produto_ex == resultado['produto'] and grupo_ex == resultado['grupo']:
+                ja_existentes_mesmo_grupo.append((lead, existente))
+            elif grupo_ex and grupo_ex != resultado['grupo']:
+                ja_existentes_outro_grupo.append((lead, existente))
+            else:
+                conflitos.append((lead, existente))
+        else:
+            novos_para_inserir.append(lead)
+
+    total_ja_existentes = len(ja_existentes_mesmo_grupo)
+    total_protegidos = len(status_protegido)
+    total_outro_grupo = len(ja_existentes_outro_grupo)
+    total_conflitos = len(conflitos)
+    total_novos = len(novos_para_inserir)
+
+    print(f"  Ja existentes no Supabase (mesmo produto/grupo): {total_ja_existentes}")
+    print(f"  Ja existentes em OUTRO grupo: {total_outro_grupo}")
+    print(f"  Ignorados por status protegido (abordado/convertido/etc): {total_protegidos}")
+    print(f"  Conflitos (existe mas sem grupo/produto claro): {total_conflitos}")
+    print(f"  NOVOS que seriam inseridos: {total_novos}")
+    print(f"  (Todos novos com produto={resultado['produto']}, grupo={resultado['grupo']})")
+    print()
+
+    # Amostra novos
+    if novos_para_inserir:
+        print(f"  Amostra NOVOS ({min(amostra, len(novos_para_inserir))}):")
+        for lead in novos_para_inserir[:amostra]:
+            t = lead.get('telefone_normalizado', '')
+            masked = t[:4] + "****" + t[-4:] if len(t) >= 8 else "****"
+            nome = lead.get('nome', '?')[:35].encode('ascii', errors='replace').decode('ascii')
+            cidade = lead.get('cidade', '?').encode('ascii', errors='replace').decode('ascii')
+            print(f"    NOVO    | {masked:14s} | {lead.get('subnicho', '?'):15s} | {nome[:30]:30s} | {cidade}")
+
+    # Amostra ja existentes
+    if ja_existentes_mesmo_grupo:
+        print(f"\n  Amostra JA EXISTENTES (mesmo grupo, {min(amostra, len(ja_existentes_mesmo_grupo))}):")
+        for lead, existente in ja_existentes_mesmo_grupo[:amostra]:
+            t = lead['telefone_normalizado']
+            masked = t[:4] + "****" + t[-4:] if len(t) >= 8 else "****"
+            nome = lead.get('nome', '?')[:35].encode('ascii', errors='replace').decode('ascii')
+            st = existente.get('status', '?')
+            print(f"    EXISTE  | {masked:14s} | status={st:20s} | {nome[:30]:30s}")
+
+    if ja_existentes_outro_grupo:
+        print(f"\n  Amostra OUTRO GRUPO ({min(amostra, len(ja_existentes_outro_grupo))}):")
+        for lead, existente in ja_existentes_outro_grupo[:amostra]:
+            t = lead['telefone_normalizado']
+            masked = t[:4] + "****" + t[-4:] if len(t) >= 8 else "****"
+            nome = lead.get('nome', '?')[:35].encode('ascii', errors='replace').decode('ascii')
+            print(f"    OUTRO   | {masked:14s} | grupo={existente.get('grupo','?'):15s} | {nome[:30]:30s}")
+
+    if status_protegido:
+        print(f"\n  Amostra STATUS PROTEGIDO ({min(amostra, len(status_protegido))}):")
+        for lead, existente in status_protegido[:amostra]:
+            t = lead['telefone_normalizado']
+            masked = t[:4] + "****" + t[-4:] if len(t) >= 8 else "****"
+            nome = lead.get('nome', '?')[:35].encode('ascii', errors='replace').decode('ascii')
+            print(f"    PROTEG  | {masked:14s} | status={existente.get('status','?'):20s} | {nome[:30]:30s}")
+
+    # Subnicho
+    print(f"\n  Por subnicho (total ZIP):")
     for k, v in resultado['por_subnicho'].most_common():
-        print(f"    {k}: {v}")
+        novos_sub = sum(1 for l in novos_para_inserir if l.get('subnicho') == k)
+        print(f"    {k:20s}: {v:4d} total  | {novos_sub:4d} novos")
 
+    # Cidades
     print(f"\n  Por cidade (top 10):")
     for k, v in resultado['por_cidade'].most_common(10):
         print(f"    {k}: {v}")
 
-    print(f"\n  Amostra sanitizada ({min(amostra, len(resultado['validos']))} leads):")
-    for lead in resultado['validos'][:amostra]:
-        t = lead.get('telefone_normalizado', '')
-        masked = t[:4] + "****" + t[-4:] if len(t) >= 8 else "****"
-        nome = lead.get('nome', '?')[:35]
-        # Sanitizar caracteres nao-imprimiveis
-        nome = nome.encode('ascii', errors='replace').decode('ascii').replace('?', '?')
-        cidade = lead.get('cidade', '?').encode('ascii', errors='replace').decode('ascii').replace('?', '?')
-        print(f"    {nome:35s} | {masked:14s} | {lead.get('subnicho', '?'):15s} | {cidade}")
-
     print(f"\n  Comando para importacao real:")
     print(f"  python campanha_whatsapp.py import-leads --from-zip <ZIP> --produto {resultado['produto']} --grupo {resultado['grupo']} --confirm")
     print("=" * 60)
+    if total_novos == 0:
+        print("  Nenhum lead novo para importar — todos ja existem ou estao protegidos.")
+    else:
+        print(f"  {total_novos} leads NOVOS prontos para importar com --confirm.")
     print("  ZERO ESCRITA — dry-run concluido.")
 
 
@@ -426,12 +491,7 @@ def importar_leads_zip(zip_path: str, produto: str = "avgestao", grupo: str = "a
     # Classificar
     resultado = _classificar_leads(leads, produto, grupo, origem)
 
-    # Dry-run: analisar sem consultar Supabase
-    if dry_run or not confirm:
-        _mostrar_dry_run(resultado, {}, amostra=5)
-        return 0
-
-    # Consultar existentes (apenas em modo real)
+    # Consultar Supabase SEMPRE (modo leitura) para comparacao
     todos_tels = [l["telefone_normalizado"] for l in resultado["validos"] if l["telefone_normalizado"]]
     existentes = {}
     if todos_tels:
@@ -439,12 +499,14 @@ def importar_leads_zip(zip_path: str, produto: str = "avgestao", grupo: str = "a
             sb = _get_supabase_client()
             existentes = _consultar_existentes(sb, todos_tels)
         except Exception as e:
-            if not confirm:
-                logger.warning("Supabase indisponivel: %s. Abortando.", e)
-                return 1
-            raise
+            logger.warning("Supabase indisponivel para consulta: %s. Mostrando apenas dados locais.", e)
 
-    # Executar
+    # Dry-run: mostrar relatorio sem escrever
+    if dry_run or not confirm:
+        _mostrar_dry_run(resultado, existentes, amostra=5)
+        return 0
+
+    # Executar importacao real
     res = _executar_importacao(resultado, existentes)
     print(f"\nImportacao concluida: {res['inseridos']} inseridos, {res['erros']} erros, {res['pulados']} pulados.")
     return 0 if res["erros"] == 0 else 1
