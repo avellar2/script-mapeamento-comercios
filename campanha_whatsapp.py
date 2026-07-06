@@ -356,12 +356,14 @@ class CheckpointManager:
                 "sent_leads": [],
                 "failed_leads": [],
                 "skipped_leads": [],
+                "pending_stages": {},
                 "last_lead_id": None,
                 "total_processed": 0,
             }
             return self._data
         try:
             self._data = json.loads(self.file.read_text(encoding="utf-8"))
+            self._data.setdefault("pending_stages", {})
             return self._data
         except Exception as e:
             logger.warning("Erro ao carregar checkpoint: %s", e)
@@ -371,6 +373,7 @@ class CheckpointManager:
                 "sent_leads": [],
                 "failed_leads": [],
                 "skipped_leads": [],
+                "pending_stages": {},
                 "last_lead_id": None,
                 "total_processed": 0,
             }
@@ -387,15 +390,17 @@ class CheckpointManager:
             "lead_id": lead_id,
             "phone_hash": phone_hash,
             "sent_at": datetime.now(FUSO).isoformat(),
+            "stage": "sent",
         })
         self._data["last_lead_id"] = lead_id
         self._data["total_processed"] = len(self._data["sent_leads"]) + len(self._data["failed_leads"]) + len(self._data["skipped_leads"])
         self.salvar()
 
-    def registrar_falha(self, lead_id: str, motivo: str) -> None:
+    def registrar_falha(self, lead_id: str, motivo: str, stage: str = "") -> None:
         self._data["failed_leads"].append({
             "lead_id": lead_id,
             "reason": motivo,
+            "stage": stage or motivo,
             "failed_at": datetime.now(FUSO).isoformat(),
         })
         self._data["total_processed"] = len(self._data["sent_leads"]) + len(self._data["failed_leads"]) + len(self._data["skipped_leads"])
@@ -409,6 +414,36 @@ class CheckpointManager:
         })
         self._data["total_processed"] = len(self._data["sent_leads"]) + len(self._data["failed_leads"]) + len(self._data["skipped_leads"])
         self.salvar()
+
+    def registrar_estagio(self, lead_id: str, stage: str) -> None:
+        """Registra stage atual de um lead no envio (para recovery)."""
+        pending = self._data.setdefault("pending_stages", {})
+        pending[lead_id] = {
+            "stage": stage,
+            "updated_at": datetime.now(FUSO).isoformat(),
+        }
+        self._data["last_lead_id"] = lead_id
+        self.salvar()
+
+    def limpar_estagio(self, lead_id: str) -> None:
+        """Remove stage tracking apos conclusao do lead."""
+        pending = self._data.get("pending_stages", {})
+        pending.pop(lead_id, None)
+        self.salvar()
+
+    def get_estagio(self, lead_id: str) -> str | None:
+        """Retorna stage atual de um lead pendente."""
+        pending = self._data.get("pending_stages", {})
+        entry = pending.get(lead_id)
+        return entry.get("stage") if entry else None
+
+    def get_pendentes(self) -> list[dict]:
+        """Lista leads com stages pendentes (nao finalizados)."""
+        result = []
+        pending = self._data.get("pending_stages", {})
+        for lead_id, info in pending.items():
+            result.append({"lead_id": lead_id, **info})
+        return result
 
     def ja_processado(self, lead_id: str) -> bool:
         for entry in self._data.get("sent_leads", []):
@@ -704,6 +739,16 @@ class CampanhaWhatsApp:
 
     def _hash_mensagem(self, mensagem: str) -> str:
         return hashlib.sha256(mensagem.encode("utf-8")).hexdigest()[:16]
+
+    @staticmethod
+    def _input_com_timeout(prompt: str, timeout_seconds: int | None = None) -> str:
+        """Le input do usuario. Timeout no stdin e OS-specific; mockavel para testes.
+        
+        Browser timeouts sao tratados via asyncio.wait_for em cada etapa.
+        """
+        if timeout_seconds is not None:
+            logger.info("Prompt manual (timeout=%ds configurado, mas stdin timeout requer suporte OS)", timeout_seconds)
+        return input(prompt)
 
     def run(self) -> int:
         logger.info("=" * 72)
@@ -1095,8 +1140,9 @@ class CampanhaWhatsApp:
         return results
 
     async def _enviar_leads_async(self, safe_leads: list[dict]) -> None:
-        """Envia mensagens para leads seguros numa unica sessao Playwright."""
+        """Envia mensagens para leads seguros com stages, timeouts e settle seguro."""
         from sender_int import settle_lead
+        import threading
 
         profile_dir = (_root / SENDER_PROFILE).resolve() if not SENDER_PROFILE.is_absolute() else SENDER_PROFILE.resolve()
 
@@ -1107,28 +1153,12 @@ class CampanhaWhatsApp:
                 for r in safe_leads:
                     if not self.dry_run:
                         settle_lead(r["reservation_id"], r["reservation_token"], "released", obs="sender_browser_falha")
-                    self.checkpoint.registrar_falha(r["lead"]["id"], "sender_browser_falha")
+                    self.checkpoint.registrar_falha(r["lead"]["id"], "sender_browser_falha", "sender_browser_falha")
+                    self.checkpoint.limpar_estagio(r["lead"]["id"])
                 return
 
             enviados = 0
             for i, r in enumerate(safe_leads):
-                deve_parar, motivo = self.safety.deve_parar()
-                if deve_parar:
-                    logger.warning("Parando: %s", motivo)
-                    break
-
-                if self.until and SafetyController.horario_passou(self.until):
-                    logger.warning("Horario limite atingido")
-                    break
-
-                if not sessao.esta_valida():
-                    logger.error("Sessao invalida antes do envio %d/%d", i+1, len(safe_leads))
-                    for remaining in safe_leads[i:]:
-                        if not self.dry_run:
-                            settle_lead(remaining["reservation_id"], remaining["reservation_token"], "released", obs="sessao_invalida")
-                        self.checkpoint.registrar_falha(remaining["lead"]["id"], "sessao_invalida")
-                    break
-
                 lead = r["lead"]
                 lead_id = lead["id"]
                 tel_norm = r["tel_norm"]
@@ -1137,49 +1167,142 @@ class CampanhaWhatsApp:
                 reservation_id = r["reservation_id"]
                 reservation_token = r["reservation_token"]
 
+                def _released(obs: str) -> None:
+                    if not self.dry_run:
+                        settle_lead(reservation_id, reservation_token, "released", obs=obs)
+
+                def _failed(obs: str) -> None:
+                    if not self.dry_run:
+                        settle_lead(reservation_id, reservation_token, "failed", obs=obs)
+
+                # --- Stage: starting ---
+                self.checkpoint.registrar_estagio(lead_id, "starting")
+
+                deve_parar, motivo = self.safety.deve_parar()
+                if deve_parar:
+                    logger.warning("Parando: %s", motivo)
+                    _released(f"parada_seguranca_{motivo}")
+                    self.checkpoint.registrar_skip(lead_id, f"parada_seguranca_{motivo}")
+                    self.checkpoint.limpar_estagio(lead_id)
+                    break
+
+                if self.until and SafetyController.horario_passou(self.until):
+                    logger.warning("Horario limite atingido")
+                    _released("horario_limite")
+                    self.checkpoint.registrar_skip(lead_id, "horario_limite")
+                    self.checkpoint.limpar_estagio(lead_id)
+                    break
+
+                if not sessao.esta_valida():
+                    logger.error("Sessao invalida antes do envio %d/%d", i+1, len(safe_leads))
+                    for remaining in safe_leads[i:]:
+                        lid = remaining["lead"]["id"]
+                        if not self.dry_run:
+                            settle_lead(remaining["reservation_id"], remaining["reservation_token"], "released", obs="sessao_invalida")
+                        self.checkpoint.registrar_falha(lid, "sessao_invalida", "sessao_invalida")
+                        self.checkpoint.limpar_estagio(lid)
+                    break
+
                 logger.info("=" * 60)
                 logger.info("[%d/%d] ENVIO: %s (%s)", enviados+1, len(safe_leads), nome[:40], masked)
 
                 mensagem = self._renderizar_mensagem(lead)
                 msg_hash = self._hash_mensagem(mensagem)
 
+                # --- Stage: prompt (semi mode) ---
                 if self.mode == "semi" and not self.dry_run:
+                    self.checkpoint.registrar_estagio(lead_id, "prompt_manual")
                     print("\n" + "-" * 60)
                     print(f"  Lead: {nome}")
                     print(f"  Telefone: {masked}")
                     print(f"  Mensagem ({len(mensagem)} chars):")
                     print("  " + mensagem.replace("\n", "\n  "))
                     print("-" * 60)
-                    resp = input("  Enviar? (s/N): ").strip().lower()
-                    if resp not in ("s", "sim", "y", "yes"):
-                        logger.info("  Cancelado pelo usuario")
-                        if not self.dry_run:
-                            settle_lead(reservation_id, reservation_token, "released", obs="cancelado_pelo_usuario")
-                        self.checkpoint.registrar_skip(lead_id, "cancelado_pelo_usuario")
+
+                    try:
+                        resp = self._input_com_timeout(
+                            "  Enviar? (s/N): ",
+                            getattr(self.args, 'manual_confirm_timeout_seconds', None))
+                    except (EOFError, TimeoutError):
+                        logger.info("  Prompt cancelado (EOF/timeout)")
+                        _released("cancelado_prompt_timeout")
+                        self.checkpoint.registrar_skip(lead_id, "cancelado_prompt_timeout")
+                        self.checkpoint.limpar_estagio(lead_id)
                         continue
 
+                    if resp.strip().lower() not in ("s", "sim", "y", "yes"):
+                        logger.info("  Cancelado pelo usuario")
+                        _released("cancelado_pelo_usuario")
+                        self.checkpoint.registrar_skip(lead_id, "cancelado_pelo_usuario")
+                        self.checkpoint.limpar_estagio(lead_id)
+                        continue
+
+                    logger.info("  Manual confirmed: usuario confirmou envio")
+                    self.checkpoint.registrar_estagio(lead_id, "manual_confirmed")
+
+                # --- Stage: dry-run ---
                 if self.dry_run:
                     logger.info("  [DRY-RUN] Enviaria: %s", masked)
                     self.checkpoint.registrar_skip(lead_id, "dry_run")
                     self.safety.registrar_sucesso()
+                    self.checkpoint.limpar_estagio(lead_id)
                     continue
 
-                logger.info("  Enviando via wa.me...")
-                link_ok = await MessageSender.abrir_wa_me(page, tel_norm, mensagem)
+                # --- Stage: abrir wa.me ---
+                self.checkpoint.registrar_estagio(lead_id, "wa_me_opening")
+                logger.info("  Abrindo wa.me...")
+                try:
+                    link_ok = await asyncio.wait_for(
+                        MessageSender.abrir_wa_me(page, tel_norm, mensagem),
+                        timeout=45,
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning("  Timeout ao abrir wa.me (45s)")
+                    _failed("wa_me_timeout")
+                    self.checkpoint.registrar_falha(lead_id, "wa_me_timeout", "wa_me_timeout")
+                    self.safety.registrar_erro()
+                    self.checkpoint.limpar_estagio(lead_id)
+                    continue
+
                 if not link_ok:
                     logger.warning("  Falha ao abrir wa.me")
-                    settle_lead(reservation_id, reservation_token, "failed", obs="wa_me_falha")
-                    self.checkpoint.registrar_falha(lead_id, "wa_me_falha")
+                    _failed("wa_me_falha")
+                    self.checkpoint.registrar_falha(lead_id, "wa_me_falha", "wa_me_falha")
                     self.safety.registrar_erro()
+                    self.checkpoint.limpar_estagio(lead_id)
                     continue
 
-                enviou = await MessageSender.enviar_mensagem(page)
-                if not enviou:
-                    logger.warning("  Falha ao enviar mensagem")
-                    settle_lead(reservation_id, reservation_token, "failed", obs="envio_falha")
-                    self.checkpoint.registrar_falha(lead_id, "envio_falha")
+                self.checkpoint.registrar_estagio(lead_id, "wa_me_loaded")
+
+                # --- Stage: localizar botao enviar ---
+                self.checkpoint.registrar_estagio(lead_id, "send_button_searching")
+                logger.info("  Localizando botao Enviar...")
+
+                try:
+                    enviou = await asyncio.wait_for(
+                        MessageSender.enviar_mensagem(page),
+                        timeout=20,
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning("  Timeout ao enviar mensagem (20s)")
+                    self.checkpoint.registrar_estagio(lead_id, "send_clicked_unknown")
+                    _failed("envio_timeout_possivelmente_enviado")
+                    self.checkpoint.registrar_falha(lead_id, "envio_timeout", "send_clicked_unknown")
                     self.safety.registrar_erro()
+                    self.checkpoint.limpar_estagio(lead_id)
                     continue
+
+                if not enviou:
+                    logger.warning("  Falha ao enviar mensagem (botao nao encontrado)")
+                    self.checkpoint.registrar_estagio(lead_id, "send_button_not_found")
+                    _failed("send_button_not_found")
+                    self.checkpoint.registrar_falha(lead_id, "send_button_not_found", "send_button_not_found")
+                    self.safety.registrar_erro()
+                    self.checkpoint.limpar_estagio(lead_id)
+                    continue
+
+                # --- Stage: send_clicked ---
+                self.checkpoint.registrar_estagio(lead_id, "send_clicked")
 
                 logger.info("  Mensagem enviada com sucesso!")
                 settle_result = settle_lead(
@@ -1189,11 +1312,14 @@ class CampanhaWhatsApp:
                 )
                 if settle_result and settle_result.get("outcome") == "settled":
                     logger.info("  Settle confirmado")
+                    self.checkpoint.registrar_estagio(lead_id, "settle_sent_done")
                 else:
                     logger.warning("  Settle: %s", settle_result)
+                    self.checkpoint.registrar_estagio(lead_id, "needs_manual_reconciliation")
 
                 self.checkpoint.registrar_envio(lead_id, msg_hash[:8])
                 self.safety.registrar_sucesso()
+                self.checkpoint.limpar_estagio(lead_id)
                 enviados += 1
 
                 if i < len(safe_leads) - 1:
@@ -1212,20 +1338,21 @@ class CampanhaWhatsApp:
     def _settle_reservas_pendentes(self, reservados: list[dict], verificacoes: dict[str, dict], motivo: str) -> None:
         """Garante que toda reserva pendente seja finalizada em caso de falha/crash/interrupcao."""
         from sender_int import settle_lead
-        if self.dry_run:
-            return
         for r in reservados:
             lid = r["lead"]["id"]
             if self.checkpoint.ja_processado(lid):
+                self.checkpoint.limpar_estagio(lid)
                 continue
-            rid = r.get("reservation_id")
-            rtoken = r.get("reservation_token")
-            if rid and rtoken and rid != "dry-run":
-                try:
-                    settle_lead(rid, rtoken, "released", obs=f"cleanup_{motivo}")
-                except Exception as e:
-                    logger.warning("Erro ao liberar reserva %s: %s", rid[:8], e)
-            self.checkpoint.registrar_falha(lid, motivo)
+            if not self.dry_run:
+                rid = r.get("reservation_id")
+                rtoken = r.get("reservation_token")
+                if rid and rtoken and rid != "dry-run":
+                    try:
+                        settle_lead(rid, rtoken, "released", obs=f"cleanup_{motivo}")
+                    except Exception as e:
+                        logger.warning("Erro ao liberar reserva %s: %s", rid[:8], e)
+            self.checkpoint.registrar_falha(lid, motivo, f"cleanup_{motivo}")
+            self.checkpoint.limpar_estagio(lid)
 
     def recuperar_reservas(self, run_id: str, release: bool = False) -> int:
         """Recupera reservas pendentes de um run anterior.
@@ -1530,6 +1657,7 @@ Exemplos:
     parser.add_argument("--max-consecutive-errors", type=int, default=DEFAULT_MAX_CONSECUTIVE_ERRORS, help=f"Maximo de erros consecutivos (padrao: {DEFAULT_MAX_CONSECUTIVE_ERRORS})")
     parser.add_argument("--jitter-seconds", type=int, default=DEFAULT_JITTER_SECONDS, help=f"Jitter maximo entre envios (padrao: {DEFAULT_JITTER_SECONDS})")
     parser.add_argument("--confirm-live-send", action="store_true", help="Confirma envio real no modo auto (obrigatorio para auto)")
+    parser.add_argument("--manual-confirm-timeout-seconds", type=int, default=None, help="Timeout em segundos para confirmacao manual no modo semi")
     parser.add_argument("--verify-only", action="store_true", help="Apenas verifica duplicidade, nao envia")
     parser.add_argument("--nicho", "--niche", type=str, default=None, dest="nicho",
                         help=f"Nicho/categoria de leads (padrao: {DEFAULT_NICHO})")
