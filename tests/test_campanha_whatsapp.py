@@ -1488,22 +1488,26 @@ class TestNeedsManualReconciliation:
     """Testes para garantir que needs_manual_reconciliation so ocorre com send_clicked=true."""
 
     def test_needs_reconciliation_no_enviar_tem_send_clicked_true(self):
-        """needs_manual_reconciliation no codigo de envio registra send_clicked=True."""
+        """send_clicked_needs_reconciliation no codigo de envio registra send_clicked=True."""
         import inspect
         source = inspect.getsource(cw.CampanhaWhatsApp._enviar_leads_async)
-        assert 'needs_manual_reconciliation' in source
+        assert 'send_clicked_needs_reconciliation' in source
         assert 'send_clicked=True' in source
 
     def test_send_button_not_found_nao_e_reconciliation(self):
-        """send_button_not_found nao usa needs_manual_reconciliation."""
+        """send_button_not_found marca send_clicked=False e sem reconciliacao."""
         import inspect
+        import re
         source = inspect.getsource(cw.CampanhaWhatsApp._enviar_leads_async)
         idx_bnf = source.find('send_button_not_found')
         assert idx_bnf > 0
-        # Verificar que needs_manual_reconciliation nao aparece antes de send_clicked=True
-        idx_clicked = source.find('send_clicked", send_clicked=True')
-        idx_recon = source.find('needs_manual_reconciliation')
-        assert idx_recon > idx_clicked, 'needs_manual_reconciliation deve vir depois de send_clicked'
+        # O branch send_button_not_found usa send_clicked=False e nao reconcilia
+        snippet = source[idx_bnf:idx_bnf + 400]
+        assert 'send_clicked=False' in snippet
+        assert 'send_clicked_needs_reconciliation' not in snippet
+        # Invariante: toda ocorrencia de send_clicked_needs_reconciliation vem com send_clicked=True
+        for m in re.finditer(r'registrar_estagio\([^)]*send_clicked_needs_reconciliation[^)]*\)', source):
+            assert 'send_clicked=True' in m.group(0), m.group(0)
 
     def test_send_clicked_unknown_vira_needs_reconciliation(self):
         """Timeout no envio (send_clicked_unknown) agora vira send_clicked_needs_reconciliation."""

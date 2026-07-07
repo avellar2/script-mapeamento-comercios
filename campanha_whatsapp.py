@@ -306,14 +306,46 @@ class MessageSender:
             return False
 
     @staticmethod
-    async def enviar_mensagem(page) -> bool:
+    def _seletor_botao_enviar():
+        return (
+            'button[aria-label="Enviar"], '
+            'button[aria-label="Send"], '
+            'span[data-icon="send"], '
+            'div[role="button"][aria-label="Enviar"]'
+        )
+
+    @staticmethod
+    async def localizar_botao_enviar(page, timeout_ms: int = 10000) -> bool:
+        """Apenas localiza o botao Enviar. NAO clica. Retorna True se encontrou."""
         try:
-            send_btn = page.locator(
-                'button[aria-label="Enviar"], '
-                'button[aria-label="Send"], '
-                'span[data-icon="send"], '
-                'div[role="button"][aria-label="Enviar"]'
-            )
+            send_btn = page.locator(MessageSender._seletor_botao_enviar())
+            count = await send_btn.count()
+            if count == 0:
+                try:
+                    await send_btn.first.wait_for(state="visible", timeout=timeout_ms)
+                except Exception:
+                    return False
+            return True
+        except Exception as e:
+            logger.warning("Erro ao localizar botao enviar: %s", e)
+            return False
+
+    @staticmethod
+    async def clicar_enviar(page, click_timeout_ms: int = 5000) -> bool:
+        """Clica no botao Enviar. Retorna True se o clique foi efetivado."""
+        try:
+            send_btn = page.locator(MessageSender._seletor_botao_enviar())
+            await send_btn.first.click(timeout=click_timeout_ms)
+            return True
+        except Exception as e:
+            logger.warning("Erro ao clicar botao enviar: %s", e)
+            return False
+
+    @staticmethod
+    async def enviar_mensagem(page) -> bool:
+        """Compat: localiza + clica + confirma envio. Mantido para callers antigos."""
+        try:
+            send_btn = page.locator(MessageSender._seletor_botao_enviar())
             count = await send_btn.count()
             if count == 0:
                 logger.warning("Botao de enviar nao encontrado")
@@ -1256,18 +1288,40 @@ class CampanhaWhatsApp:
                     print("  " + mensagem.replace("\n", "\n  "))
                     print("-" * 60)
 
+                    # --- Stage: manual confirm (non-blocking, hard timeout) ---
+                    # input() e bloqueante e congelava o event loop asyncio enquanto o
+                    # Playwright ja estava aberto, causando hang silencioso. Rodamos o
+                    # input em thread separada (asyncio.to_thread) envolto em wait_for,
+                    # mantendo o event loop vivo e garantindo timeout duro.
+                    manual_timeout = getattr(self.args, 'manual_confirm_timeout_seconds', None) or 120
                     try:
-                        resp = self._input_com_timeout(
-                            "  Enviar? (s/N): ",
-                            getattr(self.args, 'manual_confirm_timeout_seconds', None))
-                    except (EOFError, TimeoutError):
-                        logger.info("  Prompt cancelado (EOF/timeout)")
-                        _released("cancelado_prompt_timeout")
-                        self.checkpoint.registrar_skip(lead_id, "cancelado_prompt_timeout")
+                        resp = await asyncio.wait_for(
+                            asyncio.to_thread(input, "  Enviar? (s/N): "),
+                            timeout=manual_timeout,
+                        )
+                    except asyncio.TimeoutError:
+                        logger.warning("  Timeout na confirmacao manual (%ds)", manual_timeout)
+                        self.checkpoint.registrar_estagio(lead_id, "manual_confirm_timeout", send_clicked=False)
+                        _released("manual_confirm_timeout")
+                        self.checkpoint.registrar_skip(lead_id, "manual_confirm_timeout")
+                        self.checkpoint.limpar_estagio(lead_id)
+                        continue
+                    except EOFError:
+                        logger.info("  Prompt cancelado (EOF)")
+                        self.checkpoint.registrar_estagio(lead_id, "manual_confirm_eof", send_clicked=False)
+                        _released("manual_confirm_eof")
+                        self.checkpoint.registrar_skip(lead_id, "manual_confirm_eof")
+                        self.checkpoint.limpar_estagio(lead_id)
+                        continue
+                    except Exception as e:
+                        logger.warning("  Erro na confirmacao manual: %s", e)
+                        self.checkpoint.registrar_estagio(lead_id, "manual_confirm_error", send_clicked=False)
+                        _released("manual_confirm_error")
+                        self.checkpoint.registrar_skip(lead_id, "manual_confirm_error")
                         self.checkpoint.limpar_estagio(lead_id)
                         continue
 
-                    if resp.strip().lower() not in ("s", "sim", "y", "yes"):
+                    if resp is None or resp.strip().lower() not in ("s", "sim", "y", "yes"):
                         logger.info("  Cancelado pelo usuario")
                         _released("cancelado_pelo_usuario")
                         self.checkpoint.registrar_skip(lead_id, "cancelado_pelo_usuario")
@@ -1275,7 +1329,11 @@ class CampanhaWhatsApp:
                         continue
 
                     logger.info("  Manual confirmed: usuario confirmou envio")
-                    self.checkpoint.registrar_estagio(lead_id, "manual_confirmed")
+                    # Persiste manual_confirmed IMEDIATAMENT apos receber 's'.
+                    self.checkpoint.registrar_estagio(lead_id, "manual_confirmed", send_clicked=False)
+                    # --- Stage: post_manual_confirmed ---
+                    self.checkpoint.registrar_estagio(lead_id, "post_manual_confirmed", send_clicked=False)
+                    logger.info("  Iniciando pipeline de envio pos-confirmacao...")
 
                 # --- Stage: dry-run ---
                 if self.dry_run:
@@ -1286,7 +1344,7 @@ class CampanhaWhatsApp:
                     continue
 
                 # --- Stage: abrir wa.me ---
-                self.checkpoint.registrar_estagio(lead_id, "wa_me_opening")
+                self.checkpoint.registrar_estagio(lead_id, "wa_me_opening", send_clicked=False)
                 logger.info("  Abrindo wa.me...")
                 try:
                     link_ok = await asyncio.wait_for(
@@ -1295,6 +1353,7 @@ class CampanhaWhatsApp:
                     )
                 except asyncio.TimeoutError:
                     logger.warning("  Timeout ao abrir wa.me (45s)")
+                    self.checkpoint.registrar_estagio(lead_id, "wa_me_timeout", send_clicked=False)
                     _failed("wa_me_timeout")
                     self.checkpoint.registrar_falha(lead_id, "wa_me_timeout", "wa_me_timeout")
                     self.safety.registrar_erro()
@@ -1303,57 +1362,196 @@ class CampanhaWhatsApp:
 
                 if not link_ok:
                     logger.warning("  Falha ao abrir wa.me")
+                    self.checkpoint.registrar_estagio(lead_id, "wa_me_falha", send_clicked=False)
                     _failed("wa_me_falha")
                     self.checkpoint.registrar_falha(lead_id, "wa_me_falha", "wa_me_falha")
                     self.safety.registrar_erro()
                     self.checkpoint.limpar_estagio(lead_id)
                     continue
 
-                self.checkpoint.registrar_estagio(lead_id, "wa_me_loaded")
+                # --- Stage: wa.me carregado ---
+                self.checkpoint.registrar_estagio(lead_id, "wa_me_loaded", send_clicked=False)
 
-                # --- Stage: localizar botao enviar ---
-                self.checkpoint.registrar_estagio(lead_id, "send_button_searching")
-                logger.info("  Localizando botao Enviar...")
-
+                # --- Stage: checar identidade do chat (compose box presente) ---
+                self.checkpoint.registrar_estagio(lead_id, "chat_identity_checking", send_clicked=False)
+                logger.info("  Checando identidade do chat...")
+                COMPOSE_SEL = 'footer div[contenteditable="true"], div[contenteditable="true"][data-tab="10"]'
                 try:
-                    enviou = await asyncio.wait_for(
-                        MessageSender.enviar_mensagem(page),
-                        timeout=20,
+                    await asyncio.wait_for(
+                        page.wait_for_selector(COMPOSE_SEL, timeout=20000),
+                        timeout=25,
                     )
                 except asyncio.TimeoutError:
-                    logger.warning("  Timeout ao enviar mensagem (20s)")
-                    self.checkpoint.registrar_estagio(lead_id, "send_clicked_needs_reconciliation", send_clicked=True, outbound_confirmed=False)
-                    _failed("envio_timeout_possivelmente_enviado")
-                    self.checkpoint.registrar_falha(lead_id, "envio_timeout", "send_clicked_needs_reconciliation")
+                    logger.warning("  Timeout ao confirmar identidade do chat")
+                    self.checkpoint.registrar_estagio(lead_id, "chat_identity_timeout", send_clicked=False)
+                    _failed("chat_identity_timeout")
+                    self.checkpoint.registrar_falha(lead_id, "chat_identity_timeout", "chat_identity_timeout")
                     self.safety.registrar_erro()
                     self.checkpoint.limpar_estagio(lead_id)
                     continue
+                except Exception as e:
+                    logger.warning("  Erro ao confirmar identidade do chat: %s", e)
+                    self.checkpoint.registrar_estagio(lead_id, "chat_identity_timeout", send_clicked=False)
+                    _failed("chat_identity_error")
+                    self.checkpoint.registrar_falha(lead_id, "chat_identity_error", "chat_identity_timeout")
+                    self.safety.registrar_erro()
+                    self.checkpoint.limpar_estagio(lead_id)
+                    continue
+                self.checkpoint.registrar_estagio(lead_id, "chat_identity_checked", send_clicked=False)
 
-                if not enviou:
-                    logger.warning("  Falha ao enviar mensagem (botao nao encontrado)")
-                    self.checkpoint.registrar_estagio(lead_id, "send_button_not_found")
+                # --- Stage: checar mensagem existente (evita duplicidade) ---
+                self.checkpoint.registrar_estagio(lead_id, "existing_message_checking", send_clicked=False)
+                logger.info("  Checando mensagem existente no chat...")
+                OUTGOING_SEL = 'div[data-testid="msg-container"] div.message-out, span[data-icon="msg-dblcheck"], span[data-icon="msg-check"]'
+                existing_found = False
+                try:
+                    await asyncio.wait_for(
+                        page.wait_for_selector(OUTGOING_SEL, timeout=6000),
+                        timeout=10,
+                    )
+                    existing_found = True
+                except asyncio.TimeoutError:
+                    existing_found = False  # chat vazio -> prossegue
+                except Exception:
+                    existing_found = False
+                if existing_found:
+                    logger.warning("  Mensagem existente encontrada: NAO enviar (evita duplicidade)")
+                    self.checkpoint.registrar_estagio(lead_id, "existing_message_found", send_clicked=False)
+                    _released("mensagem_existente_duplicidade")
+                    self.checkpoint.registrar_skip(lead_id, "existing_message_found")
+                    self.safety.registrar_erro()
+                    self.checkpoint.limpar_estagio(lead_id)
+                    continue
+                self.checkpoint.registrar_estagio(lead_id, "existing_message_checked", send_clicked=False)
+
+                # --- Stage: message box pronta ---
+                self.checkpoint.registrar_estagio(lead_id, "message_box_searching", send_clicked=False)
+                try:
+                    await asyncio.wait_for(
+                        page.wait_for_selector(COMPOSE_SEL, timeout=10000),
+                        timeout=15,
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning("  Timeout ao localizar caixa de mensagem")
+                    self.checkpoint.registrar_estagio(lead_id, "message_box_timeout", send_clicked=False)
+                    _failed("message_box_timeout")
+                    self.checkpoint.registrar_falha(lead_id, "message_box_timeout", "message_box_timeout")
+                    self.safety.registrar_erro()
+                    self.checkpoint.limpar_estagio(lead_id)
+                    continue
+                except Exception as e:
+                    logger.warning("  Erro ao localizar caixa de mensagem: %s", e)
+                    self.checkpoint.registrar_estagio(lead_id, "message_box_timeout", send_clicked=False)
+                    _failed("message_box_error")
+                    self.checkpoint.registrar_falha(lead_id, "message_box_error", "message_box_timeout")
+                    self.safety.registrar_erro()
+                    self.checkpoint.limpar_estagio(lead_id)
+                    continue
+                self.checkpoint.registrar_estagio(lead_id, "message_box_ready", send_clicked=False)
+
+                # --- Stage: preencher mensagem (best-effort; wa.me ja preencheu) ---
+                self.checkpoint.registrar_estagio(lead_id, "message_filling", send_clicked=False)
+                try:
+                    compose = page.locator(COMPOSE_SEL).first
+                    current = await asyncio.wait_for(compose.inner_text(timeout=3000), timeout=8)
+                    if not current or not current.strip():
+                        await asyncio.wait_for(compose.fill(mensagem, timeout=8000), timeout=12)
+                except asyncio.TimeoutError:
+                    logger.warning("  Timeout ao preencher mensagem")
+                    self.checkpoint.registrar_estagio(lead_id, "message_fill_timeout", send_clicked=False)
+                    _failed("message_fill_timeout")
+                    self.checkpoint.registrar_falha(lead_id, "message_fill_timeout", "message_fill_timeout")
+                    self.safety.registrar_erro()
+                    self.checkpoint.limpar_estagio(lead_id)
+                    continue
+                except Exception as e:
+                    logger.warning("  Aviso ao preencher mensagem (seguindo): %s", e)
+                self.checkpoint.registrar_estagio(lead_id, "message_filled", send_clicked=False)
+
+                # --- Stage: localizar botao Enviar (sem clicar) ---
+                self.checkpoint.registrar_estagio(lead_id, "send_button_searching", send_clicked=False)
+                logger.info("  Localizando botao Enviar...")
+                try:
+                    btn_ok = await asyncio.wait_for(
+                        MessageSender.localizar_botao_enviar(page, timeout_ms=10000),
+                        timeout=15,
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning("  Timeout ao localizar botao Enviar")
+                    self.checkpoint.registrar_estagio(lead_id, "send_button_timeout", send_clicked=False)
+                    _failed("send_button_timeout")
+                    self.checkpoint.registrar_falha(lead_id, "send_button_timeout", "send_button_timeout")
+                    self.safety.registrar_erro()
+                    self.checkpoint.limpar_estagio(lead_id)
+                    continue
+                if not btn_ok:
+                    logger.warning("  Botao Enviar nao encontrado")
+                    self.checkpoint.registrar_estagio(lead_id, "send_button_not_found", send_clicked=False)
                     _failed("send_button_not_found")
                     self.checkpoint.registrar_falha(lead_id, "send_button_not_found", "send_button_not_found")
                     self.safety.registrar_erro()
                     self.checkpoint.limpar_estagio(lead_id)
                     continue
+                self.checkpoint.registrar_estagio(lead_id, "send_button_ready", send_clicked=False)
 
-                # --- Stage: send_clicked ---
+                # --- Stage: clicar Enviar ---
+                # So a partir daqui o clique e tentado. Antes disso, qualquer falha
+                # e send_clicked=false (seguro, sem reconciliacao).
+                self.checkpoint.registrar_estagio(lead_id, "send_clicking", send_clicked=False)
+                click_ok = False
+                click_ambiguous = False
+                try:
+                    click_ok = await asyncio.wait_for(
+                        MessageSender.clicar_enviar(page, click_timeout_ms=8000),
+                        timeout=12,
+                    )
+                except asyncio.TimeoutError:
+                    # Click foi tentado mas nao confirmado no tempo: ambiguo.
+                    click_ambiguous = True
+                except Exception as e:
+                    logger.warning("  Falha antes de efetivar clique: %s", e)
+                    click_ok = False
+
+                if click_ambiguous:
+                    logger.warning("  Clique tentado mas nao confirmado (ambiguo)")
+                    self.checkpoint.registrar_estagio(lead_id, "send_clicked_needs_reconciliation", send_clicked=True, outbound_confirmed=False)
+                    _failed("send_click_ambiguous")
+                    self.checkpoint.registrar_falha(lead_id, "send_click_ambiguous", "send_clicked_needs_reconciliation")
+                    self.safety.registrar_erro()
+                    self.checkpoint.limpar_estagio(lead_id)
+                    continue
+
+                if not click_ok:
+                    logger.warning("  Clique nao efetivado (antes do envio)")
+                    self.checkpoint.registrar_estagio(lead_id, "send_failed_before_click", send_clicked=False)
+                    _failed("send_failed_before_click")
+                    self.checkpoint.registrar_falha(lead_id, "send_failed_before_click", "send_failed_before_click")
+                    self.safety.registrar_erro()
+                    self.checkpoint.limpar_estagio(lead_id)
+                    continue
+
+                # --- Stage: send_clicked (clique confirmado) ---
                 self.checkpoint.registrar_estagio(lead_id, "send_clicked", send_clicked=True)
 
-                logger.info("  Mensagem enviada com sucesso!")
-                settle_result = settle_lead(
-                    reservation_id, reservation_token, "sent",
-                    message_timestamp=datetime.now(timezone.utc).isoformat(),
-                    fingerprint=msg_hash, campaign_match=True,
-                )
+                logger.info("  Mensagem enviada com sucesso (clique confirmado)")
+                # --- Stage: outbound_confirming / settle ---
+                self.checkpoint.registrar_estagio(lead_id, "outbound_confirming", send_clicked=True)
+                try:
+                    settle_result = settle_lead(
+                        reservation_id, reservation_token, "sent",
+                        message_timestamp=datetime.now(timezone.utc).isoformat(),
+                        fingerprint=msg_hash, campaign_match=True,
+                    )
+                except Exception as e:
+                    logger.warning("  Excecao no settle: %s", e)
+                    settle_result = None
                 if settle_result and settle_result.get("outcome") == "settled":
                     logger.info("  Settle confirmado")
                     self.checkpoint.registrar_estagio(lead_id, "settle_sent_done", send_clicked=True, outbound_confirmed=True)
                 else:
                     logger.warning("  Settle: %s", settle_result)
-                    self.checkpoint.registrar_estagio(lead_id, "outbound_confirming", send_clicked=True)
-                    self.checkpoint.registrar_estagio(lead_id, "needs_manual_reconciliation", send_clicked=True, outbound_confirmed=False)
+                    # Clicou em Enviar mas nao confirmou outbound -> exige reconciliacao.
+                    self.checkpoint.registrar_estagio(lead_id, "send_clicked_needs_reconciliation", send_clicked=True, outbound_confirmed=False)
 
                 self.checkpoint.registrar_envio(lead_id, msg_hash[:8])
                 self.safety.registrar_sucesso()
