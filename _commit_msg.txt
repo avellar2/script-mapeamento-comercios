@@ -1,0 +1,15 @@
+fix: bound semi sender startup after manual confirmation
+
+Adiciona stages de checkpoint antes de todas as operacoes bloqueantes
+apos manual_confirmed (sender_lock_waiting, sender_session_opening, etc).
+
+Timeout na abertura da sessao sender com asyncio.wait_for(timeout=60).
+registrar_estagio agora aceita send_clicked e outbound_confirmed.
+
+Corrige needs_manual_reconciliation: so ocorre quando send_clicked=true.
+send_button_not_found e fail antes de send_clicked nao viram reconciliation.
+
+Recovery mostra stages pendentes com acao segura: libera se send_clicked=false,
+exige reconciliacao manual se send_clicked=true sem outbound confirmado.
+
+Co-authored-by: CommandCodeBot <noreply@commandcode.ai>

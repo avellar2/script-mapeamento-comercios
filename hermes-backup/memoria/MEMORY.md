@@ -20,5 +20,6 @@
 
 ## Perfil do usuário (user)
 1. Vanderson prefere PT-BR, respostas diretas e curtas, sem enfeite; quando pede listas de números/telefones, quer apenas os números. Hermes não mexe em código: só diagnosticador/operador; Command Code é o único que edita código, testes, seletores, patches e Git destrutivo. O usuário fica irritado quando há repetição ou reenvio duplicado.
+2. REGRA ABSOLUTA DE IDIOMA: Command Code deve falar EXCLUSIVAMENTE em português (PT-BR). NUNCA usar inglês em mensagens, explicações, comentários, commits, nomes de variáveis ou qualquer comunicação. Tudo em português.
 2. Vanderson, TI, PC 24h. Exige seguir manual de operador à risca: escalonamento (10→validar→30→validar→50→validar→100→validar→RJ), relatório obrigatório, aguardar autorização antes de cada passo. Não tolera 2 Chromes simultâneos na captura. Prospecção comércios sem site RJ (Baixada + Rio Premium). Meta Ads. Equipe AI-powered.
 3. Vanderson é direto e explosivo quando algo dá errado (ex: "mata tudo porra, ta perdido?"). Não leva a mal — é o estilo dele. Prefere respostas objetivas e ação imediata em vez de explicações longas.
