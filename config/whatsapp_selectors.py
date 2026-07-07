@@ -30,6 +30,8 @@ SEARCH_BOX_SELECTORS = [
     'div[contenteditable="true"][data-tab="3"]',
     'div[contenteditable="true"][title*="pesquisar" i]',
     'div[contenteditable="true"][title*="search" i]',
+    'input[placeholder*="Pesquisar" i]',
+    'input[placeholder*="Search" i]',
 ]
 
 # Resultado da pesquisa (chat list item)
