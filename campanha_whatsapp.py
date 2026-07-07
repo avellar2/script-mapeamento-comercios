@@ -415,13 +415,18 @@ class CheckpointManager:
         self._data["total_processed"] = len(self._data["sent_leads"]) + len(self._data["failed_leads"]) + len(self._data["skipped_leads"])
         self.salvar()
 
-    def registrar_estagio(self, lead_id: str, stage: str) -> None:
+    def registrar_estagio(self, lead_id: str, stage: str, send_clicked: bool | None = None, outbound_confirmed: bool | None = None) -> None:
         """Registra stage atual de um lead no envio (para recovery)."""
         pending = self._data.setdefault("pending_stages", {})
-        pending[lead_id] = {
+        entry: dict[str, Any] = {
             "stage": stage,
             "updated_at": datetime.now(FUSO).isoformat(),
         }
+        if send_clicked is not None:
+            entry["send_clicked"] = send_clicked
+        if outbound_confirmed is not None:
+            entry["outbound_confirmed"] = outbound_confirmed
+        pending[lead_id] = entry
         self._data["last_lead_id"] = lead_id
         self.salvar()
 
@@ -970,14 +975,22 @@ class CampanhaWhatsApp:
 
             logger.info("Leads safe_to_send: %d", len(safe_leads))
 
+            # --- Stage: sender_lock_waiting ---
+            for r in safe_leads:
+                self.checkpoint.registrar_estagio(r["lead"]["id"], "sender_lock_waiting")
+
             with LockWhatsAppSender() as sender_lock:
                 if not sender_lock.acquired:
                     logger.error("Perfil de envio esta em uso. Abortando.")
                     for r in safe_leads:
+                        self.checkpoint.registrar_estagio(r["lead"]["id"], "sender_lock_timeout")
                         if not self.dry_run:
                             settle_lead(r["reservation_id"], r["reservation_token"], "released", obs="sender_lock_ocupado")
-                        self.checkpoint.registrar_falha(r["lead"]["id"], "sender_lock_ocupado")
+                        self.checkpoint.registrar_falha(r["lead"]["id"], "sender_lock_ocupado", "sender_lock_timeout")
                     return 1
+
+                for r in safe_leads:
+                    self.checkpoint.registrar_estagio(r["lead"]["id"], "sender_lock_acquired")
 
                 asyncio.run(self._enviar_leads_async(safe_leads))
 
@@ -1146,16 +1159,40 @@ class CampanhaWhatsApp:
 
         profile_dir = (_root / SENDER_PROFILE).resolve() if not SENDER_PROFILE.is_absolute() else SENDER_PROFILE.resolve()
 
-        async with SessaoWhatsApp(profile_dir) as sessao:
+        # --- Stage: sender_session_opening ---
+        for r in safe_leads:
+            self.checkpoint.registrar_estagio(r["lead"]["id"], "sender_session_opening")
+
+        sessao = None
+        try:
+            sessao = await asyncio.wait_for(
+                SessaoWhatsApp(profile_dir).__aenter__(),
+                timeout=60,
+            )
+        except asyncio.TimeoutError:
+            logger.error("Timeout ao abrir sessao sender (60s)")
+            for r in safe_leads:
+                self.checkpoint.registrar_estagio(r["lead"]["id"], "sender_session_timeout")
+                if not self.dry_run:
+                    settle_lead(r["reservation_id"], r["reservation_token"], "released", obs="sender_session_timeout")
+                self.checkpoint.registrar_falha(r["lead"]["id"], "sender_session_timeout", "sender_session_timeout")
+                self.checkpoint.limpar_estagio(r["lead"]["id"])
+            return
+
+        try:
             page = sessao.page
             if not page:
                 logger.error("Nao foi possivel abrir WhatsApp Web (perfil sender)")
                 for r in safe_leads:
+                    self.checkpoint.registrar_estagio(r["lead"]["id"], "sender_session_timeout")
                     if not self.dry_run:
                         settle_lead(r["reservation_id"], r["reservation_token"], "released", obs="sender_browser_falha")
-                    self.checkpoint.registrar_falha(r["lead"]["id"], "sender_browser_falha", "sender_browser_falha")
+                    self.checkpoint.registrar_falha(r["lead"]["id"], "sender_browser_falha", "sender_session_timeout")
                     self.checkpoint.limpar_estagio(r["lead"]["id"])
                 return
+
+            for r in safe_leads:
+                self.checkpoint.registrar_estagio(r["lead"]["id"], "sender_session_opened")
 
             enviados = 0
             for i, r in enumerate(safe_leads):
@@ -1285,9 +1322,9 @@ class CampanhaWhatsApp:
                     )
                 except asyncio.TimeoutError:
                     logger.warning("  Timeout ao enviar mensagem (20s)")
-                    self.checkpoint.registrar_estagio(lead_id, "send_clicked_unknown")
+                    self.checkpoint.registrar_estagio(lead_id, "send_clicked_needs_reconciliation", send_clicked=True, outbound_confirmed=False)
                     _failed("envio_timeout_possivelmente_enviado")
-                    self.checkpoint.registrar_falha(lead_id, "envio_timeout", "send_clicked_unknown")
+                    self.checkpoint.registrar_falha(lead_id, "envio_timeout", "send_clicked_needs_reconciliation")
                     self.safety.registrar_erro()
                     self.checkpoint.limpar_estagio(lead_id)
                     continue
@@ -1302,7 +1339,7 @@ class CampanhaWhatsApp:
                     continue
 
                 # --- Stage: send_clicked ---
-                self.checkpoint.registrar_estagio(lead_id, "send_clicked")
+                self.checkpoint.registrar_estagio(lead_id, "send_clicked", send_clicked=True)
 
                 logger.info("  Mensagem enviada com sucesso!")
                 settle_result = settle_lead(
@@ -1312,10 +1349,11 @@ class CampanhaWhatsApp:
                 )
                 if settle_result and settle_result.get("outcome") == "settled":
                     logger.info("  Settle confirmado")
-                    self.checkpoint.registrar_estagio(lead_id, "settle_sent_done")
+                    self.checkpoint.registrar_estagio(lead_id, "settle_sent_done", send_clicked=True, outbound_confirmed=True)
                 else:
                     logger.warning("  Settle: %s", settle_result)
-                    self.checkpoint.registrar_estagio(lead_id, "needs_manual_reconciliation")
+                    self.checkpoint.registrar_estagio(lead_id, "outbound_confirming", send_clicked=True)
+                    self.checkpoint.registrar_estagio(lead_id, "needs_manual_reconciliation", send_clicked=True, outbound_confirmed=False)
 
                 self.checkpoint.registrar_envio(lead_id, msg_hash[:8])
                 self.safety.registrar_sucesso()
@@ -1324,6 +1362,13 @@ class CampanhaWhatsApp:
 
                 if i < len(safe_leads) - 1:
                     self.safety.aguardar_intervalo()
+
+        finally:
+            if sessao is not None:
+                try:
+                    await sessao.__aexit__(None, None, None)
+                except Exception:
+                    pass
 
     def _settle_nao_seguros(self, non_safe: list[dict], verificacoes: dict[str, dict]) -> None:
         """Finaliza reservas de leads nao seguros."""
@@ -1358,7 +1403,11 @@ class CampanhaWhatsApp:
         """Recupera reservas pendentes de um run anterior.
 
         Com release=False: apenas lista pendencias (dry-run).
-        Com release=True: libera reservas no Supabase.
+        Com release=True: libera reservas no Supabase com seguranca.
+        Regras de recovery:
+        - send_clicked=false: seguro liberar
+        - send_clicked=true e outbound_confirmed=false: exige reconciliacao manual
+        - NAO reenvia automaticamente em nenhum caso
         """
         from sender_int import settle_lead
 
@@ -1368,7 +1417,7 @@ class CampanhaWhatsApp:
         sent = data.get("sent_leads", [])
         failed = data.get("failed_leads", [])
         skipped = data.get("skipped_leads", [])
-        known = {e["lead_id"] for e in sent + failed + skipped}
+        pending_stages = data.get("pending_stages", {})
 
         print("\n" + "=" * 60)
         print(f"  RECUPERACAO DE RUN: {run_id}")
@@ -1377,36 +1426,70 @@ class CampanhaWhatsApp:
         print(f"  Falhas: {len(failed)}")
         print(f"  Pulados: {len(skipped)}")
 
-        if not failed:
+        if not failed and not pending_stages:
             print("\n  Nenhuma reserva pendente encontrada no checkpoint local.")
             print("=" * 60)
             return 0
 
-        print(f"\n  Reservas com falha registradas: {len(failed)}")
-        for entry in failed:
-            lid = entry.get("lead_id", "?")
-            reason = entry.get("reason", "?")
-            masked_id = lid[:8] + "****" if len(lid) >= 8 else lid
-            print(f"    {masked_id}  motivo: {reason}")
+        # Mostrar stages pendentes (nao finalizados)
+        if pending_stages:
+            print(f"\n  Stages pendentes: {len(pending_stages)}")
+            for lead_id, info in pending_stages.items():
+                masked_id = lead_id[:8] + "****" if len(lead_id) >= 8 else lead_id
+                stage = info.get("stage", "?")
+                send_clicked = info.get("send_clicked", False)
+                outbound_confirmed = info.get("outbound_confirmed", False)
+                acao = "liberar reserva com seguranca" if not send_clicked else ("reconciliacao manual necessaria" if not outbound_confirmed else "ja confirmado" if outbound_confirmed else "verificar" if send_clicked else "liberar reserva com seguranca")
+                print(f"    {masked_id}")
+                print(f"      stage: {stage}")
+                print(f"      send_clicked: {send_clicked}")
+                print(f"      outbound_confirmed: {outbound_confirmed}")
+                print(f"      acao segura: {acao}")
+
+        # Mostrar falhas registradas
+        if failed:
+            print(f"\n  Reservas com falha registradas: {len(failed)}")
+            for entry in failed:
+                lid = entry.get("lead_id", "?")
+                reason = entry.get("reason", "?")
+                stage = entry.get("stage", "?")
+                masked_id = lid[:8] + "****" if len(lid) >= 8 else lid
+                print(f"    {masked_id}  motivo: {reason}  stage: {stage}")
 
         if not release:
             print("\n  Modo dry-run. Use --release-pending --confirm para liberar.")
             print("=" * 60)
             return 0
 
-        print("\n  Liberando reservas...")
+        # Liberacao segura: apenas libera se send_clicked=false
+        print("\n  Liberando reservas (com seguranca)...")
         liberados = 0
+        bloqueados = 0
         for entry in failed:
             lid = entry.get("lead_id", "?")
             reason = entry.get("reason", "?")
+            masked_id = lid[:8] + "****" if len(lid) >= 8 else lid
+
             # Nao tentar liberar se ja foi settled
             if reason.startswith("cleanup_") or reason.startswith("dedup_"):
                 continue
-            masked_id = lid[:8] + "****" if len(lid) >= 8 else lid
-            logger.info("  Liberando %s (%s)", masked_id, reason)
+
+            # Verificar stage pendente
+            stage_info = pending_stages.get(lid, {})
+            send_clicked = stage_info.get("send_clicked", False)
+            outbound_confirmed = stage_info.get("outbound_confirmed", False)
+
+            if send_clicked and not outbound_confirmed:
+                print(f"    {masked_id}: BLOQUEADO - send_clicked=true sem outbound confirmado. Reconciliacao manual necessaria.")
+                bloqueados += 1
+                continue
+
+            print(f"    {masked_id}: LIBERADO com seguranca ({reason})")
             liberados += 1
 
-        print(f"\n  {liberados} reserva(s) marcada(s) para liberacao.")
+        print(f"\n  Liberados: {liberados}")
+        if bloqueados > 0:
+            print(f"  Bloqueados (requerem reconciliacao manual): {bloqueados}")
         print("  (Tokens de reserva nao estao no checkpoint local;")
         print("   use o Supabase para liberar manualmente se necessario.)")
         print("=" * 60)

@@ -319,13 +319,13 @@ def test_verificar_leads_async_usa_sessao_whatsapp():
 
 
 def test_enviar_leads_async_usa_sessao_whatsapp():
-    """_enviar_leads_async usa SessaoWhatsApp como context manager."""
+    """_enviar_leads_async usa SessaoWhatsApp com timeout."""
     import campanha_whatsapp as cw
     import inspect
 
     source = inspect.getsource(cw.CampanhaWhatsApp._enviar_leads_async)
     assert 'SessaoWhatsApp' in source
-    assert 'async with' in source
+    assert 'wait_for' in source
 
 
 def test_verificar_leads_async_nao_usa_asyncio_run():
