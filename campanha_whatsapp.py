@@ -447,7 +447,7 @@ class CheckpointManager:
         self._data["total_processed"] = len(self._data["sent_leads"]) + len(self._data["failed_leads"]) + len(self._data["skipped_leads"])
         self.salvar()
 
-    def registrar_estagio(self, lead_id: str, stage: str, send_clicked: bool | None = None, outbound_confirmed: bool | None = None) -> None:
+    def registrar_estagio(self, lead_id: str, stage: str, send_clicked: bool | None = None, outbound_confirmed: bool | None = None, manual_confirm_source: str | None = None) -> None:
         """Registra stage atual de um lead no envio (para recovery)."""
         pending = self._data.setdefault("pending_stages", {})
         entry: dict[str, Any] = {
@@ -458,6 +458,8 @@ class CheckpointManager:
             entry["send_clicked"] = send_clicked
         if outbound_confirmed is not None:
             entry["outbound_confirmed"] = outbound_confirmed
+        if manual_confirm_source is not None:
+            entry["manual_confirm_source"] = manual_confirm_source
         pending[lead_id] = entry
         self._data["last_lead_id"] = lead_id
         self.salvar()
@@ -691,6 +693,17 @@ class CampanhaWhatsApp:
         sufixo = hashlib.sha1(os.urandom(16)).hexdigest()[:6]
         return f"run_{agora}_{sufixo}"
 
+    @staticmethod
+    def gerar_token_confirmacao(telefone: str, run_id: str) -> str:
+        """Gera token de confirmacao especifico por lead e run.
+
+        Formato: CONFIRMAR-<ultimos4>-<run_id_curto>
+        Exemplo: CONFIRMAR-3966-d8b27a
+        """
+        ultimos4 = telefone[-4:] if len(telefone) >= 4 else telefone
+        run_curto = run_id.split("_")[-1] if "_" in run_id else run_id[:6]
+        return f"CONFIRMAR-{ultimos4}-{run_curto}"
+
     def _resolver_nicho(self) -> tuple[str, list[str], str]:
         """Resolve niche and subnichos from args or defaults."""
         nicho = getattr(self.args, "nicho", None) or DEFAULT_NICHO
@@ -797,6 +810,19 @@ class CampanhaWhatsApp:
         if not validar_campaign_key(self.campaign_key):
             logger.error("campaign_key invalida: %s", self.campaign_key)
             return 2
+
+        # --- Validacao: semi-confirm-token ---
+        token = getattr(self.args, "semi_confirm_token", None)
+        if token:
+            if self.mode == "semi" and self.limit != 1:
+                logger.error("--semi-confirm-token exige --limit=1 (encontrado: --limit=%d).", self.limit)
+                return 1
+            if self.mode != "semi":
+                logger.error("--semi-confirm-token so e valido no modo semi (encontrado: %s).", self.mode)
+                return 1
+            if self.confirm_live_send:
+                logger.error("--semi-confirm-token e incompativel com --confirm-live-send.")
+                return 1
 
         checkpoint_data = self.checkpoint.carregar()
         logger.info("Checkpoint: %s", self.checkpoint.get_resumo())
@@ -1281,59 +1307,93 @@ class CampanhaWhatsApp:
                 # --- Stage: prompt (semi mode) ---
                 if self.mode == "semi" and not self.dry_run:
                     self.checkpoint.registrar_estagio(lead_id, "prompt_manual")
-                    print("\n" + "-" * 60)
-                    print(f"  Lead: {nome}")
-                    print(f"  Telefone: {masked}")
-                    print(f"  Mensagem ({len(mensagem)} chars):")
-                    print("  " + mensagem.replace("\n", "\n  "))
-                    print("-" * 60)
 
-                    # --- Stage: manual confirm (non-blocking, hard timeout) ---
-                    # input() e bloqueante e congelava o event loop asyncio enquanto o
-                    # Playwright ja estava aberto, causando hang silencioso. Rodamos o
-                    # input em thread separada (asyncio.to_thread) envolto em wait_for,
-                    # mantendo o event loop vivo e garantindo timeout duro.
-                    manual_timeout = getattr(self.args, 'manual_confirm_timeout_seconds', None) or 120
-                    try:
-                        resp = await asyncio.wait_for(
-                            asyncio.to_thread(input, "  Enviar? (s/N): "),
-                            timeout=manual_timeout,
-                        )
-                    except asyncio.TimeoutError:
-                        logger.warning("  Timeout na confirmacao manual (%ds)", manual_timeout)
-                        self.checkpoint.registrar_estagio(lead_id, "manual_confirm_timeout", send_clicked=False)
-                        _released("manual_confirm_timeout")
-                        self.checkpoint.registrar_skip(lead_id, "manual_confirm_timeout")
-                        self.checkpoint.limpar_estagio(lead_id)
-                        continue
-                    except EOFError:
-                        logger.info("  Prompt cancelado (EOF)")
-                        self.checkpoint.registrar_estagio(lead_id, "manual_confirm_eof", send_clicked=False)
-                        _released("manual_confirm_eof")
-                        self.checkpoint.registrar_skip(lead_id, "manual_confirm_eof")
-                        self.checkpoint.limpar_estagio(lead_id)
-                        continue
-                    except Exception as e:
-                        logger.warning("  Erro na confirmacao manual: %s", e)
-                        self.checkpoint.registrar_estagio(lead_id, "manual_confirm_error", send_clicked=False)
-                        _released("manual_confirm_error")
-                        self.checkpoint.registrar_skip(lead_id, "manual_confirm_error")
-                        self.checkpoint.limpar_estagio(lead_id)
-                        continue
+                    # --- Token-based confirmation for agents ---
+                    token = getattr(self.args, "semi_confirm_token", None)
+                    if token:
+                        esperado = CampanhaWhatsApp.gerar_token_confirmacao(tel_norm, self.run_id)
+                        print("\n" + "=" * 60)
+                        print("  MODO SEMI - CONFIRMACAO POR TOKEN")
+                        print("=" * 60)
+                        print(f"  Lead: {nome}")
+                        print(f"  Telefone (mascarado): {masked}")
+                        print(f"  Campaign Key: {self.campaign_key}")
+                        print(f"  Run ID: {self.run_id}")
+                        print(f"  Mensagem ({len(mensagem)} chars):")
+                        print("  " + mensagem.replace("\n", "\n  "))
+                        print("-" * 60)
+                        print(f"  Token esperado: {esperado}")
+                        print(f"  Token recebido: {token}")
+                        print("=" * 60)
+                        if token == esperado:
+                            logger.info("  Token valido - confirmacao automatica aceita")
+                            self.checkpoint.registrar_estagio(lead_id, "manual_confirmed",
+                                send_clicked=False, manual_confirm_source="token")
+                            self.checkpoint.registrar_estagio(lead_id, "post_manual_confirmed",
+                                send_clicked=False, manual_confirm_source="token")
+                            logger.info("  Iniciando pipeline de envio pos-confirmacao...")
+                        else:
+                            logger.warning("  Token invalido - cancelando com seguranca")
+                            self.checkpoint.registrar_estagio(lead_id,
+                                "manual_confirm_token_invalid", send_clicked=False)
+                            _released("manual_confirm_token_invalid")
+                            self.checkpoint.registrar_skip(lead_id, "manual_confirm_token_invalid")
+                            self.checkpoint.limpar_estagio(lead_id)
+                            continue
+                    else:
+                        print("\n" + "-" * 60)
+                        print(f"  Lead: {nome}")
+                        print(f"  Telefone: {masked}")
+                        print(f"  Mensagem ({len(mensagem)} chars):")
+                        print("  " + mensagem.replace("\n", "\n  "))
+                        print("-" * 60)
 
-                    if resp is None or resp.strip().lower() not in ("s", "sim", "y", "yes"):
-                        logger.info("  Cancelado pelo usuario")
-                        _released("cancelado_pelo_usuario")
-                        self.checkpoint.registrar_skip(lead_id, "cancelado_pelo_usuario")
-                        self.checkpoint.limpar_estagio(lead_id)
-                        continue
+                        # --- Stage: manual confirm (non-blocking, hard timeout) ---
+                        # input() e bloqueante e congelava o event loop asyncio enquanto o
+                        # Playwright ja estava aberto, causando hang silencioso. Rodamos o
+                        # input em thread separada (asyncio.to_thread) envolto em wait_for,
+                        # mantendo o event loop vivo e garantindo timeout duro.
+                        manual_timeout = getattr(self.args, 'manual_confirm_timeout_seconds', None) or 120
+                        try:
+                            resp = await asyncio.wait_for(
+                                asyncio.to_thread(input, "  Enviar? (s/N): "),
+                                timeout=manual_timeout,
+                            )
+                        except asyncio.TimeoutError:
+                            logger.warning("  Timeout na confirmacao manual (%ds)", manual_timeout)
+                            self.checkpoint.registrar_estagio(lead_id, "manual_confirm_timeout", send_clicked=False)
+                            _released("manual_confirm_timeout")
+                            self.checkpoint.registrar_skip(lead_id, "manual_confirm_timeout")
+                            self.checkpoint.limpar_estagio(lead_id)
+                            continue
+                        except EOFError:
+                            logger.info("  Prompt cancelado (EOF)")
+                            self.checkpoint.registrar_estagio(lead_id, "manual_confirm_eof", send_clicked=False)
+                            _released("manual_confirm_eof")
+                            self.checkpoint.registrar_skip(lead_id, "manual_confirm_eof")
+                            self.checkpoint.limpar_estagio(lead_id)
+                            continue
+                        except Exception as e:
+                            logger.warning("  Erro na confirmacao manual: %s", e)
+                            self.checkpoint.registrar_estagio(lead_id, "manual_confirm_error", send_clicked=False)
+                            _released("manual_confirm_error")
+                            self.checkpoint.registrar_skip(lead_id, "manual_confirm_error")
+                            self.checkpoint.limpar_estagio(lead_id)
+                            continue
 
-                    logger.info("  Manual confirmed: usuario confirmou envio")
-                    # Persiste manual_confirmed IMEDIATAMENT apos receber 's'.
-                    self.checkpoint.registrar_estagio(lead_id, "manual_confirmed", send_clicked=False)
-                    # --- Stage: post_manual_confirmed ---
-                    self.checkpoint.registrar_estagio(lead_id, "post_manual_confirmed", send_clicked=False)
-                    logger.info("  Iniciando pipeline de envio pos-confirmacao...")
+                        if resp is None or resp.strip().lower() not in ("s", "sim", "y", "yes"):
+                            logger.info("  Cancelado pelo usuario")
+                            _released("cancelado_pelo_usuario")
+                            self.checkpoint.registrar_skip(lead_id, "cancelado_pelo_usuario")
+                            self.checkpoint.limpar_estagio(lead_id)
+                            continue
+
+                        logger.info("  Manual confirmed: usuario confirmou envio")
+                        # Persiste manual_confirmed IMEDIATAMENT apos receber 's'.
+                        self.checkpoint.registrar_estagio(lead_id, "manual_confirmed", send_clicked=False)
+                        # --- Stage: post_manual_confirmed ---
+                        self.checkpoint.registrar_estagio(lead_id, "post_manual_confirmed", send_clicked=False)
+                        logger.info("  Iniciando pipeline de envio pos-confirmacao...")
 
                 # --- Stage: dry-run ---
                 if self.dry_run:
@@ -1939,6 +1999,10 @@ Exemplos:
     parser.add_argument("--jitter-seconds", type=int, default=DEFAULT_JITTER_SECONDS, help=f"Jitter maximo entre envios (padrao: {DEFAULT_JITTER_SECONDS})")
     parser.add_argument("--confirm-live-send", action="store_true", help="Confirma envio real no modo auto (obrigatorio para auto)")
     parser.add_argument("--manual-confirm-timeout-seconds", type=int, default=None, help="Timeout em segundos para confirmacao manual no modo semi")
+    parser.add_argument("--semi-confirm-token", type=str, default=None,
+                        dest="semi_confirm_token",
+                        help="Token explícito para confirmacao agente no modo semi (formato: CONFIRMAR-XXXX-runid). "
+                             "Exige --limit=1. Incompatível com auto e --confirm-live-send.")
     parser.add_argument("--verify-only", action="store_true", help="Apenas verifica duplicidade, nao envia")
     parser.add_argument("--nicho", "--niche", type=str, default=None, dest="nicho",
                         help=f"Nicho/categoria de leads (padrao: {DEFAULT_NICHO})")
