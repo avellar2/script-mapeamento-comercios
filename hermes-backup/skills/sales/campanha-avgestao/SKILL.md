@@ -230,6 +230,37 @@ O `mapear_comercios.py` (linha 945) usa `p.chromium.launch(headless=False, args=
 ### ⚠️ Perfil .whatsapp_business_profile corrompido
 Quando processos do Chrome são mortos na força bruta (`kill -9`, `taskkill /F`), o perfil `.whatsapp_business_profile/` pode ficar com `lockfile` travado. Sintomas: script de envio ou captura abre Chrome e ele fecha na hora. **Solução:** deletar a pasta `.whatsapp_business_profile/` e recriá-la vazia. Isso resolve o lockfile, mas o Vanderson precisará logar no WhatsApp Web novamente na próxima execução de envio.
 
+### ⚠️ Perfil .whatsapp_business_profile deslogado (sessão expirada)
+O perfil `.whatsapp_business_profile` pode perder a sessão do WhatsApp Web mesmo sem corromper. Sintoma: ao abrir `web.whatsapp.com` com o perfil, aparece **QR Code** em vez da lista de conversas. Quando a sessão expira, o fluxo `semi` falha em `wa_me_falha` porque `wa.me` redireciona para o QR Code, não para o chat, e o campo de mensagem nunca aparece (timeout 45s).
+
+**Diagnóstico rápido (sem envio):** abrir `web.whatsapp.com` com o perfil via Playwright e verificar se aparece `canvas` ou texto "escaneie". Se aparecer, a sessão expirou — Vanderson precisa escanear o QR Code com `python abrir_whatsapp.py` antes de qualquer teste de envio.
+
+### ⚠️ wa.me é frágil — usar web.whatsapp.com/send direto (commits `71e45d5` → `e37a4c0` → `5dd93cb`)
+O caminho via `wa.me/<phone>?text=...` tem múltiplas falhas validadas em 7 runs de teste (hermes001–hermes007):
+1. **Tela intermediária** — mostra "Continuar para o WhatsApp Web" que precisa ser clicado
+2. **Redirecionamento incompleto** — após clicar em "Continuar", cai em `api.whatsapp.com/send/` sem abrir o chat
+3. **Timeout insuficiente** — o wa.me demora 27s só pra carregar a tela intermediária (45s original estourava; 120s ainda não resolvia o redirect)
+4. **Sessão expirada** — se o perfil sender estiver deslogado, redireciona para QR Code
+
+**Solução definitiva (commit `e37a4c0`):** usar URL direta do WhatsApp Web:
+```
+https://web.whatsapp.com/send?phone=<telefone>&text=<mensagem_url_encoded>&type=phone_number&app_absent=0
+```
+Isso elimina tela intermediária, redirecionamento e dependência do wa.me.
+
+### ⚠️ Falso positivo de "número inválido" (commit `5dd93cb`)
+A lista `_WA_ME_INVALID_PHONE_TEXTS` continha `"número"` como termo de detecção. Essa palavra aparece em qualquer página do WhatsApp em português (ex: "Conversar com +55 21 3966-3966"), causando falso positivo que bloqueia envios válidos. **Solução:** usar termos específicos como `"número inválido"`, `"invalid phone number"` em vez de `"número"` isolado.
+
+### ⚠️ Fluxo semi com token — validado end-to-end (julho 2026, HEAD `5dd93cb`)
+O modo `semi` com `--semi-confirm-token` foi validado em 7 runs (hermes001–hermes007). A run hermes007 conseguiu o **primeiro envio real com sucesso** (~40s total). Ver detalhes completos, commits e pitfalls em `references/whatsapp-semi-sender-validation.md`.
+
+### ⚠️ Ambos os perfis Playwright precisam estar logados (matcher + sender)
+O fluxo `semi` usa **dois perfis** do Playwright: `profiles/whatsapp_match` (verificação de duplicidade) e `.whatsapp_business_profile` (envio). Se **qualquer um** estiver deslogado (QR Code), o fluxo falha:
+- Matcher deslogado → `verification_error` (campo de busca não encontrado)
+- Sender deslogado → `wa_me_falha` (timeout 45s após wa.me redirecionar para QR Code)
+
+**Antes de qualquer teste `semi`:** verificar se ambos os perfis estão logados. Ver procedimento de diagnóstico e re-login em `references/whatsapp-semi-sender-validation.md`. O `abrir_whatsapp.py` só loga o sender — o matcher precisa ser logado manualmente via Playwright.
+
 ### Auditoria obrigatória antes de qualquer envio (seção 24 do manual)
 Antes de executar `enviar_assistencias_hoje.py` ou importar leads no Supabase, apresentar relatório respondendo:
 
@@ -342,7 +373,8 @@ python enviar_assistencias_hoje.py
 - Passo 4 roda todo dia que tiver lead pendente no Supabase
 
 ## Scripts
-- `enviar_assistencias_hoje.py` — **script PREFERIDO** para envio automático
+- `campanha_whatsapp.py` — **NOVO ENTRYPOINT** unificado: plan, semi, verify-only, recover-reserved (veja seção dedicada abaixo)
+- `enviar_assistencias_hoje.py` — script antigo de envio automático (legado)
 - `enviar_auto_avgestao.py` — script antigo (causou duplicatas, evitar)
 - `executar_campanha_avgestao.py` — orquestrador de captura (NUNCA envia WhatsApp)
 - `mapear_comercios.py` — captador de leads do Google Maps
@@ -394,3 +426,4 @@ Quer que eu crie um acesso pra você testar gratuitamente?"
 - `references/mensagens-completas.md` — texto integral de todas as mensagens aprovadas (abordagem + follow-ups por nicho)
 - `references/caso-eduardo-cell-resposta-preco.md` — caso real: lead de assistência técnica respondeu perguntando preço, resposta enviada e lições
 - `references/captador-avgestao-manual.md` — manual completo do captador geográfico v1 (orquestrador, run IDs, checkpoint, resume, dedup, limites, CAPTCHA, escalonamento, comandos)
+- `references/whatsapp-semi-sender-validation.md` — validação completa do fluxo semi com token (hermes001–hermes007), commits, pitfalls, checklist pré-teste

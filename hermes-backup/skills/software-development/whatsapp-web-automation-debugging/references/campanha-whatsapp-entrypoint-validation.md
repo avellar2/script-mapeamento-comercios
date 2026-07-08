@@ -38,8 +38,8 @@ fazer_match_completo() got an unexpected keyword argument 'verification_budget'
 ```
 Locator.count: 'NoneType' object has no attribute 'send'
 ```
-**Cause:** The `page` object passed to the matcher is `None`. The browser context was not initialized or was closed before the matcher runs.
-**Fix:** Ensure the browser context lifecycle in `campanha_whatsapp.py` creates and passes a valid `page` to `fazer_match_completo()`.
+**Cause:** The `page` object passed to the matcher is `None`. The browser context was not initialized or was closed before the matcher runs. The error appears in `_fechar_modal()` → `Locator.count()` and also in `capturar_diagnostico()` → `Page.screenshot()` / `Page.content()`.
+**Fix:** Ensure the browser context lifecycle in `campanha_whatsapp.py` creates and passes a valid `page` to `fazer_match_completo()`. The context must be alive when the matcher runs.
 
 ## Known defect: --dry-run skips verification
 
@@ -55,3 +55,13 @@ Locator.count: 'NoneType' object has no attribute 'send'
 | auto (send) | LockWhatsAppSender | .whatsapp_business_profile |
 
 Never open `.whatsapp_business_profile` or acquire `LockWhatsAppSender` in verify-only or plan mode.
+
+## Known defect: wa.me intermediate screen (commit `71e45d5`)
+
+`wa.me/<phone>?text=...` shows a landing page with "Continuar para o WhatsApp Web" before redirecting to the chat. Old code waited for `div[contenteditable]` directly after `page.goto()` — the element doesn't exist on the landing page, causing `wa_me_falha`. The fix detects and clicks the "Continuar" button, then waits for the message field on `web.whatsapp.com`.
+
+**Critical:** If `.whatsapp_business_profile` session is expired (QR code), the "Continuar" redirect lands on the QR page, not the chat. The 45s timeout fires. Always verify sender session before semi tests. See `references/wa-me-intermediate-screen.md` for full details.
+
+## Known defect: token-based confirmation (commit `fb687e0`)
+
+`--semi-confirm-token "CONFIRMAR-<last4>-<run_id_curto>"` enables non-interactive confirmation. Token format: `CONFIRMAR-3966-hermes002` where `3966` = last 4 digits from `plan` output and `hermes002` = short run ID. The token is not a secret. See `references/wa-me-intermediate-screen.md` for details.

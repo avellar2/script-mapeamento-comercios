@@ -616,6 +616,24 @@ Quando leads retornam `modal_blocked` em um run, eles podem ser reprocessados in
 - **Resultados de validação** → `references/matcher-validation-results.md` — controle positivo TECM (13.74s MATCHED), dry-run 10 leads, análise de tempos por etapa, comparação de falhas
 - **Browser lifecycle** → `references/browser-lifecycle.md` — testes do ciclo de vida do navegador, função `limpar_campo_busca`, padrão de reuso de página
 
+## Envio via web.whatsapp.com/send (sem wa.me)
+
+**Aprendizado validado em julho 2026 (7 runs hermes001–hermes007):** o caminho via `wa.me/<phone>?text=...` é frágil e NÃO deve ser usado para envio automatizado. Falhas comprovadas:
+
+1. **Tela intermediária** — wa.me mostra "Continuar para o WhatsApp Web" que precisa ser clicado
+2. **Redirecionamento incompleto** — após clicar, cai em `api.whatsapp.com/send/` sem abrir o chat
+3. **Timeout insuficiente** — wa.me demora 27s só pra carregar a tela intermediária; 45s estoura, 120s ainda não resolve o redirect
+4. **Sessão expirada** — se o perfil sender estiver deslogado, redireciona para QR Code
+
+**URL correta para envio (commit `e37a4c0`):**
+```
+https://web.whatsapp.com/send?phone=<telefone>&text=<mensagem_url_encoded>&type=phone_number&app_absent=0
+```
+
+Vantagens: sem tela intermediária, sem redirect, campo de mensagem aparece em ~10s, funciona com perfil sender logado. Validada end-to-end em hermes007 com envio real confirmado.
+
+**PITFALL — falso positivo de "número inválido" (commit `5dd93cb`):** a lista `_WA_ME_INVALID_PHONE_TEXTS` não deve conter `"número"` isolado — essa palavra aparece em qualquer página do WhatsApp em português (ex: "Conversar com +55 21 3966-3966"). Usar apenas termos específicos: `"número inválido"`, `"número de telefone inválido"`, `"invalid phone number"`, `"does not exist"`.
+
 ## Regras absolutas
 
 - NUNCA enviar mensagens

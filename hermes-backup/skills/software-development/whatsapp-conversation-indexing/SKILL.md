@@ -107,6 +107,12 @@ These are structural layout drawers that persist regardless of whether the conta
 
 **Correct close confirmation:** Check that `[data-testid="chat-info-drawer"]` count is 0, NOT that `[data-testid*="drawer" i]` is absent.
 
+**Opening the panel:** Click `[data-testid="conversation-info-header"]` (a `div[role="button"]` inside `header[data-testid="conversation-header"]`). Panel appears within ~500-800ms.
+
+**Close button:** `button[aria-label="Fechar"]` (pt-BR locale). Panel is removed from DOM within 100ms of clicking — no animation delay.
+
+**Chat switch verification:** Use `aria-selected="true"` on the chat list row and `[data-testid="conversation-info-header-chat-title"]` in `#main` to confirm the active chat changed.
+
 ## Campaign detection
 - Detect outbound messages first.
 - Check campaign anchors / fingerprint next.
