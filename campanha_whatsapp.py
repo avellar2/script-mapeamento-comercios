@@ -2178,18 +2178,29 @@ class CampanhaWhatsApp:
 
     def reconcile_outreach(self, run_id: str, outcome: str | None = None,
                            reason: str | None = None, campaign_key: str | None = None,
-                           phone: str | None = None) -> int:
+                           phone: str | None = None, apply: bool = False,
+                           confirm_lead_id: str | None = None,
+                           confirm_outreach_id: str | None = None) -> int:
         """Diagnostico + auditoria de falso positivo de envio (run marcado 'sent'
         indevidamente, ex.: modal "Sua mensagem nao foi enviada" no WhatsApp Web).
 
-        NAO executa envio real. NAO muta o banco:
+        Modo READ-ONLY (padrao):
           - 'sent' e terminal na maquina de estados (outreach_transition_allowed),
             entao NAO existe RPC para reverter sent -> failed/needs_reconciliation.
           - O indice unico uq_lead_outreach_active bloqueia nova reserva enquanto a
             linha 'sent' existe.
-        Por isso este comando e READ-ONLY em relacao ao banco: reporta o estado
-        atual, grava um JSON de auditoria LOCAL (preserva evidencia) e imprime o
-        SQL manual que o operador deve rodar para reverter com seguranca.
+          - Reporta o estado atual, grava JSON de auditoria LOCAL e imprime SQL manual.
+
+        Modo --apply (reversao guardada):
+          - Exige --confirm-lead-id e --confirm-outreach-id que batam exatamente com
+            o lead/outreach encontrado.
+          - Valida que lead_outreach.status == 'sent', leads.status == 'abordado' e
+            lead_interactions.mensagem e null/vazio.
+          - Grava auditoria ANTES da alteracao.
+          - Executa exatamente 2 UPDATEs com WHERE de seguranca (status + id).
+          - Verifica que exatamente 1 linha foi alterada em cada UPDATE.
+          - Grava auditoria DEPOIS da alteracao.
+          - NAO apaga linhas, NAO cria interacao, NAO reenvia mensagem.
         """
         campaign_key = campaign_key or self.campaign_key or PRIMEIRO_CONTATO_V1
 
@@ -2287,16 +2298,25 @@ class CampanhaWhatsApp:
             print(f"  Reason: {reason}")
         if phone:
             print(f"  Telefone (mascarado): {_mask_tel(normalizar_telefone_br(phone) or phone)}")
-        print("  Modo: READ-ONLY (diagnostico + auditoria; NAO muta o banco).")
+        if apply:
+            print("  Modo: APPLY (reversao guardada; valida antes de mutar o banco).")
+        else:
+            print("  Modo: READ-ONLY (diagnostico + auditoria; NAO muta o banco).")
         if not client:
             print("  [AVISO] Cliente Supabase indisponivel - diagnostico limitado ao")
             print("           checkpoint local. SQL manual abaixo ainda e valido.")
+            if apply:
+                logger.error("  ABORTADO: --apply exige cliente Supabase disponivel.")
+                return 3
         print("-" * 60)
 
         if not findings:
             print("  Nenhum registro encontrado para o run/telefone informado.")
             if not lead_ids:
                 print("  (Checkpoint do run nao contem leads; use --phone para apontar o lead.)")
+            if apply:
+                logger.error("  ABORTADO: --apply requer ao menos um registro encontrado.")
+                return 4
         for f in findings:
             lo = f["lead_outreach"]
             ld = f["lead"] or {}
@@ -2309,7 +2329,13 @@ class CampanhaWhatsApp:
             print(f"    interacoes registradas: {len(f['interactions'])}")
         print("=" * 60)
 
-        # ---- Auditoria local (preserva evidencia, nao muta DB) ----
+        # ---- Auditoria local (preserva evidencia) ----
+        audit_note = ("READ-ONLY. 'sent' e terminal na maquina de estados; o indice unico "
+                      "bloqueia nova abordagem enquanto a linha 'sent' existe. Use o SQL "
+                      "manual impresso para reverter com seguranca.")
+        if apply:
+            audit_note = ("APPLY mode: reversao guardada executada. Veja before/after "
+                          "nos JSONs de auditoria.")
         audit = {
             "run_id": run_id,
             "generated_at": datetime.now(FUSO).isoformat(),
@@ -2319,56 +2345,260 @@ class CampanhaWhatsApp:
             "phone_normalized": (normalizar_telefone_br(phone) if phone else None),
             "checkpoint_resumo": cp.get_resumo(),
             "findings": findings,
-            "note": ("READ-ONLY. 'sent' e terminal na maquina de estados; o indice unico "
-                     "bloqueia nova abordagem enquanto a linha 'sent' existe. Use o SQL "
-                     "manual impresso para reverter com seguranca."),
+            "apply": apply,
+            "note": audit_note,
         }
         audit_dir = Path(_root) / "output" / "avgestao" / "reconcile"
         audit_dir.mkdir(parents=True, exist_ok=True)
         ts_stamp = datetime.now(FUSO).strftime("%Y%m%d_%H%M%S")
-        audit_path = audit_dir / f"{run_id}_{ts_stamp}.json"
-        try:
-            audit_path.write_text(json.dumps(audit, ensure_ascii=False, indent=2),
-                                   encoding="utf-8")
-            print(f"  Auditoria local gravada: {audit_path}")
-        except Exception as e:
-            logger.warning("  Falha ao gravar auditoria local: %s", e)
 
-        # ---- SQL manual para reverter (nao executado) ----
-        print("\n  SQL MANUAL PARA REVERTER (NAO executado por este comando):")
-        print("  ATENCAO: 'sent' e terminal. O indice unico bloqueia nova abordagem.")
-        print("  Rode manualmente, com backup, dentro de uma transacao:")
-        print()
-        if findings:
-            for f in findings:
-                lo = f["lead_outreach"]
-                if lo.get("status") != "sent":
-                    continue
-                ec = "revert_false_positive"
-                if reason:
-                    ec = f"revert_false_positive_{reason}"[:80]
+        if not apply:
+            # ---- Modo READ-ONLY: grava auditoria + imprime SQL manual ----
+            audit_path = audit_dir / f"{run_id}_{ts_stamp}.json"
+            try:
+                audit_path.write_text(json.dumps(audit, ensure_ascii=False, indent=2),
+                                       encoding="utf-8")
+                print(f"  Auditoria local gravada: {audit_path}")
+            except Exception as e:
+                logger.warning("  Falha ao gravar auditoria local: %s", e)
+
+            print("\n  SQL MANUAL PARA REVERTER (NAO executado por este comando):")
+            print("  ATENCAO: 'sent' e terminal. O indice unico bloqueia nova abordagem.")
+            print("  Rode manualmente, com backup, dentro de uma transacao:")
+            print()
+            if findings:
+                for f in findings:
+                    lo = f["lead_outreach"]
+                    if lo.get("status") != "sent":
+                        continue
+                    ec = "revert_false_positive"
+                    if reason:
+                        ec = f"revert_false_positive_{reason}"[:80]
+                    print("  BEGIN;")
+                    print(f"  UPDATE public.lead_outreach SET status='failed', "
+                          f"error_code='{ec}', updated_at=now() WHERE id='{lo.get('id')}';")
+                    print(f"  UPDATE public.leads SET status='pronto_para_enviar', "
+                          f"updated_at=now() WHERE id='{lo.get('lead_id')}';")
+                    print("  COMMIT;")
+                    print(f"  -- lead_outreach.id={lo.get('id')} "
+                          f"(lead_id={lo.get('lead_id')}, phone={_mask_tel(lo.get('phone_normalized'))})")
+                    print()
+            else:
+                print("  -- Nenhum registro 'sent' encontrado para gerar SQL automatico.")
+                print("  -- Template (substitua <LEAD_OUTREACH_ID> e <LEAD_ID>):")
                 print("  BEGIN;")
-                print(f"  UPDATE public.lead_outreach SET status='failed', "
-                      f"error_code='{ec}', updated_at=now() WHERE id='{lo.get('id')}';")
-                print(f"  UPDATE public.leads SET status='pronto_para_enviar', "
-                      f"updated_at=now() WHERE id='{lo.get('lead_id')}';")
+                print("  UPDATE public.lead_outreach SET status='failed', "
+                      "error_code='revert_false_positive', updated_at=now() "
+                      "WHERE id='<LEAD_OUTREACH_ID>';")
+                print("  UPDATE public.leads SET status='pronto_para_enviar', "
+                      "updated_at=now() WHERE id='<LEAD_ID>';")
                 print("  COMMIT;")
-                print(f"  -- lead_outreach.id={lo.get('id')} "
-                      f"(lead_id={lo.get('lead_id')}, phone={_mask_tel(lo.get('phone_normalized'))})")
-                print()
-        else:
-            print("  -- Nenhum registro 'sent' encontrado para gerar SQL automatico.")
-            print("  -- Template (substitua <LEAD_OUTREACH_ID> e <LEAD_ID>):")
-            print("  BEGIN;")
-            print("  UPDATE public.lead_outreach SET status='failed', "
-                  "error_code='revert_false_positive', updated_at=now() "
-                  "WHERE id='<LEAD_OUTREACH_ID>';")
-            print("  UPDATE public.leads SET status='pronto_para_enviar', "
-                  "updated_at=now() WHERE id='<LEAD_ID>';")
-            print("  COMMIT;")
-        print("  (Motivo registrado em lead_outreach.error_code e no JSON de auditoria.")
-        print("   Nao ha insercao em lead_interactions para evitar duplicar interacao;")
-        print("   o historico original e preservado.)")
+            print("  (Motivo registrado em lead_outreach.error_code e no JSON de auditoria.")
+            print("   Nao ha insercao em lead_interactions para evitar duplicar interacao;")
+            print("   o historico original e preservado.)")
+            print("=" * 60)
+            return 0
+
+        # ================================================================
+        # MODO --apply: reversao guardada com validacoes
+        # ================================================================
+        # Validacoes obrigatorias (qualquer falha = abort sem mutar o banco):
+        # 1. --confirm-lead-id e --confirm-outreach-id foram passados
+        # 2. IDs batem com o lead/outreach encontrado
+        # 3. --run-id bate com o checkpoint
+        # 4. --phone bate com o telefone do lead
+        # 5. lead_outreach.status == 'sent'
+        # 6. leads.status == 'abordado'
+        # 7. lead_interactions.mensagem e null/vazio (sem evidencia de envio real)
+        # 8. Exatamente 1 finding com status 'sent'
+        # ================================================================
+        print("\n  VALIDACAO --apply:")
+        errors: list[str] = []
+
+        # (1) confirm IDs obrigatórios
+        if not confirm_lead_id:
+            errors.append("--confirm-lead-id e obrigatorio para --apply.")
+        if not confirm_outreach_id:
+            errors.append("--confirm-outreach-id e obrigatorio para --apply.")
+
+        # Filtrar findings com status 'sent'
+        sent_findings = [f for f in findings if f["lead_outreach"].get("status") == "sent"]
+
+        # (8) exatamente 1 finding sent
+        if len(sent_findings) == 0:
+            errors.append("Nenhum registro com lead_outreach.status='sent' encontrado.")
+        elif len(sent_findings) > 1:
+            errors.append(f"Esperado exatamente 1 registro 'sent', encontrados {len(sent_findings)}.")
+
+        if errors:
+            for e in errors:
+                print(f"  [FALHA] {e}")
+            print("  ABORTADO: validacao falhou. Nenhuma alteracao foi feita no banco.")
+            print("=" * 60)
+            return 5
+
+        target = sent_findings[0]
+        lo = target["lead_outreach"]
+        ld = target["lead"] or {}
+
+        # (2) IDs batem
+        if confirm_lead_id != lo.get("lead_id"):
+            errors.append(f"--confirm-lead-id '{confirm_lead_id}' diverge do encontrado "
+                          f"'{lo.get('lead_id')}'.")
+        if confirm_outreach_id != lo.get("id"):
+            errors.append(f"--confirm-outreach-id '{confirm_outreach_id}' diverge do encontrado "
+                          f"'{lo.get('id')}'.")
+
+        # (4) phone bate
+        if phone:
+            tel_norm = normalizar_telefone_br(phone) or phone
+            lo_phone = lo.get("phone_normalized", "")
+            if tel_norm != lo_phone:
+                errors.append(f"--phone '{_mask_tel(tel_norm)}' diverge do telefone do lead "
+                              f"'{_mask_tel(lo_phone)}'.")
+
+        # (5) status sent (ja filtrado, mas confirmar)
+        if lo.get("status") != "sent":
+            errors.append(f"lead_outreach.status='{lo.get('status')}', esperado 'sent'.")
+
+        # (6) leads.status abordado
+        if ld.get("status") != "abordado":
+            errors.append(f"leads.status='{ld.get('status')}', esperado 'abordado'.")
+
+        # (7) lead_interactions.mensagem null/vazio
+        has_msg = False
+        for inter in target.get("interactions", []):
+            msg = inter.get("mensagem") or inter.get("observacao") or ""
+            if msg.strip():
+                has_msg = True
+                break
+        if has_msg:
+            errors.append("lead_interactions contem mensagem preenchida (evidencia de envio real). "
+                          "Reversao abortada.")
+
+        if errors:
+            for e in errors:
+                print(f"  [FALHA] {e}")
+            print("  ABORTADO: validacao falhou. Nenhuma alteracao foi feita no banco.")
+            print("=" * 60)
+            return 5
+
+        print("  Todas as validacoes passaram.")
+
+        # ---- Auditoria ANTES da alteracao ----
+        before_path = audit_dir / f"{run_id}_{ts_stamp}_before.json"
+        audit["phase"] = "before_apply"
+        try:
+            before_path.write_text(json.dumps(audit, ensure_ascii=False, indent=2),
+                                    encoding="utf-8")
+            print(f"  Auditoria BEFORE gravada: {before_path}")
+        except Exception as e:
+            logger.warning("  Falha ao gravar auditoria before: %s", e)
+
+        # ---- Executar 2 UPDATEs com WHERE de seguranca ----
+        ec = "revert_false_positive"
+        if reason:
+            ec = f"revert_false_positive_{reason}"[:80]
+
+        print("\n  EXECUTANDO REVERSAO:")
+        print(f"    lead_outreach.id={lo.get('id')}  -> failed (error_code={ec})")
+        print(f"    leads.id={lo.get('lead_id')}  -> pronto_para_enviar")
+
+        try:
+            r_out = client.table("lead_outreach").update({
+                "status": "failed",
+                "error_code": ec,
+                "updated_at": datetime.now(FUSO).isoformat(),
+            }).eq("id", lo["id"]).eq("status", "sent").execute()
+        except Exception as e:
+            logger.error("  ERRO CRITICO ao atualizar lead_outreach: %s", e)
+            print("  ABORTADO: erro ao atualizar lead_outreach. Verificar estado do banco.")
+            print("=" * 60)
+            return 6
+
+        try:
+            r_lead = client.table("leads").update({
+                "status": "pronto_para_enviar",
+                "updated_at": datetime.now(FUSO).isoformat(),
+            }).eq("id", lo["lead_id"]).eq("status", "abordado").execute()
+        except Exception as e:
+            logger.error("  ERRO CRITICO ao atualizar leads: %s", e)
+            print("  ABORTADO: erro ao atualizar leads. lead_outreach JA foi alterado!")
+            print("  Verificar estado do banco manualmente.")
+            print("=" * 60)
+            return 6
+
+        # Verificar que exatamente 1 linha foi alterada em cada UPDATE
+        out_count = len(r_out.data) if r_out.data else 0
+        lead_count = len(r_lead.data) if r_lead.data else 0
+
+        if out_count != 1:
+            logger.error("  ERRO CRITICO: lead_outreach UPDATE afetou %d linhas (esperado 1).",
+                         out_count)
+            print(f"  [ERRO CRITICO] lead_outreach: {out_count} linhas afetadas (esperado 1).")
+        if lead_count != 1:
+            logger.error("  ERRO CRITICO: leads UPDATE afetou %d linhas (esperado 1).",
+                         lead_count)
+            print(f"  [ERRO CRITICO] leads: {lead_count} linhas afetadas (esperado 1).")
+
+        if out_count != 1 or lead_count != 1:
+            print("  ABORTADO: contagem de linhas inesperada. Verificar estado do banco.")
+            print("=" * 60)
+            return 6
+
+        print("  2 UPDATEs executados com sucesso (1 linha cada).")
+
+        # ---- Consultar estado pos-alteracao para confirmar ----
+        print("\n  CONFIRMANDO NOVO ESTADO:")
+        try:
+            new_out = client.table("lead_outreach").select(
+                "id,status,error_code,updated_at"
+            ).eq("id", lo["id"]).limit(1).execute()
+            new_ld = client.table("leads").select(
+                "id,status,updated_at"
+            ).eq("id", lo["lead_id"]).limit(1).execute()
+
+            new_out_data = (new_out.data or [{}])[0]
+            new_ld_data = (new_ld.data or [{}])[0]
+            print(f"    lead_outreach.status = {new_out_data.get('status')}")
+            print(f"    lead_outreach.error_code = {new_out_data.get('error_code')}")
+            print(f"    leads.status = {new_ld_data.get('status')}")
+
+            if new_out_data.get("status") != "failed" or new_ld_data.get("status") != "pronto_para_enviar":
+                logger.error("  Estado pos-alteracao inesperado!")
+                print("  [ERRO] Estado pos-alteracao nao e o esperado. Verificar manualmente.")
+        except Exception as e:
+            logger.warning("  Falha ao consultar estado pos-alteracao: %s", e)
+            print("  [AVISO] Nao foi possivel confirmar o novo estado. Verifique manualmente.")
+
+        # ---- Auditoria DEPOIS da alteracao ----
+        after_audit = {
+            "run_id": run_id,
+            "generated_at": datetime.now(FUSO).isoformat(),
+            "campaign_key": campaign_key,
+            "outcome": outcome,
+            "reason": reason,
+            "phone_normalized": (normalizar_telefone_br(phone) if phone else None),
+            "apply": True,
+            "phase": "after_apply",
+            "updates": {
+                "lead_outreach": {"id": lo["id"], "rows_affected": out_count},
+                "leads": {"id": lo["lead_id"], "rows_affected": lead_count},
+            },
+            "before_audit_path": str(before_path),
+            "note": "APPLY mode: reversao guardada executada com sucesso.",
+        }
+        after_path = audit_dir / f"{run_id}_{ts_stamp}_after.json"
+        try:
+            after_path.write_text(json.dumps(after_audit, ensure_ascii=False, indent=2),
+                                   encoding="utf-8")
+            print(f"\n  Auditoria AFTER gravada: {after_path}")
+        except Exception as e:
+            logger.warning("  Falha ao gravar auditoria after: %s", e)
+
+        print("\n  Reversao guardada concluida com sucesso.")
+        print("  Nenhuma interacao foi criada em lead_interactions.")
+        print("  Nenhuma mensagem foi reenviada.")
         print("=" * 60)
         return 0
 
@@ -2649,6 +2879,12 @@ Exemplos:
                         help="Motivo a registrar na auditoria (modo reconcile-outreach), ex.: whatsapp_message_not_sent_modal")
     parser.add_argument("--phone", type=str, default=None,
                         help="Telefone do lead para reconciliacao (modo reconcile-outreach)")
+    parser.add_argument("--apply", action="store_true", default=False,
+                        help="Aplica a reversao no banco (modo reconcile-outreach); exige --confirm-lead-id e --confirm-outreach-id")
+    parser.add_argument("--confirm-lead-id", type=str, default=None,
+                        help="Confirma lead_id alvo para --apply (modo reconcile-outreach)")
+    parser.add_argument("--confirm-outreach-id", type=str, default=None,
+                        help="Confirma lead_outreach.id alvo para --apply (modo reconcile-outreach)")
     parser.add_argument("--from-zip", type=str, default=None,
                         help="Caminho para ZIP/XLSX de leads (modo import-leads)")
     parser.add_argument("--produto", type=str, default="avgestao",
@@ -2733,6 +2969,9 @@ def main(argv: list[str] | None = None) -> int:
             reason=getattr(args, "reason", None),
             campaign_key=args.campaign_key or PRIMEIRO_CONTATO_V1,
             phone=getattr(args, "phone", None),
+            apply=getattr(args, "apply", False),
+            confirm_lead_id=getattr(args, "confirm_lead_id", None),
+            confirm_outreach_id=getattr(args, "confirm_outreach_id", None),
         )
 
     if args.mode == "semi" and args.dry_run:
