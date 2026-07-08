@@ -281,28 +281,147 @@ class MessageSender:
     """Envia mensagens via wa.me."""
 
     @staticmethod
-    def gerar_link_wa_me(telefone: str, mensagem: str) -> str:
-        return f"https://wa.me/{telefone}?text={quote(mensagem)}"
+    def gerar_link_wa_me(telephone: str, mensagem: str) -> str:
+        return f"https://wa.me/{telephone}?text={quote(mensagem)}"
+
+    # Seletores para tela intermediária do wa.me (botão "Continuar para WhatsApp Web")
+    _WA_ME_CONTINUE_SELECTORS = (
+        'a[href*="wa.me"]',
+        'a[href*="whatsapp"]',
+        'a[role="button"]',
+        'div[role="button"]',
+        'button',
+    )
+    # Textos aceitos no botão "Continuar para WhatsApp Web" / "Continue to Chat"
+    _WA_ME_CONTINUE_TEXTS = (
+        "continuar para o whatsapp web",
+        "continue to chat",
+        "continue to whatsapp",
+        "continue to whatsapp web",
+        "abrir o whatsapp web",
+        "open whatsapp web",
+    )
+    # Textos de erro de número inválido no wa.me
+    _WA_ME_INVALID_PHONE_TEXTS = (
+        "número de telefone",
+        "phone number",
+        "invalid phone",
+        "número inválido",
+        "invalid number",
+        "não existe",
+        "does not exist",
+        "número",
+    )
+
+    @staticmethod
+    async def _procurar_e_clicar_continuar_wa_me(page, timeout_ms: int = 8000) -> bool:
+        """Procura e clica no botão 'Continuar para WhatsApp Web' se aparecer.
+
+        Retorna True se clicou, False se não encontrou o botão.
+        Não dá erro se não encontrar — apenas retorna False.
+        """
+        for sel in MessageSender._WA_ME_CONTINUE_SELECTORS:
+            try:
+                locator = page.locator(sel)
+                count = await locator.count()
+                if count == 0:
+                    continue
+                for i in range(count):
+                    el = locator.nth(i)
+                    try:
+                        texto = (await el.inner_text(timeout=2000) or "").lower().strip()
+                        href = (await el.get_attribute("href", timeout=1000) or "").lower()
+                        if any(t in texto or t in href for t in MessageSender._WA_ME_CONTINUE_TEXTS):
+                            logger.info("  wa.me: cliclando em '%s'", texto[:60] or href[:60])
+                            await el.click(timeout=5000)
+                            return True
+                    except Exception:
+                        continue
+            except Exception:
+                continue
+        return False
+
+    @staticmethod
+    async def _detectar_tela_invalida(page, timeout_ms: int = 5000) -> bool:
+        """Detecta telas de erro do wa.me (número inválido, não existe, etc).
+
+        Retorna True se detectou mensagem de erro, False caso contrário.
+        """
+        # Procura no body todo por textos de erro
+        error_selectors = [
+            'body',
+            '[role="main"]',
+            'main',
+            'div[style*="center"]',
+        ]
+        for sel in error_selectors:
+            try:
+                el = page.locator(sel).first
+                texto = (await el.inner_text(timeout=timeout_ms) or "").lower()
+                if any(err in texto for err in MessageSender._WA_ME_INVALID_PHONE_TEXTS):
+                    logger.warning("  wa.me: detectada tela de numero invalido")
+                    return True
+            except Exception:
+                continue
+        return False
 
     @staticmethod
     async def abrir_wa_me(page, telefone: str, mensagem: str) -> bool:
+        """Abre wa.me, trata tela intermediária se aparecer, retorna True se achou campo de mensagem."""
         link = MessageSender.gerar_link_wa_me(telefone, mensagem)
         try:
             await page.goto(link, wait_until="domcontentloaded", timeout=30000)
-            await page.wait_for_timeout(3000)
+            await page.wait_for_timeout(2000)
+
+            # Etapa 1: Detectar se é número inválido ANTES de qualquer outra coisa
+            if await MessageSender._detectar_tela_invalida(page):
+                logger.warning("  wa.me: numero invalido detectado")
+                return False
+
+            # Etapa 2: Procurar campo de mensagem diretamente
             try:
                 await page.wait_for_selector(
                     'div[contenteditable="true"][data-tab="10"], '
                     'div[contenteditable="true"][title], '
                     'footer div[contenteditable="true"]',
-                    timeout=15000,
+                    timeout=5000,
                 )
+                logger.info("  wa.me: campo de mensagem encontrado (direto)")
                 return True
             except Exception:
-                logger.warning("Campo de mensagem nao encontrado apos wa.me")
+                pass  # Não encontrou direto — pode ser tela intermediária
+
+            # Etapa 3: Tela intermediária — procurar botão "Continuar para WhatsApp Web"
+            logger.info("  wa.me: tela intermediaria detectada, procurando botao de continuacao...")
+            if await MessageSender._procurar_e_clicar_continuar_wa_me(page):
+                logger.info("  wa.me: aguardando redirecionamento para WhatsApp Web...")
+                await page.wait_for_timeout(3000)
+
+                # Verificar se número virou inválido após continuar
+                if await MessageSender._detectar_tela_invalida(page):
+                    logger.warning("  wa.me: numero invalido detectado apos continuar")
+                    return False
+
+                # Etapa 4: Procurar campo de mensagem no WhatsApp Web
+                try:
+                    await page.wait_for_selector(
+                        'div[contenteditable="true"][data-tab="10"], '
+                        'div[contenteditable="true"][title], '
+                        'footer div[contenteditable="true"]',
+                        timeout=15000,
+                    )
+                    logger.info("  wa.me: campo de mensagem encontrado (apos continuar)")
+                    return True
+                except Exception:
+                    logger.warning("  wa.me: campo de mensagem nao encontrado apos continuar")
+                    return False
+            else:
+                # Nao tinha tela intermediária nem campo direto
+                logger.warning("  wa.me: campo de mensagem nao encontrado e nenhum botao de continuacao")
                 return False
+
         except Exception as e:
-            logger.warning("Erro ao abrir wa.me: %s", e)
+            logger.warning("  Erro ao abrir wa.me: %s", e)
             return False
 
     @staticmethod
