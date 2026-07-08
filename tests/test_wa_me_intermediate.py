@@ -469,3 +469,172 @@ def test_continuar_textos_aceitos():
         result = asyncio.run(cw.MessageSender.abrir_wa_me(page, "5511999993966", "Ola!"))
         assert result is True, f"Texto aceito deveria funcionar: {texto}"
         assert page._continue_clicked is True, f"Deveria ter clicado: {texto}"
+
+
+# ============================================================
+# TEST 16: Palavra "número" isolada NÃO é número inválido (falso positivo)
+# ============================================================
+
+def test_palavra_numero_isolada_nao_abilita_falso_positivo():
+    """Página normal em português com 'número' no texto, mas com campo visível,
+    NÃO deve ser classificada como número inválido."""
+    page = MagicMock()
+    page.goto = AsyncMock()
+    page.wait_for_timeout = AsyncMock()
+
+    # Campo visível — simulando página normal
+    page.wait_for_selector = AsyncMock(return_value=True)
+
+    # Body text contém "número" mas é uma página normal do WhatsApp
+    body_mock = MagicMock()
+    body_mock.inner_text = AsyncMock(
+        return_value="WhatsApp Web - conversa com João - número: 219999943966")
+
+    def locator_side_effect(sel):
+        m = MagicMock()
+        if sel in ('div[contenteditable="true"][data-tab="10"]', 'footer div[contenteditable="true"]'):
+            m.count = AsyncMock(return_value=1)
+        else:
+            m.count = AsyncMock(return_value=0)
+            m.first = body_mock
+        return m
+
+    page.locator = locator_side_effect
+
+    result = asyncio.run(cw.MessageSender.abrir_wa_me(page, "5521999993966", "Ola!"))
+
+    # Campo encontrado primeiro, texto genérico ignorado → sucesso
+    assert result is True
+
+
+# ============================================================
+# TEST 17: "phone number" isolado NÃO é número inválido (falso positivo)
+# ============================================================
+
+def test_phone_number_isolado_nao_abilita_falso_positivo():
+    """Página normal em inglês com 'phone number' no texto, mas com campo visível,
+    NÃO deve ser classificada como número inválido."""
+    page = MagicMock()
+    page.goto = AsyncMock()
+    page.wait_for_timeout = AsyncMock()
+
+    # Campo visível
+    page.wait_for_selector = AsyncMock(return_value=True)
+
+    # Body text com "phone number" genérico
+    body_mock = MagicMock()
+    body_mock.inner_text = AsyncMock(
+        return_value="WhatsApp Web - Chat with contact - phone number verified")
+
+    def locator_side_effect(sel):
+        m = MagicMock()
+        if sel in ('div[contenteditable="true"][data-tab="10"]', 'footer div[contenteditable="true"]'):
+            m.count = AsyncMock(return_value=1)
+        else:
+            m.count = AsyncMock(return_value=0)
+            m.first = body_mock
+        return m
+
+    page.locator = locator_side_effect
+
+    result = asyncio.run(cw.MessageSender.abrir_wa_me(page, "5521999993966", "Ola!"))
+
+    assert result is True
+
+
+# ============================================================
+# TEST 18: "número inválido" específico continua detectando
+# ============================================================
+
+def test_frase_especifica_numero_invalido_detectada():
+    """Frase específica 'número inválido' deve ser detectada como número inválido."""
+    page = MagicMock()
+    page.goto = AsyncMock()
+    page.wait_for_timeout = AsyncMock()
+
+    # Campo NÃO aparece
+    page.wait_for_selector = AsyncMock(side_effect=asyncio.TimeoutError())
+
+    # Body com texto específico de erro
+    body_mock = MagicMock()
+    body_mock.inner_text = AsyncMock(return_value="número inválido - não é possível enviar mensagem")
+
+    def locator_side_effect(sel):
+        m = MagicMock()
+        m.count = AsyncMock(return_value=0)
+        m.first = body_mock
+        return m
+
+    page.locator = locator_side_effect
+
+    result = asyncio.run(cw.MessageSender.abrir_wa_me(page, "5500000000000", "Ola!"))
+
+    # Campo não aparece, texto específico de erro detectado → falha segura
+    assert result is False
+
+
+# ============================================================
+# TEST 19: "phone number shared via url is invalid" específico detectado
+# ============================================================
+
+def test_frase_especifica_phone_number_shared_invalid_detectada():
+    """Frase específica 'phone number shared via url is invalid' detectada como número inválido."""
+    page = MagicMock()
+    page.goto = AsyncMock()
+    page.wait_for_timeout = AsyncMock()
+
+    # Campo NÃO aparece
+    page.wait_for_selector = AsyncMock(side_effect=asyncio.TimeoutError())
+
+    # Body com texto específico de erro
+    body_mock = MagicMock()
+    body_mock.inner_text = AsyncMock(
+        return_value="phone number shared via url is invalid. please check the number")
+
+    def locator_side_effect(sel):
+        m = MagicMock()
+        m.count = AsyncMock(return_value=0)
+        m.first = body_mock
+        return m
+
+    page.locator = locator_side_effect
+
+    result = asyncio.run(cw.MessageSender.abrir_wa_me(page, "5500000000000", "Ola!"))
+
+    assert result is False
+
+
+# ============================================================
+# TEST 20: Campo visível + texto específico de erro → campo tem prioridade
+# ============================================================
+
+def test_campo_visivel_tem_prioridade_sobre_erro_generico():
+    """Se campo de mensagem está visível, texto de erro específico é ignorado."""
+    page = MagicMock()
+    page.goto = AsyncMock()
+    page.wait_for_timeout = AsyncMock()
+
+    # Campo visível
+    page.wait_for_selector = AsyncMock(return_value=True)
+
+    body_mock = MagicMock()
+    # Mesmo que o texto contenha "número inválido" no body,
+    # como o campo está visível, deve retornar sucesso
+    body_mock.inner_text = AsyncMock(
+        return_value="WhatsApp - chat - número inválido encontrado mas chat já aberto")
+
+    def locator_side_effect(sel):
+        m = MagicMock()
+        if sel in ('div[contenteditable="true"][data-tab="10"]', 'footer div[contenteditable="true"]'):
+            m.count = AsyncMock(return_value=1)
+        else:
+            m.count = AsyncMock(return_value=0)
+            m.first = body_mock
+        return m
+
+    page.locator = locator_side_effect
+
+    result = asyncio.run(cw.MessageSender.abrir_wa_me(page, "5521999993966", "Ola!"))
+
+    # Campo visível primeiro → sucesso, ignora texto de erro
+    assert result is True

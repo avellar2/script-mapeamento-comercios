@@ -316,16 +316,25 @@ class MessageSender:
         "abrir o whatsapp web",
         "open whatsapp web",
     )
-    # Textos de erro de número inválido no wa.me
+    # Textos de erro de número inválido no wa.me (apenas frases específicas, não termos genéricos)
     _WA_ME_INVALID_PHONE_TEXTS = (
-        "número de telefone",
-        "phone number",
-        "invalid phone",
+        "número de telefone compartilhado por url é inválido",
+        "número de telefone compartilhado via url é inválido",
+        "número de telefone compartilhado",
+        "número de telefone inválido",
         "número inválido",
-        "invalid number",
-        "não existe",
+        "telefone inválido",
+        "invalid phone number",
+        "phone number shared via url is invalid",
+        "phone number shared through url is invalid",
+        "phone number shared is invalid",
+        "invalid phone number",
+        "this phone number is not on whatsapp",
+        "is not on whatsapp",
+        "does not exist on whatsapp",
         "does not exist",
-        "número",
+        "não existe no whatsapp",
+        "não está no whatsapp",
     )
     # Seletores para detectar QR Code / sessão deslogada no WhatsApp Web
     _WA_QR_SELECTORS = (
@@ -470,22 +479,24 @@ class MessageSender:
         # Pequena espera para DOM estabilizar
         await page.wait_for_timeout(3000)
 
-        # 1. Detectar QR Code / sessão deslogada
+        # 1. Detectar QR Code / sessão deslogada (mais prioritário)
         if await MessageSender._detectar_qr_code(page):
             logger.warning("  whatsapp web: sessao deslogada (QR Code) - falha segura")
             return False
 
-        # 2. Detectar número inválido
-        if await MessageSender._detectar_tela_invalida(page):
-            logger.warning("  whatsapp web: numero invalido detectado - falha segura")
-            return False
-
-        # 3. Aguardar campo de mensagem
+        # 2. Tentar encontrar o campo de mensagem primeiro.
+        #    Se aparecer, retorna sucesso IMEDIATAMENTE — prioriza o campo
+        #    sobre qualquer texto genérico que possa existir na página.
         if await MessageSender._aguardar_campo_mensagem(page, timeout_ms=25000):
             logger.info("  whatsapp web: chat aberto via URL direta")
             return True
 
-        # Campo não apareceu - estado inesperado, tenta fallback
+        # 3. Campo não apareceu — verificar se é número inválido
+        if await MessageSender._detectar_tela_invalida(page):
+            logger.warning("  whatsapp web: numero invalido detectado - falha segura")
+            return False
+
+        # 4. Estado inesperado — tenta fallback wa.me
         logger.warning("  whatsapp web: campo de mensagem nao encontrado apos URL direta")
         return None
 
@@ -498,17 +509,17 @@ class MessageSender:
             await page.goto(link, wait_until="domcontentloaded", timeout=30000)
             await page.wait_for_timeout(3000)
 
-            # Detectar número inválido
-            if await MessageSender._detectar_tela_invalida(page):
-                logger.warning("  wa.me (fallback): numero invalido detectado")
-                return False
-
-            # Procurar campo direto
+            # Campo direto: prioridade máxima — se aparecer, sucesso
             if await MessageSender._aguardar_campo_mensagem(page, timeout_ms=8000):
                 logger.info("  wa.me (fallback): campo de mensagem encontrado (direto)")
                 return True
 
-            # Tela intermediária
+            # Campo não apareceu — verificar número inválido antes de tentar intermediária
+            if await MessageSender._detectar_tela_invalida(page):
+                logger.warning("  wa.me (fallback): numero invalido detectado")
+                return False
+
+            # Tela intermediária — procurar botão "Continuar para WhatsApp Web"
             logger.info("  wa.me (fallback): tela intermediaria detectada, procurando botao...")
             if await MessageSender._procurar_e_clicar_continuar_wa_me(page):
                 logger.info("  wa.me (fallback): aguardando redirecionamento para WhatsApp Web...")
