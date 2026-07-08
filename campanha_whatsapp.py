@@ -58,6 +58,8 @@ DEFAULT_JITTER_SECONDS = 0
 DEFAULT_LIMIT = 30
 DEFAULT_NICHO = "assistencias"
 DEFAULT_SUBNICHOS = ["celular", "computadores", "impressoras", "eletrodomesticos", "eletronicos"]
+# Timeout total para abrir wa.me incluindo eventual tela intermediária e redirecionamento
+DEFAULT_WA_ME_OPEN_TIMEOUT_SECONDS = 120
 MATCH_PROFILE = Path("profiles/whatsapp_match")
 SENDER_PROFILE = Path(".whatsapp_business_profile")
 CHECKPOINT_DIR = Path("output/avgestao/campanha_runs")
@@ -371,7 +373,7 @@ class MessageSender:
         link = MessageSender.gerar_link_wa_me(telefone, mensagem)
         try:
             await page.goto(link, wait_until="domcontentloaded", timeout=30000)
-            await page.wait_for_timeout(2000)
+            await page.wait_for_timeout(3000)
 
             # Etapa 1: Detectar se é número inválido ANTES de qualquer outra coisa
             if await MessageSender._detectar_tela_invalida(page):
@@ -384,7 +386,7 @@ class MessageSender:
                     'div[contenteditable="true"][data-tab="10"], '
                     'div[contenteditable="true"][title], '
                     'footer div[contenteditable="true"]',
-                    timeout=5000,
+                    timeout=8000,
                 )
                 logger.info("  wa.me: campo de mensagem encontrado (direto)")
                 return True
@@ -395,7 +397,7 @@ class MessageSender:
             logger.info("  wa.me: tela intermediaria detectada, procurando botao de continuacao...")
             if await MessageSender._procurar_e_clicar_continuar_wa_me(page):
                 logger.info("  wa.me: aguardando redirecionamento para WhatsApp Web...")
-                await page.wait_for_timeout(3000)
+                await page.wait_for_timeout(5000)
 
                 # Verificar se número virou inválido após continuar
                 if await MessageSender._detectar_tela_invalida(page):
@@ -408,7 +410,7 @@ class MessageSender:
                         'div[contenteditable="true"][data-tab="10"], '
                         'div[contenteditable="true"][title], '
                         'footer div[contenteditable="true"]',
-                        timeout=15000,
+                        timeout=20000,
                     )
                     logger.info("  wa.me: campo de mensagem encontrado (apos continuar)")
                     return True
@@ -1528,10 +1530,10 @@ class CampanhaWhatsApp:
                 try:
                     link_ok = await asyncio.wait_for(
                         MessageSender.abrir_wa_me(page, tel_norm, mensagem),
-                        timeout=45,
+                        timeout=DEFAULT_WA_ME_OPEN_TIMEOUT_SECONDS,
                     )
                 except asyncio.TimeoutError:
-                    logger.warning("  Timeout ao abrir wa.me (45s)")
+                    logger.warning("  Timeout ao abrir wa.me (%ds)", DEFAULT_WA_ME_OPEN_TIMEOUT_SECONDS)
                     self.checkpoint.registrar_estagio(lead_id, "wa_me_timeout", send_clicked=False)
                     _failed("wa_me_timeout")
                     self.checkpoint.registrar_falha(lead_id, "wa_me_timeout", "wa_me_timeout")
