@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """
 campanha_whatsapp.py - Entrypoint centralizado para campanhas WhatsApp.
 
@@ -2274,7 +2274,7 @@ class CampanhaWhatsApp:
                         pass
                     try:
                         ir = client.table("lead_interactions").select(
-                            "id,tipo,canal,observacao,created_at"
+                            "id,tipo,canal,mensagem,observacao,created_at"
                         ).eq("lead_id", lid).order("created_at", desc=True).limit(5).execute()
                         inter = ir.data or []
                     except Exception:
@@ -2465,11 +2465,11 @@ class CampanhaWhatsApp:
         if ld.get("status") != "abordado":
             errors.append(f"leads.status='{ld.get('status')}', esperado 'abordado'.")
 
-        # (7) lead_interactions.mensagem null/vazio
+        # (7) lead_interactions.mensagem null/vazio — apenas mensagem conta como evidência
         has_msg = False
         for inter in target.get("interactions", []):
-            msg = inter.get("mensagem") or inter.get("observacao") or ""
-            if msg.strip():
+            msg = inter.get("mensagem")
+            if msg is not None and str(msg).strip():
                 has_msg = True
                 break
         if has_msg:

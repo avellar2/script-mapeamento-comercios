@@ -364,13 +364,14 @@ class TestReconcileOutreachApply:
         out = capsys.readouterr().out
         assert "diverge" in out.lower() or "phone" in out.lower() or "ABORTADO" in out
 
-    def test_apply_com_interactions_com_mensagem_aborta(self, tmp_path, capsys):
-        """(7b) lead_interactions com mensagem preenchida aborta."""
+    def test_apply_com_mensagem_preenchida_aborta(self, tmp_path, capsys):
+        """(7b) lead_interactions com mensagem real preenchida aborta."""
         camp = _build_campaign(tmp_path)
         client = _fake_client(
             status="sent", lead_status="abordado",
             interactions=[{"id": "i1", "tipo": "whatsapp_outbound",
-                           "canal": "whatsapp", "observacao": "Mensagem enviada"}]
+                           "canal": "whatsapp", "mensagem": "Boa tarde, Fabio!",
+                           "observacao": "auto:sent"}]
         )
         rc = _reconcile(camp, tmp_path, client,
                         run_id=RUN_ID, outcome="failed_after_click",
@@ -382,6 +383,94 @@ class TestReconcileOutreachApply:
         assert rc != 0
         out = capsys.readouterr().out
         assert "mensagem" in out.lower() or "evidencia" in out.lower() or "ABORTADO" in out
+
+    def test_apply_observacao_preenchida_mas_mensagem_vazia_nao_aborta(self, tmp_path, capsys):
+        """(7c) observacao preenchida com mensagem=null NAO aborta."""
+        camp = _build_campaign(tmp_path)
+        client = _fake_client(
+            status="sent", lead_status="abordado",
+            interactions=[{"id": "i1", "tipo": "whatsapp_outbound",
+                           "canal": "whatsapp", "mensagem": None,
+                           "observacao": "auto:sent ck=avgestao:assistencias:primeiro_contato:v1"}]
+        )
+        rc = _reconcile(camp, tmp_path, client,
+                        run_id=RUN_ID, outcome="failed_after_click",
+                        reason="whatsapp_message_not_sent_modal",
+                        campaign_key=cw.PRIMEIRO_CONTATO_V1, phone=PHONE,
+                        apply=True,
+                        confirm_lead_id=LEAD_ID,
+                        confirm_outreach_id=OUTREACH_ID)
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "Todas as validacoes passaram" in out
+
+    def test_apply_mensagem_string_vazia_nao_aborta(self, tmp_path, capsys):
+        """(7d) mensagem='' com observacao preenchida NAO aborta."""
+        camp = _build_campaign(tmp_path)
+        client = _fake_client(
+            status="sent", lead_status="abordado",
+            interactions=[{"id": "i1", "tipo": "whatsapp_outbound",
+                           "canal": "whatsapp", "mensagem": "",
+                           "observacao": "Importado de leads_playwright.xlsx"}]
+        )
+        rc = _reconcile(camp, tmp_path, client,
+                        run_id=RUN_ID, outcome="failed_after_click",
+                        reason="whatsapp_message_not_sent_modal",
+                        campaign_key=cw.PRIMEIRO_CONTATO_V1, phone=PHONE,
+                        apply=True,
+                        confirm_lead_id=LEAD_ID,
+                        confirm_outreach_id=OUTREACH_ID)
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "Todas as validacoes passaram" in out
+
+    def test_apply_mensagem_somente_espacos_nao_aborta(self, tmp_path, capsys):
+        """(7e) mensagem='   ' NAO aborta."""
+        camp = _build_campaign(tmp_path)
+        client = _fake_client(
+            status="sent", lead_status="abordado",
+            interactions=[{"id": "i1", "tipo": "whatsapp_outbound",
+                           "canal": "whatsapp", "mensagem": "   ",
+                           "observacao": "alguma obs"}]
+        )
+        rc = _reconcile(camp, tmp_path, client,
+                        run_id=RUN_ID, outcome="failed_after_click",
+                        reason="whatsapp_message_not_sent_modal",
+                        campaign_key=cw.PRIMEIRO_CONTATO_V1, phone=PHONE,
+                        apply=True,
+                        confirm_lead_id=LEAD_ID,
+                        confirm_outreach_id=OUTREACH_ID)
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "Todas as validacoes passaram" in out
+
+    def test_fabio_cell_reproduzido(self, tmp_path, capsys):
+        """(7f) Fabio Cell: mensagem=null e mensagem='' com obs preenchidas NAO abortam."""
+        camp = _build_campaign(tmp_path)
+        # Fabio Cell real: inter[0].mensagem=null, inter[0].observacao="auto:sent...";
+        # inter[1].mensagem="", inter[1].observacao="Importado..."
+        client = _fake_client(
+            status="sent", lead_status="abordado",
+            interactions=[
+                {"id": "i1", "tipo": "whatsapp_outbound", "canal": "whatsapp",
+                 "mensagem": None,
+                 "observacao": "auto:sent ck=avgestao:assistencias:primeiro_contato:v1"},
+                {"id": "i2", "tipo": "import", "canal": "import",
+                 "mensagem": "",
+                 "observacao": "Importado de leads_playwright.xlsx"},
+            ]
+        )
+        rc = _reconcile(camp, tmp_path, client,
+                        run_id=RUN_ID, outcome="failed_after_click",
+                        reason="whatsapp_message_not_sent_modal",
+                        campaign_key=cw.PRIMEIRO_CONTATO_V1, phone=PHONE,
+                        apply=True,
+                        confirm_lead_id=LEAD_ID,
+                        confirm_outreach_id=OUTREACH_ID)
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "Todas as validacoes passaram" in out
+        assert "2 UPDATEs executados com sucesso" in out
 
     def test_apply_update_afeta_0_linhas_reporta_erro(self, tmp_path, capsys):
         """(10b) UPDATE afeta 0 linhas -> erro critico, aborta."""
