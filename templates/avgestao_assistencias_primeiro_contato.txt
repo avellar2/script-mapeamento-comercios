@@ -1,4 +1,4 @@
-Boa tarde, pessoal da {empresa}! Tudo bem?
+{saudacao}, pessoal da {empresa}! Tudo bem?
 
 Aqui é o Vanderson, criador do AVGESTÃO, um sistema feito para organizar assistências técnicas.
 

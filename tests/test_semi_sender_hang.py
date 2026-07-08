@@ -109,7 +109,7 @@ def _record_stages(camp):
 
 
 def _run_send(camp, safe_leads, page=None, abrir=None, localizar=None, clicar=None,
-              settle=None, input_value="s"):
+              settle=None, input_value="s", confirm="confirmed"):
     if page is None:
         page = _FakeSenderPage()
     fake_sessao = MagicMock()
@@ -128,6 +128,8 @@ def _run_send(camp, safe_leads, page=None, abrir=None, localizar=None, clicar=No
                       AsyncMock(side_effect=localizar) if localizar is not None else AsyncMock(return_value=True)),
         patch.object(cw.MessageSender, "clicar_enviar",
                       AsyncMock(side_effect=clicar) if clicar is not None else AsyncMock(return_value=True)),
+        patch.object(cw.MessageSender, "confirmar_mensagem_enviada",
+                      AsyncMock(return_value=confirm)),
         patch("builtins.input", return_value=input_value),
     ]
     for p in patches:
@@ -211,7 +213,12 @@ class TestSemiSenderHang:
                 assert sc is not True, f"stage {st} marcou send_clicked=True antes do clique"
 
     def test_send_clicked_true_outbound_fail_gera_reconciliation(self, tmp_path):
-        """(5) send_clicked=true + falha outbound -> send_clicked_needs_reconciliation."""
+        """(5) outbound confirmado + settle RPC falha -> send_clicked_needs_reconciliation.
+
+        A mensagem saiu (outbound_confirmed=True), mas o settle RPC nao settled.
+        Marca needs_reconciliation com outbound_confirmed=True para o recovery saber
+        que NAO deve reenviar (a mensagem foi enviada de fato).
+        """
         camp = _build_semi_campaign(tmp_path)
         stages = _record_stages(camp)
         _run_send(camp, [_safe_lead()], settle=lambda *a, **k: {"outcome": "failed"})
@@ -219,7 +226,49 @@ class TestSemiSenderHang:
         assert "send_clicked" in names
         assert "outbound_confirming" in names
         assert "send_clicked_needs_reconciliation" in names
+        assert "settle_sent_done" not in names
         rec = [s for s in stages if s[0] == "send_clicked_needs_reconciliation"][0]
+        assert rec[1] is True and rec[2] is True  # outbound_confirmed=True
+
+    def test_not_sent_error_marca_failed_sem_sent(self, tmp_path):
+        """(5b) Confirmer detecta 'nao enviada' -> send_failed_after_click + settle('failed'),
+        nunca settle_sent_done."""
+        camp = _build_semi_campaign(tmp_path)
+        stages = _record_stages(camp)
+        _, settle_mock = _run_send(camp, [_safe_lead()], confirm="not_sent_error")
+        names = [s[0] for s in stages]
+        assert "send_clicked" in names
+        assert "send_failed_after_click" in names
+        assert "settle_sent_done" not in names
+        assert "send_clicked_needs_reconciliation" not in names
+        assert len(camp.checkpoint._data["sent_leads"]) == 0
+        # settle chamado com "failed" (nao "sent")
+        assert any(c.args[:3] == ("res-1", "tok-1", "failed") for c in settle_mock.call_args_list)
+        assert not any(c.args[:3] == ("res-1", "tok-1", "sent") for c in settle_mock.call_args_list)
+
+    def test_outbound_timeout_gera_reconciliation_sem_sent(self, tmp_path):
+        """(5c) Confirmer timeout -> send_clicked_needs_reconciliation, nunca sent."""
+        camp = _build_semi_campaign(tmp_path)
+        stages = _record_stages(camp)
+        _run_send(camp, [_safe_lead()], confirm="timeout")
+        names = [s[0] for s in stages]
+        assert "send_clicked" in names
+        assert "send_clicked_needs_reconciliation" in names
+        assert "settle_sent_done" not in names
+        rec = [s for s in stages if s[0] == "send_clicked_needs_reconciliation"][0]
+        assert rec[1] is True and rec[2] is False
+
+    def test_outbound_browser_closed_gera_reconciliation_sem_sent(self, tmp_path):
+        """(5d) Browser fechado apos clique -> outbound_confirm_failed_browser_closed,
+        nunca sent."""
+        camp = _build_semi_campaign(tmp_path)
+        stages = _record_stages(camp)
+        _run_send(camp, [_safe_lead()], confirm="browser_closed")
+        names = [s[0] for s in stages]
+        assert "send_clicked" in names
+        assert "outbound_confirm_failed_browser_closed" in names
+        assert "settle_sent_done" not in names
+        rec = [s for s in stages if s[0] == "outbound_confirm_failed_browser_closed"][0]
         assert rec[1] is True and rec[2] is False
 
     def test_contexto_fechado_em_falha_antes_clique(self, tmp_path):

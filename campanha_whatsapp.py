@@ -49,6 +49,25 @@ logging.basicConfig(
 )
 
 FUSO = timezone(timedelta(hours=-3))
+
+
+def gerar_saudacao(agora: datetime | None = None) -> str:
+    """Retorna 'Bom dia'/'Boa tarde'/'Boa noite' conforme o horario local (FUSO).
+
+    Regra:
+      05:00 ate 11:59 -> Bom dia
+      12:00 ate 17:59 -> Boa tarde
+      18:00 ate 04:59 -> Boa noite
+    """
+    dt = agora if agora is not None else datetime.now(FUSO)
+    hora = dt.hour
+    if 5 <= hora < 12:
+        return "Bom dia"
+    if 12 <= hora < 18:
+        return "Boa tarde"
+    return "Boa noite"
+
+
 DEFAULT_INTERVAL_MINUTES = 5
 DEFAULT_SAFETY_BUFFER_MINUTES = 5
 DEFAULT_VERIFICATION_BUDGET_SECONDS = 15
@@ -603,6 +622,106 @@ class MessageSender:
             return False
 
     @staticmethod
+    async def confirmar_mensagem_enviada(page, mensagem: str, timeout_segundos: int = 15,
+                                         _poll_interval: float = 0.5,
+                                         _settle_delay: float = 0.4) -> str:
+        """Confirma no DOM do WhatsApp Web que a mensagem realmente foi enviada.
+
+        NAO confia apenas no clique do botao Enviar (clicar != enviar). Depois do
+        clique, procura por:
+          - mensagem de saida (message-out / msg-container) contendo um trecho
+            estavel da mensagem enviada; OU
+          - modal/erro "Sua mensagem nao foi enviada" / botao "Tentar novamente".
+        Tambem trata browser/contexto fechado no meio da confirmacao.
+
+        Retorna um de:
+          "confirmed"       -> message-out com trecho da mensagem encontrado.
+          "not_sent_error"  -> erro "nao enviada"/"Tentar novamente" visivel.
+          "timeout"         -> nao confirmou nem detectou erro no tempo.
+          "browser_closed"  -> browser/contexto fechado durante a confirmacao.
+          "ambiguous"       -> falhas repetidas ao ler o DOM, sem sinal claro.
+        """
+        import re
+        # Trechos estaveis da mensagem para casar no balao de saida.
+        linhas = [re.sub(r"\s+", " ", ln).strip() for ln in (mensagem or "").splitlines()]
+        snippets = [ln for ln in linhas if len(ln) >= 10]
+        if not snippets:
+            norm = re.sub(r"\s+", " ", (mensagem or "")).strip()
+            if norm:
+                snippets = [norm]
+        seen: set[str] = set()
+        snippets_unicos: list[str] = []
+        for sn in snippets:
+            if sn and sn not in seen:
+                seen.add(sn)
+                snippets_unicos.append(sn)
+            if len(snippets_unicos) >= 6:
+                break
+        if not snippets_unicos:
+            return "ambiguous"
+
+        js = r"""
+        (snippets) => {
+            const norm = (s) => (s || '').replace(/\s+/g, ' ').trim();
+            const els = Array.from(document.querySelectorAll(
+                'div[data-testid="msg-container"], div.message-out'));
+            let outbound = false;
+            for (const el of els) {
+                const txt = norm(el.textContent || '');
+                if (!txt) continue;
+                for (const sn of snippets) {
+                    if (sn && txt.indexOf(sn) !== -1) { outbound = true; break; }
+                }
+                if (outbound) break;
+            }
+            const body = norm(document.body ? (document.body.innerText || '') : '');
+            const bodyLow = body.toLowerCase();
+            const phrases = [
+                'sua mensagem não foi enviada', 'não foi enviada',
+                'mensagem não enviada', 'message not sent',
+                'try again', 'tentar novamente'
+            ];
+            let error = false;
+            for (const p of phrases) {
+                if (bodyLow.indexOf(p) !== -1) { error = true; break; }
+            }
+            return { outbound: outbound, error: error };
+        }
+        """
+        # Pequena acomodacao para o balao de saida renderizar apos o clique.
+        await asyncio.sleep(_settle_delay)
+        erros_consec = 0
+        t0 = time.monotonic()
+        while time.monotonic() - t0 < timeout_segundos:
+            try:
+                if page.is_closed():
+                    return "browser_closed"
+            except Exception:
+                return "browser_closed"
+            try:
+                res = await page.evaluate(js, snippets_unicos)
+            except Exception as e:
+                low = str(e).lower()
+                if "target" in low or "closed" in low or "browser" in low:
+                    return "browser_closed"
+                erros_consec += 1
+                if erros_consec >= 4:
+                    logger.warning("  Erros repetidos ao confirmar outbound: %s", e)
+                    return "ambiguous"
+                await asyncio.sleep(_poll_interval)
+                continue
+            erros_consec = 0
+            if not isinstance(res, dict):
+                await asyncio.sleep(_poll_interval)
+                continue
+            if res.get("outbound"):
+                return "confirmed"
+            if res.get("error"):
+                return "not_sent_error"
+            await asyncio.sleep(_poll_interval)
+        return "timeout"
+
+    @staticmethod
     async def enviar_mensagem(page) -> bool:
         """Compat: localiza + clica + confirma envio. Mantido para callers antigos."""
         try:
@@ -1024,7 +1143,7 @@ class CampanhaWhatsApp:
             else:
                 logger.warning("Template nao encontrado: %s", path)
         self._template_text = (
-            "Boa tarde, pessoal da {nome}! Tudo bem?\n\n"
+            "{saudacao}, pessoal da {nome}! Tudo bem?\n\n"
             "Meu nome e Vanderson e desenvolvi o AVGESTAO para empresas "
             "que trabalham com servicos e orcamentos.\n\n"
             "Estou liberando 15 dias gratuitos para teste.\n\n"
@@ -1035,7 +1154,7 @@ class CampanhaWhatsApp:
     def _renderizar_mensagem(self, lead: dict[str, Any]) -> str:
         import re
         template = self._carregar_template()
-        variaveis_validas = {"nome", "empresa", "cidade", "segmento"}
+        variaveis_validas = {"nome", "empresa", "cidade", "segmento", "saudacao"}
         encontradas = set(re.findall(r'\{(\w+)\}', template))
         desconhecidas = encontradas - variaveis_validas
         if desconhecidas:
@@ -1046,6 +1165,7 @@ class CampanhaWhatsApp:
             empresa=lead.get("nome", ""),
             cidade=lead.get("cidade", ""),
             segmento=lead.get("grupo", ""),
+            saudacao=gerar_saudacao(),
         )
 
     def _hash_mensagem(self, mensagem: str) -> str:
@@ -1854,30 +1974,72 @@ class CampanhaWhatsApp:
                 # --- Stage: send_clicked (clique confirmado) ---
                 self.checkpoint.registrar_estagio(lead_id, "send_clicked", send_clicked=True)
 
-                logger.info("  Mensagem enviada com sucesso (clique confirmado)")
-                # --- Stage: outbound_confirming / settle ---
+                # --- Stage: outbound_confirming ---
+                # Antes de marcar sent, confirmar no DOM que a mensagem realmente
+                # saiu (message-out com trecho da mensagem). Clicar em Enviar NAO
+                # basta: o WhatsApp pode exibir "Sua mensagem nao foi enviada".
                 self.checkpoint.registrar_estagio(lead_id, "outbound_confirming", send_clicked=True)
                 try:
-                    settle_result = settle_lead(
-                        reservation_id, reservation_token, "sent",
-                        message_timestamp=datetime.now(timezone.utc).isoformat(),
-                        fingerprint=msg_hash, campaign_match=True,
+                    confirm_state = await asyncio.wait_for(
+                        MessageSender.confirmar_mensagem_enviada(page, mensagem, timeout_segundos=15),
+                        timeout=20,
                     )
+                except asyncio.TimeoutError:
+                    confirm_state = "timeout"
                 except Exception as e:
-                    logger.warning("  Excecao no settle: %s", e)
-                    settle_result = None
-                if settle_result and settle_result.get("outcome") == "settled":
-                    logger.info("  Settle confirmado")
-                    self.checkpoint.registrar_estagio(lead_id, "settle_sent_done", send_clicked=True, outbound_confirmed=True)
-                else:
-                    logger.warning("  Settle: %s", settle_result)
-                    # Clicou em Enviar mas nao confirmou outbound -> exige reconciliacao.
-                    self.checkpoint.registrar_estagio(lead_id, "send_clicked_needs_reconciliation", send_clicked=True, outbound_confirmed=False)
+                    logger.warning("  Excecao ao confirmar outbound: %s", e)
+                    confirm_state = "browser_closed"
 
-                self.checkpoint.registrar_envio(lead_id, msg_hash[:8])
-                self.safety.registrar_sucesso()
-                self.checkpoint.limpar_estagio(lead_id)
-                enviados += 1
+                if confirm_state == "confirmed":
+                    logger.info("  Outbound confirmado no DOM (message-out)")
+                    self.checkpoint.registrar_estagio(lead_id, "outbound_confirmed", send_clicked=True, outbound_confirmed=True)
+                    try:
+                        settle_result = settle_lead(
+                            reservation_id, reservation_token, "sent",
+                            message_timestamp=datetime.now(timezone.utc).isoformat(),
+                            fingerprint=msg_hash, campaign_match=True,
+                        )
+                    except Exception as e:
+                        logger.warning("  Excecao no settle: %s", e)
+                        settle_result = None
+                    if settle_result and settle_result.get("outcome") == "settled":
+                        logger.info("  Settle confirmado")
+                        self.checkpoint.registrar_estagio(lead_id, "settle_sent_done", send_clicked=True, outbound_confirmed=True)
+                        self.checkpoint.registrar_envio(lead_id, msg_hash[:8])
+                        self.safety.registrar_sucesso()
+                        self.checkpoint.limpar_estagio(lead_id)
+                        enviados += 1
+                    else:
+                        logger.warning("  Settle: %s", settle_result)
+                        # Outbound confirmado (mensagem saiu) mas settle RPC nao settled:
+                        # nao reverter para failed (a mensagem foi enviada de fato). Marca
+                        # needs_reconciliation com outbound_confirmed=True para o recovery
+                        # saber que NAO deve reenviar.
+                        self.checkpoint.registrar_estagio(lead_id, "send_clicked_needs_reconciliation", send_clicked=True, outbound_confirmed=True)
+                        self.checkpoint.limpar_estagio(lead_id)
+                elif confirm_state == "not_sent_error":
+                    logger.warning("  Mensagem NAO enviada: WhatsApp exibiu erro apos o clique")
+                    self.checkpoint.registrar_estagio(lead_id, "send_failed_after_click", send_clicked=True, outbound_confirmed=False)
+                    if not self.dry_run:
+                        settle_lead(reservation_id, reservation_token, "failed", obs="whatsapp_message_not_sent_modal")
+                    self.checkpoint.registrar_falha(lead_id, "send_failed_after_click", "send_failed_after_click")
+                    self.safety.registrar_erro()
+                    self.checkpoint.limpar_estagio(lead_id)
+                    continue
+                elif confirm_state == "browser_closed":
+                    logger.warning("  Browser/contexto fechado apos o clique - sem confirmacao outbound")
+                    self.checkpoint.registrar_estagio(lead_id, "outbound_confirm_failed_browser_closed", send_clicked=True, outbound_confirmed=False)
+                    self.checkpoint.registrar_falha(lead_id, "outbound_confirm_failed_browser_closed", "outbound_confirm_failed_browser_closed")
+                    self.safety.registrar_erro()
+                    self.checkpoint.limpar_estagio(lead_id)
+                    continue
+                else:  # timeout / ambiguous
+                    logger.warning("  Timeout/ambiguo confirmando outbound apos o clique")
+                    self.checkpoint.registrar_estagio(lead_id, "send_clicked_needs_reconciliation", send_clicked=True, outbound_confirmed=False)
+                    self.checkpoint.registrar_falha(lead_id, "outbound_confirm_timeout", "send_clicked_needs_reconciliation")
+                    self.safety.registrar_erro()
+                    self.checkpoint.limpar_estagio(lead_id)
+                    continue
 
                 if i < len(safe_leads) - 1:
                     self.safety.aguardar_intervalo()
@@ -2011,6 +2173,202 @@ class CampanhaWhatsApp:
             print(f"  Bloqueados (requerem reconciliacao manual): {bloqueados}")
         print("  (Tokens de reserva nao estao no checkpoint local;")
         print("   use o Supabase para liberar manualmente se necessario.)")
+        print("=" * 60)
+        return 0
+
+    def reconcile_outreach(self, run_id: str, outcome: str | None = None,
+                           reason: str | None = None, campaign_key: str | None = None,
+                           phone: str | None = None) -> int:
+        """Diagnostico + auditoria de falso positivo de envio (run marcado 'sent'
+        indevidamente, ex.: modal "Sua mensagem nao foi enviada" no WhatsApp Web).
+
+        NAO executa envio real. NAO muta o banco:
+          - 'sent' e terminal na maquina de estados (outreach_transition_allowed),
+            entao NAO existe RPC para reverter sent -> failed/needs_reconciliation.
+          - O indice unico uq_lead_outreach_active bloqueia nova reserva enquanto a
+            linha 'sent' existe.
+        Por isso este comando e READ-ONLY em relacao ao banco: reporta o estado
+        atual, grava um JSON de auditoria LOCAL (preserva evidencia) e imprime o
+        SQL manual que o operador deve rodar para reverter com seguranca.
+        """
+        campaign_key = campaign_key or self.campaign_key or PRIMEIRO_CONTATO_V1
+
+        env_path = Path(_root) / ".env"
+        if env_path.exists():
+            try:
+                from dotenv import load_dotenv
+                load_dotenv(env_path, override=True)
+            except ImportError:
+                pass
+
+        from sender_int import get_supabase_client
+        client = get_supabase_client("service_role")
+
+        # Descobrir lead_ids do run via checkpoint local (sent + failed + pending).
+        cp = CheckpointManager(run_id)
+        data = cp.carregar()
+        lead_ids: list[str] = []
+        for entry in (data.get("sent_leads", []) + data.get("failed_leads", [])):
+            lid = entry.get("lead_id")
+            if lid and lid not in lead_ids:
+                lead_ids.append(lid)
+        for lid in data.get("pending_stages", {}).keys():
+            if lid not in lead_ids:
+                lead_ids.append(lid)
+
+        def _mask_tel(t: str | None) -> str:
+            if not t:
+                return ""
+            if len(t) <= 4:
+                return t
+            return t[:4] + "****" + t[-4:]
+
+        findings: list[dict[str, Any]] = []
+        if client:
+            alvo_ids = lead_ids
+            if not alvo_ids and phone:
+                # Sem checkpoint util; tentar localizar pelo telefone normalizado.
+                tel_norm = normalizar_telefone_br(phone) or phone
+                try:
+                    rs = client.table("lead_outreach").select(
+                        "id,lead_id,phone_normalized,campaign_key,status,"
+                        "message_timestamp,message_fingerprint,created_at,updated_at"
+                    ).eq("phone_normalized", tel_norm).eq("campaign_key", campaign_key) \
+                     .order("created_at", desc=True).limit(5).execute()
+                    alvo_ids = [r.get("lead_id") for r in (rs.data or []) if r.get("lead_id")]
+                except Exception as e:
+                    logger.warning("  Falha ao buscar por telefone: %s", e)
+
+            for lid in alvo_ids:
+                try:
+                    rows = client.table("lead_outreach").select(
+                        "id,lead_id,phone_normalized,campaign_key,status,"
+                        "message_timestamp,message_fingerprint,created_at,updated_at"
+                    ).eq("lead_id", lid)
+                    if campaign_key:
+                        rows = rows.eq("campaign_key", campaign_key)
+                    res = rows.order("created_at", desc=True).limit(5).execute()
+                except Exception as e:
+                    logger.warning("  Falha ao ler lead_outreach de %s: %s", lid[:8], e)
+                    continue
+                for r in (res.data or []):
+                    lead_row = None
+                    inter = []
+                    try:
+                        lr = client.table("leads").select(
+                            "id,nome,telefone_normalizado,status"
+                        ).eq("id", lid).limit(1).execute()
+                        lead_row = (lr.data or [None])[0]
+                    except Exception:
+                        pass
+                    try:
+                        ir = client.table("lead_interactions").select(
+                            "id,tipo,canal,observacao,created_at"
+                        ).eq("lead_id", lid).order("created_at", desc=True).limit(5).execute()
+                        inter = ir.data or []
+                    except Exception:
+                        pass
+                    findings.append({
+                        "lead_id": lid,
+                        "lead_outreach": r,
+                        "lead": lead_row,
+                        "interactions": inter,
+                    })
+
+        # ---- Relatorio impresso ----
+        print("\n" + "=" * 60)
+        print("  RECONCILIACAO DE ENVIO (diagnostico + auditoria)")
+        print("=" * 60)
+        print(f"  Run ID: {run_id}")
+        print(f"  Campaign key: {campaign_key}")
+        if outcome:
+            print(f"  Outcome solicitado: {outcome}")
+        if reason:
+            print(f"  Reason: {reason}")
+        if phone:
+            print(f"  Telefone (mascarado): {_mask_tel(normalizar_telefone_br(phone) or phone)}")
+        print("  Modo: READ-ONLY (diagnostico + auditoria; NAO muta o banco).")
+        if not client:
+            print("  [AVISO] Cliente Supabase indisponivel - diagnostico limitado ao")
+            print("           checkpoint local. SQL manual abaixo ainda e valido.")
+        print("-" * 60)
+
+        if not findings:
+            print("  Nenhum registro encontrado para o run/telefone informado.")
+            if not lead_ids:
+                print("  (Checkpoint do run nao contem leads; use --phone para apontar o lead.)")
+        for f in findings:
+            lo = f["lead_outreach"]
+            ld = f["lead"] or {}
+            masked_lid = lo.get("lead_id", "")[:8] + "****"
+            print(f"  lead_id: {masked_lid}  lead_outreach.status: {lo.get('status')}")
+            print(f"    phone (mascarado): {_mask_tel(lo.get('phone_normalized'))}")
+            print(f"    leads.status: {ld.get('status', '?')}  nome: {(ld.get('nome') or '')[:40]}")
+            print(f"    message_timestamp: {lo.get('message_timestamp')}")
+            print(f"    fingerprint: {lo.get('message_fingerprint')}")
+            print(f"    interacoes registradas: {len(f['interactions'])}")
+        print("=" * 60)
+
+        # ---- Auditoria local (preserva evidencia, nao muta DB) ----
+        audit = {
+            "run_id": run_id,
+            "generated_at": datetime.now(FUSO).isoformat(),
+            "campaign_key": campaign_key,
+            "outcome": outcome,
+            "reason": reason,
+            "phone_normalized": (normalizar_telefone_br(phone) if phone else None),
+            "checkpoint_resumo": cp.get_resumo(),
+            "findings": findings,
+            "note": ("READ-ONLY. 'sent' e terminal na maquina de estados; o indice unico "
+                     "bloqueia nova abordagem enquanto a linha 'sent' existe. Use o SQL "
+                     "manual impresso para reverter com seguranca."),
+        }
+        audit_dir = Path(_root) / "output" / "avgestao" / "reconcile"
+        audit_dir.mkdir(parents=True, exist_ok=True)
+        ts_stamp = datetime.now(FUSO).strftime("%Y%m%d_%H%M%S")
+        audit_path = audit_dir / f"{run_id}_{ts_stamp}.json"
+        try:
+            audit_path.write_text(json.dumps(audit, ensure_ascii=False, indent=2),
+                                   encoding="utf-8")
+            print(f"  Auditoria local gravada: {audit_path}")
+        except Exception as e:
+            logger.warning("  Falha ao gravar auditoria local: %s", e)
+
+        # ---- SQL manual para reverter (nao executado) ----
+        print("\n  SQL MANUAL PARA REVERTER (NAO executado por este comando):")
+        print("  ATENCAO: 'sent' e terminal. O indice unico bloqueia nova abordagem.")
+        print("  Rode manualmente, com backup, dentro de uma transacao:")
+        print()
+        if findings:
+            for f in findings:
+                lo = f["lead_outreach"]
+                if lo.get("status") != "sent":
+                    continue
+                ec = "revert_false_positive"
+                if reason:
+                    ec = f"revert_false_positive_{reason}"[:80]
+                print("  BEGIN;")
+                print(f"  UPDATE public.lead_outreach SET status='failed', "
+                      f"error_code='{ec}', updated_at=now() WHERE id='{lo.get('id')}';")
+                print(f"  UPDATE public.leads SET status='pronto_para_enviar', "
+                      f"updated_at=now() WHERE id='{lo.get('lead_id')}';")
+                print("  COMMIT;")
+                print(f"  -- lead_outreach.id={lo.get('id')} "
+                      f"(lead_id={lo.get('lead_id')}, phone={_mask_tel(lo.get('phone_normalized'))})")
+                print()
+        else:
+            print("  -- Nenhum registro 'sent' encontrado para gerar SQL automatico.")
+            print("  -- Template (substitua <LEAD_OUTREACH_ID> e <LEAD_ID>):")
+            print("  BEGIN;")
+            print("  UPDATE public.lead_outreach SET status='failed', "
+                  "error_code='revert_false_positive', updated_at=now() "
+                  "WHERE id='<LEAD_OUTREACH_ID>';")
+            print("  UPDATE public.leads SET status='pronto_para_enviar', "
+                  "updated_at=now() WHERE id='<LEAD_ID>';")
+            print("  COMMIT;")
+        print("  (Motivo registrado em lead_outreach.error_code e no JSON de auditoria.")
+        print("   Nao ha insercao em lead_interactions para evitar duplicar interacao;")
+        print("   o historico original e preservado.)")
         print("=" * 60)
         return 0
 
@@ -2242,7 +2600,7 @@ Exemplos:
   python campanha_whatsapp.py recover-reserved --campaign-key avgestao:assistencias:primeiro_contato:v1 --release-pending --confirm
 """,
     )
-    parser.add_argument("mode", choices=["plan", "semi", "auto", "recover", "recover-reserved", "import-leads"], help="Modo de operacao")
+    parser.add_argument("mode", choices=["plan", "semi", "auto", "recover", "recover-reserved", "import-leads", "reconcile-outreach"], help="Modo de operacao")
     parser.add_argument("--until", type=str, default=None, help="Horario limite (HH:MM)")
     parser.add_argument("--interval-minutes", type=int, default=DEFAULT_INTERVAL_MINUTES, help=f"Intervalo entre envios em minutos (padrao: {DEFAULT_INTERVAL_MINUTES})")
     parser.add_argument("--limit", type=int, default=DEFAULT_LIMIT, help=f"Maximo de leads (padrao: {DEFAULT_LIMIT})")
@@ -2285,6 +2643,12 @@ Exemplos:
                         help="Filtrar reservas criadas antes de data ISO (modo recover-reserved)")
     parser.add_argument("--max-age-minutes", type=int, default=None,
                         help="Filtrar reservas com idade maxima em minutos (modo recover-reserved)")
+    parser.add_argument("--outcome", type=str, default=None,
+                        help="Resultado a registrar na auditoria (modo reconcile-outreach), ex.: failed_after_click")
+    parser.add_argument("--reason", type=str, default=None,
+                        help="Motivo a registrar na auditoria (modo reconcile-outreach), ex.: whatsapp_message_not_sent_modal")
+    parser.add_argument("--phone", type=str, default=None,
+                        help="Telefone do lead para reconciliacao (modo reconcile-outreach)")
     parser.add_argument("--from-zip", type=str, default=None,
                         help="Caminho para ZIP/XLSX de leads (modo import-leads)")
     parser.add_argument("--produto", type=str, default="avgestao",
@@ -2357,6 +2721,19 @@ def main(argv: list[str] | None = None) -> int:
     if args.mode == "auto" and not args.confirm_live_send and not args.dry_run:
         logger.error("Modo auto requer --confirm-live-send para enviar mensagens reais. Use --dry-run para teste sem envio.")
         return 2
+
+    if args.mode == "reconcile-outreach":
+        if not args.run_id:
+            logger.error("Modo reconcile-outreach requer --run-id.")
+            return 2
+        campanha = CampanhaWhatsApp(args)
+        return campanha.reconcile_outreach(
+            run_id=args.run_id,
+            outcome=getattr(args, "outcome", None),
+            reason=getattr(args, "reason", None),
+            campaign_key=args.campaign_key or PRIMEIRO_CONTATO_V1,
+            phone=getattr(args, "phone", None),
+        )
 
     if args.mode == "semi" and args.dry_run:
         logger.warning("Modo semi com --dry-run: nenhuma mensagem sera enviada.")
