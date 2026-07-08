@@ -286,6 +286,19 @@ class MessageSender:
     def gerar_link_wa_me(telephone: str, mensagem: str) -> str:
         return f"https://wa.me/{telephone}?text={quote(mensagem)}"
 
+    @staticmethod
+    def gerar_link_web_whatsapp_send(telefone: str, mensagem: str) -> str:
+        """Gera URL direta do WhatsApp Web para abrir chat por telefone.
+
+        Format:
+            https://web.whatsapp.com/send?phone=<telefone>&text=<msg>&type=phone_number&app_absent=0
+        """
+        return (
+            f"https://web.whatsapp.com/send?phone={telefone}"
+            f"&text={quote(mensagem)}"
+            f"&type=phone_number&app_absent=0"
+        )
+
     # Seletores para tela intermediária do wa.me (botão "Continuar para WhatsApp Web")
     _WA_ME_CONTINUE_SELECTORS = (
         'a[href*="wa.me"]',
@@ -313,6 +326,31 @@ class MessageSender:
         "não existe",
         "does not exist",
         "número",
+    )
+    # Seletores para detectar QR Code / sessão deslogada no WhatsApp Web
+    _WA_QR_SELECTORS = (
+        'canvas[aria-label="Scan me!"]',
+        'div[data-testid="qr-code"]',
+        'div[data-ref="qr-code"]',
+        'canvas',
+        'div[role="img"][aria-label*="qr"]',
+    )
+    # Textos indicando sessão deslogada
+    _WA_NOT_LOGGED_IN_TEXTS = (
+        "scan the qr code",
+        "escanear o código qr",
+        "escanear código qr",
+        "scan me",
+        "faça login",
+        "log in to use whatsapp",
+        "iniciar sessão",
+        "iniciar sesión",
+    )
+    # Seletor do campo de mensagem (compose box) do WhatsApp Web
+    _MESSAGE_BOX_SELECTOR = (
+        'div[contenteditable="true"][data-tab="10"], '
+        'div[contenteditable="true"][title], '
+        'footer div[contenteditable="true"]'
     )
 
     @staticmethod
@@ -368,63 +406,154 @@ class MessageSender:
         return False
 
     @staticmethod
-    async def abrir_wa_me(page, telefone: str, mensagem: str) -> bool:
-        """Abre wa.me, trata tela intermediária se aparecer, retorna True se achou campo de mensagem."""
+    async def _detectar_qr_code(page, timeout_ms: int = 3000) -> bool:
+        """Detecta QR Code (sessão deslogada) no WhatsApp Web.
+
+        Retorna True se detectou QR Code / sessão deslogada, False caso contrário.
+        """
+        # 1. Procura por seletores estruturais de QR Code
+        for sel in MessageSender._WA_QR_SELECTORS:
+            try:
+                locator = page.locator(sel)
+                count = await locator.count()
+                if count > 0:
+                    logger.warning("  whatsapp web: QR Code detectado (seletor: %s)", sel)
+                    return True
+            except Exception:
+                continue
+        # 2. Procura por textos de sessão deslogada
+        error_selectors = ['body', '[role="main"]', 'main']
+        for sel in error_selectors:
+            try:
+                el = page.locator(sel).first
+                texto = (await el.inner_text(timeout=timeout_ms) or "").lower()
+                if any(t in texto for t in MessageSender._WA_NOT_LOGGED_IN_TEXTS):
+                    logger.warning("  whatsapp web: sessao deslogada detectada")
+                    return True
+            except Exception:
+                continue
+        return False
+
+    @staticmethod
+    async def _aguardar_campo_mensagem(page, timeout_ms: int = 25000) -> bool:
+        """Aguarda o campo de mensagem (compose box) aparecer no WhatsApp Web.
+
+        Retorna True se encontrou, False se deu timeout.
+        """
+        try:
+            await page.wait_for_selector(
+                MessageSender._MESSAGE_BOX_SELECTOR,
+                timeout=timeout_ms,
+            )
+            logger.info("  whatsapp web: campo de mensagem encontrado")
+            return True
+        except Exception:
+            return False
+
+    @staticmethod
+    async def _abrir_via_web_whatsapp_send(page, telefone: str, mensagem: str) -> bool | None:
+        """Abre chat via URL direta web.whatsapp.com/send.
+
+        Retorna:
+            True  -> campo de mensagem encontrado (sucesso)
+            False -> falha segura (QR Code, número inválido)
+            None  -> falha não-recuperável por este caminho (tentar fallback wa.me)
+        """
+        link = MessageSender.gerar_link_web_whatsapp_send(telefone, mensagem)
+        logger.info("  whatsapp web: abrindo %s", link[:80])
+        try:
+            await page.goto(link, wait_until="domcontentloaded", timeout=45000)
+        except Exception as e:
+            logger.warning("  whatsapp web: falha ao carregar URL direta: %s", e)
+            return None
+
+        # Pequena espera para DOM estabilizar
+        await page.wait_for_timeout(3000)
+
+        # 1. Detectar QR Code / sessão deslogada
+        if await MessageSender._detectar_qr_code(page):
+            logger.warning("  whatsapp web: sessao deslogada (QR Code) - falha segura")
+            return False
+
+        # 2. Detectar número inválido
+        if await MessageSender._detectar_tela_invalida(page):
+            logger.warning("  whatsapp web: numero invalido detectado - falha segura")
+            return False
+
+        # 3. Aguardar campo de mensagem
+        if await MessageSender._aguardar_campo_mensagem(page, timeout_ms=25000):
+            logger.info("  whatsapp web: chat aberto via URL direta")
+            return True
+
+        # Campo não apareceu - estado inesperado, tenta fallback
+        logger.warning("  whatsapp web: campo de mensagem nao encontrado apos URL direta")
+        return None
+
+    @staticmethod
+    async def _abrir_via_wa_me(page, telefone: str, mensagem: str) -> bool:
+        """Fallback: abre via wa.me tratando tela intermediária."""
         link = MessageSender.gerar_link_wa_me(telefone, mensagem)
+        logger.info("  wa.me (fallback): abrindo %s", link[:80])
         try:
             await page.goto(link, wait_until="domcontentloaded", timeout=30000)
             await page.wait_for_timeout(3000)
 
-            # Etapa 1: Detectar se é número inválido ANTES de qualquer outra coisa
+            # Detectar número inválido
             if await MessageSender._detectar_tela_invalida(page):
-                logger.warning("  wa.me: numero invalido detectado")
+                logger.warning("  wa.me (fallback): numero invalido detectado")
                 return False
 
-            # Etapa 2: Procurar campo de mensagem diretamente
-            try:
-                await page.wait_for_selector(
-                    'div[contenteditable="true"][data-tab="10"], '
-                    'div[contenteditable="true"][title], '
-                    'footer div[contenteditable="true"]',
-                    timeout=8000,
-                )
-                logger.info("  wa.me: campo de mensagem encontrado (direto)")
+            # Procurar campo direto
+            if await MessageSender._aguardar_campo_mensagem(page, timeout_ms=8000):
+                logger.info("  wa.me (fallback): campo de mensagem encontrado (direto)")
                 return True
-            except Exception:
-                pass  # Não encontrou direto — pode ser tela intermediária
 
-            # Etapa 3: Tela intermediária — procurar botão "Continuar para WhatsApp Web"
-            logger.info("  wa.me: tela intermediaria detectada, procurando botao de continuacao...")
+            # Tela intermediária
+            logger.info("  wa.me (fallback): tela intermediaria detectada, procurando botao...")
             if await MessageSender._procurar_e_clicar_continuar_wa_me(page):
-                logger.info("  wa.me: aguardando redirecionamento para WhatsApp Web...")
+                logger.info("  wa.me (fallback): aguardando redirecionamento para WhatsApp Web...")
                 await page.wait_for_timeout(5000)
 
-                # Verificar se número virou inválido após continuar
+                if await MessageSender._detectar_qr_code(page):
+                    logger.warning("  wa.me (fallback): QR Code apos continuar - falha segura")
+                    return False
                 if await MessageSender._detectar_tela_invalida(page):
-                    logger.warning("  wa.me: numero invalido detectado apos continuar")
+                    logger.warning("  wa.me (fallback): numero invalido apos continuar")
                     return False
 
-                # Etapa 4: Procurar campo de mensagem no WhatsApp Web
-                try:
-                    await page.wait_for_selector(
-                        'div[contenteditable="true"][data-tab="10"], '
-                        'div[contenteditable="true"][title], '
-                        'footer div[contenteditable="true"]',
-                        timeout=20000,
-                    )
-                    logger.info("  wa.me: campo de mensagem encontrado (apos continuar)")
+                if await MessageSender._aguardar_campo_mensagem(page, timeout_ms=20000):
+                    logger.info("  wa.me (fallback): campo de mensagem encontrado (apos continuar)")
                     return True
-                except Exception:
-                    logger.warning("  wa.me: campo de mensagem nao encontrado apos continuar")
-                    return False
-            else:
-                # Nao tinha tela intermediária nem campo direto
-                logger.warning("  wa.me: campo de mensagem nao encontrado e nenhum botao de continuacao")
+                logger.warning("  wa.me (fallback): campo de mensagem nao encontrado apos continuar")
                 return False
 
-        except Exception as e:
-            logger.warning("  Erro ao abrir wa.me: %s", e)
+            logger.warning("  wa.me (fallback): campo nao encontrado e nenhum botao de continuacao")
             return False
+
+        except Exception as e:
+            logger.warning("  wa.me (fallback): erro: %s", e)
+            return False
+
+    @staticmethod
+    async def abrir_wa_me(page, telefone: str, mensagem: str) -> bool:
+        """Abre chat do WhatsApp. Caminho principal: web.whatsapp.com/send.
+
+        Fallback: wa.me com tela intermediária se a URL direta falhar de forma
+        não-recuperável. Retorna True se achou campo de mensagem, False caso contrário.
+        NÃO clica no botão Enviar.
+        """
+        logger.info("  Abrindo chat via web.whatsapp.com/send (caminho principal)...")
+        result = await MessageSender._abrir_via_web_whatsapp_send(page, telefone, mensagem)
+
+        if result is True:
+            return True
+        if result is False:
+            # Falha segura (QR Code ou número inválido) - não tentar fallback
+            return False
+
+        # result is None: URL direta falhou de forma não-recuperável - tenta fallback wa.me
+        logger.warning("  web_whatsapp_direct_failed_trying_wa_me_fallback")
+        return await MessageSender._abrir_via_wa_me(page, telefone, mensagem)
 
     @staticmethod
     def _seletor_botao_enviar():
