@@ -9,3 +9,4 @@
 
 # git
 - Never use force push. Use normal push only. Confidence: 0.70
+- Ask user permission before pushing (do not push without explicit request). Confidence: 0.70
