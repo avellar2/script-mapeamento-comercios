@@ -234,6 +234,68 @@ class LeadSelector:
         random.shuffle(shuffled)
         return shuffled[:n]
 
+    @staticmethod
+    def selecionar_leads_candidatos(
+        leads: list[dict[str, Any]],
+        limit: int,
+        exclude_phones: list[str] | None = None,
+        exclude_lead_ids: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Seleciona leads candidatos com ordenacao deterministica e exclusoes.
+
+        Ordenacao: created_at.asc, id.asc (deterministica, reproduzivel).
+        Exclusoes: remove leads cujo telefone normalizado ou ID esteja nas listas.
+        Retorna no maximo `limit` leads.
+
+        Tanto `plan` quanto `semi` usam esta funcao para garantir que
+        plan --limit 1 preve o mesmo lead que semi --limit 1 processaria.
+        """
+        exclude_phones_set = set(exclude_phones) if exclude_phones else set()
+        exclude_ids_set = set(exclude_lead_ids) if exclude_lead_ids else set()
+
+        # Normalizar telefones de exclusao para comparacao
+        normalized_exclude_phones: set[str] = set()
+        for phone in exclude_phones_set:
+            norm = normalizar_telefone_br(phone)
+            if norm:
+                normalized_exclude_phones.add(norm)
+            else:
+                # Se nao normalizar, usar o original
+                normalized_exclude_phones.add(phone)
+
+        filtered = []
+        excluded_count = 0
+        for lead in leads:
+            lid = lead.get("id", "")
+            tel = lead.get("_telefone_normalizado") or lead.get("telefone_normalizado") or ""
+
+            if lid in exclude_ids_set:
+                excluded_count += 1
+                logger.info("Lead excluido por --exclude-lead-id: %s (%s)",
+                            lid[:8], lead.get("nome", "")[:30])
+                continue
+            if tel in normalized_exclude_phones:
+                excluded_count += 1
+                logger.info("Lead excluido por --exclude-phone: %s (%s)",
+                            tel[:4] + "****" + tel[-4:] if len(tel) >= 8 else "****",
+                            lead.get("nome", "")[:30])
+                continue
+            filtered.append(lead)
+
+        if excluded_count:
+            logger.info("Leads excluidos por --exclude-*: %d de %d", excluded_count, len(leads))
+
+        # Ordenacao deterministica: created_at ASC, id ASC
+        # created_at pode estar no lead (campo do Supabase) ou pode nao existir
+        # Se nao existir, usa nome como desempate para estabilidade
+        def _sort_key(lead):
+            ca = lead.get("created_at", "") or ""
+            lid = lead.get("id", "") or ""
+            return (ca, lid)
+
+        filtered.sort(key=_sort_key)
+        return filtered[:limit]
+
 
 # ============================================================
 # Verificacao de duplicidade
@@ -1067,6 +1129,8 @@ class CampanhaWhatsApp:
             jitter_seconds=args.jitter_seconds,
         )
         self._template_text: str | None = None
+        self.exclude_phones: list[str] = getattr(args, "exclude_phone", None) or []
+        self.exclude_lead_ids: list[str] = getattr(args, "exclude_lead_id", None) or []
 
     def _gerar_run_id(self) -> str:
         agora = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -1248,9 +1312,12 @@ class CampanhaWhatsApp:
         self.checkpoint.salvar()
 
         statuses = self.args.statuses.split(",") if self.args.statuses else ["novo", "pronto_para_enviar"]
+        # Pool consistente: buscar mais leads do que o limite para permitir exclusoes,
+        # mas sempre a mesma quantidade para plan e semi preverem a mesma fila.
+        pool_size = max(self.limit * 5, 200)
         leads = self.lead_selector.buscar_leads(
             statuses=statuses,
-            limit=self.limit * 2,
+            limit=pool_size,
             nicho=self.nicho,
             subnichos=self.subnichos,
         )
@@ -1260,7 +1327,14 @@ class CampanhaWhatsApp:
 
         leads = LeadSelector.filtrar_celular(leads)
         logger.info("Leads celulares: %d", len(leads))
-        leads = LeadSelector.embaralhar_e_limitar(leads, min(capacidade, self.limit))
+        # Selecao deterministica: mesma funcao para plan e semi, ordenacao estavel,
+        # sem random.shuffle. Exclusoes por telefone/lead_id aplicadas antes do limit.
+        leads = LeadSelector.selecionar_leads_candidatos(
+            leads,
+            limit=min(capacidade, self.limit),
+            exclude_phones=self.exclude_phones,
+            exclude_lead_ids=self.exclude_lead_ids,
+        )
         logger.info("Leads selecionados: %d", len(leads))
 
         if self.mode == "plan":
@@ -1284,6 +1358,10 @@ class CampanhaWhatsApp:
             print(f"  Capacidade teorica: {cap.get('capacidade_teorica', 'N/A')}")
             print(f"  Capacidade segura: {cap.get('capacidade_segura', 'N/A')}")
         print(f"  Leads selecionados: {len(leads)}")
+        if self.exclude_phones:
+            print(f"  Telefones excluidos: {len(self.exclude_phones)}")
+        if self.exclude_lead_ids:
+            print(f"  Lead IDs excluidos: {len(self.exclude_lead_ids)}")
         print(f"  Intervalo: {self.interval_seconds // 60} min")
         print(f"  Campaign key: {self.campaign_key}")
         print(f"  Run ID: {self.run_id}")
@@ -2885,6 +2963,10 @@ Exemplos:
                         help="Confirma lead_id alvo para --apply (modo reconcile-outreach)")
     parser.add_argument("--confirm-outreach-id", type=str, default=None,
                         help="Confirma lead_outreach.id alvo para --apply (modo reconcile-outreach)")
+    parser.add_argument("--exclude-phone", type=str, action="append", default=None,
+                        help="Telefone normalizado a excluir da selecao (repetir para multiplos)")
+    parser.add_argument("--exclude-lead-id", type=str, action="append", default=None,
+                        help="Lead ID a excluir da selecao (repetir para multiplos)")
     parser.add_argument("--from-zip", type=str, default=None,
                         help="Caminho para ZIP/XLSX de leads (modo import-leads)")
     parser.add_argument("--produto", type=str, default="avgestao",
