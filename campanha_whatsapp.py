@@ -1767,7 +1767,7 @@ class CampanhaWhatsApp:
                 if self.mode == "semi" and not self.dry_run:
                     self.checkpoint.registrar_estagio(lead_id, "prompt_manual")
 
-                    # --- Token-based confirmation for agents ---
+                    # --- Confirmation priority: token > confirm_live_send > input() ---
                     token = getattr(self.args, "semi_confirm_token", None)
                     if token:
                         esperado = CampanhaWhatsApp.gerar_token_confirmacao(tel_norm, self.run_id)
@@ -1799,6 +1799,15 @@ class CampanhaWhatsApp:
                             self.checkpoint.registrar_skip(lead_id, "manual_confirm_token_invalid")
                             self.checkpoint.limpar_estagio(lead_id)
                             continue
+                    elif self.confirm_live_send:
+                        # --confirm-live-send no modo semi: pula input() e confirma automaticamente.
+                        # As protecoes pos-clique (outbound_confirmed, settle) continuam obrigatorias.
+                        logger.info("  confirm_live_send ativo - confirmacao automatica (sem input)")
+                        self.checkpoint.registrar_estagio(lead_id, "manual_confirmed",
+                            send_clicked=False, manual_confirm_source="confirm_live_send")
+                        self.checkpoint.registrar_estagio(lead_id, "post_manual_confirmed",
+                            send_clicked=False, manual_confirm_source="confirm_live_send")
+                        logger.info("  Iniciando pipeline de envio pos-confirmacao...")
                     else:
                         print("\n" + "-" * 60)
                         print(f"  Lead: {nome}")

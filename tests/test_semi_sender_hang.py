@@ -100,9 +100,9 @@ def _record_stages(camp):
     stages = []
     orig = camp.checkpoint.registrar_estagio
 
-    def rec(lead_id, stage, send_clicked=None, outbound_confirmed=None):
+    def rec(lead_id, stage, send_clicked=None, outbound_confirmed=None, **kwargs):
         stages.append((stage, send_clicked, outbound_confirmed))
-        return orig(lead_id, stage, send_clicked, outbound_confirmed)
+        return orig(lead_id, stage, send_clicked, outbound_confirmed, **kwargs)
 
     camp.checkpoint.registrar_estagio = rec
     return stages
