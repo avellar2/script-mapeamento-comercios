@@ -26,7 +26,7 @@ if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
-APIFY_TOKEN = "apify_api_g35riRIYbexQigTpDwRm4GJ40emppP36z2dc"
+APIFY_TOKEN = os.environ.get("APIFY_TOKEN", "")
 APIFY_API = "https://api.apify.com/v2"
 
 # Diretorio base - sera sobrescrito por regiao em main()

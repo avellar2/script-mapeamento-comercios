@@ -36,6 +36,8 @@ from config.avgestao import (
     linha_xlsx_avgestao,
     prioridade_avgestao,
     COLUNAS_XLSX_AVGESTAO,
+    CAMPOS_GEOGRAFICOS,
+    COLUNAS_XLSX_AVGESTAO_GEO,
     normalizar_texto,
     tokenizar_sem_stopwords,
     _match_query,
@@ -837,6 +839,53 @@ def test_landing_pages_prospectar_default_funciona():
     assert score > 0
     assert "score_avgestao" not in lead
     assert "faz_assistencia" not in lead
+
+
+# ── Constantes geograficas (etapa 6) — NAO alteram as existentes ────
+
+def test_colunas_xlsx_avgestao_permanece_20():
+    # regressao: o conjunto original nao pode ter mudado
+    assert len(COLUNAS_XLSX_AVGESTAO) == 20
+    headers = [c[0] for c in COLUNAS_XLSX_AVGESTAO]
+    esperado = [
+        "Nome", "Nome curto", "Cidade", "Nicho", "Subnicho",
+        "Telefone", "WhatsApp", "Instagram", "Site", "Avaliação",
+        "Quantidade de avaliações", "Faz assistência", "Score AVGESTÃO",
+        "Motivos do score", "Mensagem inicial", "Link WhatsApp",
+        "Status", "Data da abordagem", "Follow-up 1", "Follow-up 2",
+    ]
+    assert headers == esperado
+
+
+def test_campos_geograficos_definidos():
+    esperados = {
+        "uf", "estado", "regiao", "source_query", "source_scope",
+        "run_id", "captured_at", "place_id", "maps_url",
+    }
+    assert set(CAMPOS_GEOGRAFICOS) == esperados
+    assert len(CAMPOS_GEOGRAFICOS) == len(esperados)  # sem duplicatas
+
+
+def test_colunas_xlsx_geo_inclui_20_originais_mais_geograficas():
+    headers_geo = [c[0] for c in COLUNAS_XLSX_AVGESTAO_GEO]
+    headers_orig = [c[0] for c in COLUNAS_XLSX_AVGESTAO]
+    # comeca com as 20 originais, na mesma ordem
+    assert headers_geo[:20] == headers_orig
+    # e adiciona as geograficas
+    geo_extra = headers_geo[20:]
+    assert "UF" in geo_extra
+    assert "Estado" in geo_extra
+    assert "Região" in geo_extra
+    assert "Place ID" in geo_extra
+    assert "URL Google Maps" in geo_extra
+    assert len(geo_extra) == 9
+    assert len(COLUNAS_XLSX_AVGESTAO_GEO) == 29
+
+
+def test_colunas_xlsx_geo_campos_db_correspondem():
+    # o campo_db (segundo elemento) das colunas geograficas extras bate com CAMPOS_GEOGRAFICOS
+    campos_db_extras = [c[1] for c in COLUNAS_XLSX_AVGESTAO_GEO[20:]]
+    assert campos_db_extras == CAMPOS_GEOGRAFICOS
 
 
 # ── Runner manual ──────────────────────────────────────────────────

@@ -34,6 +34,13 @@ from urllib.parse import unquote
 
 from playwright.sync_api import sync_playwright
 
+# Lock global do perfil compartilhado .whatsapp_business_profile.
+# Este script é SOMENTE LEITURA (não envia, não clica em Enviar, não digita em
+# contenteditable) — mas usa o mesmo perfil dos senders, então deve adquirir o
+# mesmo lock para não disputar o Chromium com um sender ativo.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from config.lock_whatsapp_sender import LockWhatsAppSender
+
 
 # ═══════════════════════════════════════════════════════════════
 # CONFIG
@@ -373,7 +380,13 @@ def main():
     print("=" * 60)
     print()
 
-    leads, sem_numero = extrair_historico(limite, perfil, args.headless)
+    # Adquire o lock global do perfil dos senders antes de abrir o Chromium
+    # (este script é somente leitura, mas compartilha o perfil .whatsapp_business_profile).
+    with LockWhatsAppSender() as lock:
+        if not lock.acquired:
+            print("❌ Já existe um sender/processo ativo usando o perfil WhatsApp. Abortando.")
+            sys.exit(1)
+        leads, sem_numero = extrair_historico(limite, perfil, args.headless)
 
     hist_path, sem_path = salvar_csv(leads, sem_numero, OUTPUT_DIR)
 

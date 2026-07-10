@@ -1,0 +1,5 @@
+# cidades de teste — uma por linha, formato "Cidade, UF"
+# linhas em branco e comecando com # sao ignoradas
+Nova Iguaçu, RJ
+Duque de Caxias, RJ
+São Paulo, SP

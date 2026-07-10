@@ -1,7 +1,57 @@
+# Secrets e credenciais
 .env
+.env.*
+*.env
+
+# Perfis de navegador
 .whatsapp_profile
 .whatsapp_business_profile
-fix_discord_env.py
+.whatsapp_business_profile.bak/
+
+# Dados de leads (prospecting outputs)
+output/
+output/playwright/progresso.json
+
+# Cache Python
 __pycache__/
 *.pyc
-output/playwright/progresso.json
+*.pyo
+*.egg-info/
+*.egg
+.eggs/
+
+# Ambientes virtuais
+venv/
+.venv/
+env/
+
+# Arquivos temporários
+*.tmp
+*.lock
+.tmp/
+tmp/
+
+# Logs
+*.log
+
+# Screenshots e capturas
+*.png
+*.jpg
+!docs/*.png
+!docs/*.jpg
+
+# Ferramentas locais
+fix_discord_env.py
+
+# IDE e editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+  
+# Perfis Chromium dedicados  
+profiles/ 

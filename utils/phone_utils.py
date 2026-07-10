@@ -18,62 +18,111 @@ Uso:
     # => "https://wa.me/5521999999999?text=Ol%C3%A1%2C%20tudo%20bem%3F"
 """
 
+from __future__ import annotations
+
+import hashlib
 import re
 from urllib.parse import quote
 
 
+def _validar_ddd(digitos: str) -> bool:
+    """Valida DDD brasileiro (11-99, exceto 00-09)."""
+    if len(digitos) < 2:
+        return False
+    ddd = digitos[:2]
+    return bool(re.match(r"^(1[1-9]|[2-9][0-9])$", ddd))
+
+
 def normalizar_telefone_br(valor: str) -> str | None:
     """
-    Normaliza um telefone brasileiro para o formato internacional.
+    Normaliza um telefone brasileiro para o formato internacional canônico.
 
     Regras:
     - Remove espaços, parênteses, traços, pontos e símbolos
     - Mantém apenas números
-    - Se já começa com 55 e tem >= 12 dígitos, mantém
-    - Remove zero inicial
+    - Remove prefixo 00 (internacional)
+    - Se já começa com 55 e tem 12 ou 13 dígitos, valida DDD e retorna
+    - Remove zero inicial (ex: 021...)
     - Se tem 11 dígitos (celular com DDD), prependa 55
     - Se tem 10 dígitos (fixo com DDD), prependa 55
+    - Valida DDD (11-99)
     - Qualquer outro caso, retorna None
-
-    Exemplos:
-    >>> normalizar_telefone_br("21999999999")
-    '5521999999999'
-    >>> normalizar_telefone_br("(21) 99999-9999")
-    '5521999999999'
-    >>> normalizar_telefone_br("5521999999999")
-    '5521999999999'
-    >>> normalizar_telefone_br("021999999999")
-    '5521999999999'
-    >>> normalizar_telefone_br("999999999")
-    None  # sem DDD
     """
     if not valor:
         return None
 
-    # Remover tudo que não é dígito
     numeros = re.sub(r"\D", "", str(valor))
-
     if not numeros:
         return None
 
-    # Já tem código do país (55) e comprimento válido
-    if numeros.startswith("55") and len(numeros) >= 12:
-        return numeros
+    if numeros.startswith("00"):
+        numeros = numeros[2:]
 
-    # Remover zero inicial (ex: 021999999999)
+    if numeros.startswith("55") and len(numeros) in (12, 13):
+        if _validar_ddd(numeros[2:4]):
+            return numeros
+        return None
+
     if numeros.startswith("0"):
         numeros = numeros[1:]
 
-    # Celular com DDD (11 dígitos): 21999999999
     if len(numeros) == 11:
-        return "55" + numeros
+        if _validar_ddd(numeros):
+            return "55" + numeros
+        return None
 
-    # Fixo com DDD (10 dígitos): 2133333333
     if len(numeros) == 10:
-        return "55" + numeros
+        if _validar_ddd(numeros):
+            return "55" + numeros
+        return None
 
-    # Número sem DDD ou formato inválido
     return None
+
+
+def canonical_phone_hash(phone: str | None) -> str:
+    """
+    Hash canônico de telefone.
+
+    Fluxo obrigatório:
+    telefone bruto -> normalização brasileira canônica -> somente dígitos
+    -> formato único definido -> SHA-256 UTF-8.
+    """
+    phone_norm = normalizar_telefone_br(phone or "")
+    if not phone_norm:
+        return ""
+    return hashlib.sha256(phone_norm.encode("utf-8")).hexdigest()
+
+
+def hash_telefone_canonico(telefone_canonico: str | None) -> str:
+    """Compatibilidade retroativa: assume telefone já normalizado."""
+    if not telefone_canonico:
+        return ""
+    return hashlib.sha256(str(telefone_canonico).encode("utf-8")).hexdigest()
+
+
+def variantes_busca_telefone(tel: str) -> list[str]:
+    """
+    Gera UMA única variante nacional brasileira para busca no WhatsApp Web.
+
+    Regras:
+    - Remove código do país 55
+    - Remove +, espaços, parênteses e hífens
+    - Celular: DDD + 9 dígitos = 11 dígitos
+    - Fixo: DDD + 8 dígitos = 10 dígitos
+    - Telefone inválido é rejeitado (lista vazia)
+    - Não gera variante internacional
+    - Não gera variante sem nono dígito
+    - Não gera formatos alternativos
+    """
+    if not tel or not tel.startswith("55") or len(tel) < 12:
+        return []
+
+    ddd_numero = tel[2:]
+    if len(ddd_numero) not in (10, 11):
+        return []
+    if not _validar_ddd(ddd_numero):
+        return []
+    return [ddd_numero]
 
 
 def gerar_link_whatsapp(telefone_normalizado: str, mensagem: str = "") -> str:
@@ -81,14 +130,6 @@ def gerar_link_whatsapp(telefone_normalizado: str, mensagem: str = "") -> str:
     Gera um link wa.me para abrir o WhatsApp com mensagem preenchida.
 
     NÃO envia mensagens automaticamente. Apenas gera o link para envio manual.
-
-    Args:
-        telefone_normalizado: Telefone no formato internacional (ex: 5521999999999)
-        mensagem: Texto da mensagem (opcional)
-
-    Returns:
-        Link wa.me com ou sem mensagem preenchida.
-        String vazia se telefone_normalizado estiver vazio.
     """
     if not telefone_normalizado:
         return ""
@@ -105,13 +146,6 @@ def extrair_telefone_lead(lead: dict) -> str | None:
     Extrai e normaliza o telefone de um lead (dict).
 
     Prioriza o campo 'whatsapp' sobre 'telefone'.
-
-    Args:
-        lead: Dicionário com dados do lead
-
-    Returns:
-        Telefone normalizado ou None se inválido
     """
-    # Priorizar whatsapp sobre telefone
     tel = lead.get("whatsapp", "") or lead.get("telefone", "") or ""
     return normalizar_telefone_br(tel)
