@@ -1,7 +1,0 @@
-{
-  "pid": 9008,
-  "inicio": "2026-07-02T19:29:19.791492+00:00",
-  "hostname": "DESKTOP-5NNGJJV",
-  "comando": "C:\\Users\\Vanderson\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\pytest\\__main__.py -q C:\\projetos\\script-mapear-comercios-whatsapp-dedup\\tests",
-  "tipo": "whatsapp_sender_global"
-}
