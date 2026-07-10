@@ -20,6 +20,17 @@ O modo `semi` com `--semi-confirm-token` foi validado em 7 runs (hermes001–her
 - Nenhum envio sem confirmação
 - Zero edição de código
 
+## hermes008 (HEAD 0724370 — `--confirm-live-send` em background) ❌
+
+- Matcher: todos `safe_to_send` para 30 leads ✅
+- Reservas atômicas ✅
+- Settle executado após cancelamento ✅
+- **FALHA:** `semi` + `--confirm-live-send` não funciona em processo background. O prompt `Enviar? (s/N):` recebe EOF (sem input interativo) e todos os 30 leads são pulados.
+- Resultado: `enviados: 0, falhas: 0, pulados: 30`
+- Reservas pós-teste: 0 pendentes ✅
+- Locks: limpos ✅
+- **Lição:** nunca usar `semi` + `--confirm-live-send` em processo background. Usar `--semi-confirm-token` (1 lead por vez) ou `auto` (se permitido).
+
 ## Runs de validação
 
 ### hermes001 (HEAD fb687e0)

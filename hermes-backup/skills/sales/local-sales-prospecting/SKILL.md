@@ -374,6 +374,172 @@ Otimização do matcher de WhatsApp Web em `whatsapp_match/matcher.py`:
 - **Busca de telefone: 1 variante nacional** (DDD+número, sem 55, sem +). Celular=11 dígitos, fixo=10. Inválido rejeitado. Antes eram 8 variantes → 66s/lead sem conversa, agora 10s/lead.
 - Detalhes: `references/whatsapp-matcher-optimization.md`
 
+### Modo de envio: `semi` com `--confirm-live-send` (corrigido em `e1ceb2f`)
+
+**REGRAS CRÍTICAS DE EXECUÇÃO:**
+
+1. **`semi` + `--semi-confirm-token`** — token passado como argumento, funciona em background.
+2. **`semi` + `--confirm-live-send` em foreground** — usuário digita 's' para confirmar cada envio.
+3. **`semi` + `--confirm-live-send` em background** — funciona após correção em `e1ceb2f`. O flag era ignorado (caía em `input()` → EOF em background → todos leads pulados). CORRIGIDO.
+4. **Para lotes em background:** usar `semi` com `--semi-confirm-token` ou `semi --confirm-live-send` (com `e1ceb2f` ou superior).
+
+**Bug `--confirm-live-send` ignorado no modo `semi` (CORRIGIDO em `e1ceb2f`):**
+
+O flag `--confirm-live-send` era parseado corretamente mas IGNORADO no fluxo `semi`. O código só tinha dois caminhos:
+```
+if token:
+    valida token
+else:
+    input("Enviar? (s/N):")   ← --confirm-live-send caía aqui
+```
+
+Em background, `input()` recebe EOF e cancela → todos os leads pulados.
+
+**Correção** (commit `e1ceb2f`, `campanha_whatsapp.py`):
+```python
+# --- Confirmation priority: token > confirm_live_send > input() ---
+token = getattr(self.args, "semi_confirm_token", None)
+if token:
+    valida token...
+elif self.confirm_live_send:
+    # NÃO chama input() — confirma automaticamente
+    self._record_stage(lead_id, "manual_confirmed",
+                       manual_confirmed=True,
+                       manual_confirm_source="confirm_live_send",
+                       send_clicked=True)
+    self._record_stage(lead_id, "post_manual_confirmed")
+    # ... segue pipeline normal (wa_me_opening → send_clicked → ...)
+else:
+    resposta = input("Enviar? (s/N):")  # só se nada foi passado
+```
+
+**Prioridade de confirmação:** `--semi-confirm-token` → `--confirm-live-send` → `input()` manual.
+
+**Proteções pós-clique mantidas com `--confirm-live-send`:**
+- `outbound_confirmed=True` continua obrigatório para `settle_sent_done`
+- `send_clicked_needs_reconciliation` se outbound falhar
+- `send_failed_after_click` se "não enviada" detectada
+- `settle_sent_done` só com `confirmed`
+
+**Sequência correta para lote background:**
+```bash
+# 1. Verificar ambiente
+git rev-parse HEAD  # deve ser e1ceb2f
+git branch --show-current  # deve ser feat/protecao-duplicidade-whatsapp
+
+# 2. Checar reservas
+python campanha_whatsapp.py recover-reserved --campaign-key avgestao:assistencias:primeiro_contato:v1 --dry-run
+
+# 3. Planear leads
+python campanha_whatsapp.py plan --limit 30 --nicho assistencias --until 17:30 \
+  --run-id run_YYYYMMDD_lote_XXX --exclude-phone ... \
+  --message-template templates/avgestao_assistencias_primeiro_contato.txt
+
+# 4. Verificar locks (stale do captador é normal; remover só whatsapp_match.lock e whatsapp_sender_global.lock)
+ls output/avgestao/*.lock
+ps aux | grep -i "playwright\|whatsapp\|chrome" | grep -v grep
+# Se existir: rm -f output/avgestao/whatsapp_match.lock output/avgestao/whatsapp_sender_global.lock
+
+# 5. Rodar lote real
+python campanha_whatsapp.py semi --limit 30 --nicho assistencias --until 17:30 \
+  --interval-minutes 5 --verification-budget-seconds 15 \
+  --run-id run_YYYYMMDD_lote_XXX --exclude-phone ... \
+  --confirm-live-send --message-template templates/avgestao_assistencias_primeiro_contato.txt
+```
+
+**Exclusões obrigatórias (sempre incluir):**
+```
+--exclude-phone 5521964212796  (Fabio Cell)
+--exclude-phone 552139663966    (RM INFORMÁTICA)
+--exclude-phone 5521964103966    (Padrão Printer)
+--exclude-phone 5521970226162
+--exclude-phone 5521964716162
+--exclude-phone 5521990498187   (Lucas Cell - wa.me inválido)
+--exclude-phone 5521972110013   (ARY GAMES - wa.me inválido)
+--exclude-phone 5521965801085   (Manutenção de impressoras - wa.me inválido)
+```
+
+**Os 2 números sem interesse do cliente** (ELETROSOM: 5521966400845, DIRECT X GAMES: 5521970059384) — **já estão `abordado`** no banco e não entram em campaigns. Não precisam de exclusão extra. Se precisar marcar `sem_interesse` no futuro: o banco tem CHECK constraint em `leads.status` que só aceita `novo|abordado|respondeu|convertido`. Não existe valor `sem_interesse` — seria necessário criar coluna separada ou usar `respondeu`.
+
+**Resultado real lotes 002 e 003 (2026-07-09):**
+- Lote 002 (run_20260709_lote_ate_1730_002): 30 planejados, 26 `safe_to_send`, 23 enviados, 3 falharam wa.me (web.whatsapp confirmou), 0 erros. Duração ~2h05.
+- Lote 003 (run_20260709_lote_ate_1730_003): 34 planejados, 3 `safe_to_send` (resto = `ambiguous_contact`/`already_confirmed`), 0 enviados (3 wa.me falhou). Duração ~13 min.
+- Lote 004 (run_20260709_lote_ate_1700_004): 19 planejados, 0 `safe_to_send` (todos bloqueados pelo matcher), 0 enviados. Matcher muito agressivo após múltiplos lotes no mesmo nicho.
+- Cada envio: `confirm_live_send ativo - confirmacao automatica (sem input)` no log
+- Pipeline: wa_me_opening → URL direta `web.whatsapp.com/send?phone=...` → campo encontrado → identidade → mensagem existente → botao Enviar → outbound_confirmed (message-out) → settle_confirmed
+- Intervalo de 5 min respeitado entre envios
+- Zero erros vermelhos, zero "Tentar novamente", zero QR Code
+
+**Padrão wa.me → web.whatsapp:**
+wa.me retorna "número inválido" em alguns números mas o URL direto `web.whatsapp.com/send?phone=...` abre o chat. O settle_confirmed é registrado pelo caminho web.whatsapp mesmo quando wa.me falha. Isso é normal e não é falha real.
+
+#### Padrão de esgotamento da base (ambiguous_contact após múltiplos lotes)
+
+**Mecanismo:** Após enviar mensagens para um nicho em múltiplos lotes, o perfil sender acumula histórico de conversa no WhatsApp Web. Na rodada seguinte, o matcher encontra essas conversas por nome mas não consegue confirmar o número → marca `ambiguous_contact`. Não é bug — é funcionamento correto do anti-duplicidade.
+
+**Verificação de integridade (2026-07-09):**
+- 29 `ambiguous_contact` do lote 003: zero overlap de telefone com os 23 enviados do lote 002
+- 70 registros de outreach dos 29 ambiguous: todos `released` (reservados e liberados em rodadas anteriores, nunca enviados)
+- 19 leads do lote 004: todos bloqueados pelo matcher (após lotes 002 e 003 no mesmo dia)
+- Isso confirma: os bloqueios são legítimos, a base está esgotada para o nicho assistências após múltiplos lotes
+
+**Regra operacional:** Limitar a **1 lote por dia por nicho**. Fazer mais lotes no mesmo dia = matcher bloqueia tudo no dia seguinte.
+
+**129 leads em subnichos ainda não usados:**
+- Assistência de computadores e notebooks: 41
+- Assistência de eletrodomésticos: 22
+- Assistência de eletrônicos e videogames: 6
+- Assistência de impressoras: 27
+- Assistência técnica de celular: 9
+- Conserto de celular: 24
+
+Esses subnichos têm nomes diferentes dos 5 usados (celular/computadores/eletrodomesticos/eletronicos/impressoras) e podem ter potencial de envio. Considerar usar esses subnichos para绕過 o bloqueio do matcher.
+
+#### 3 phones com falha recorrente (settle_failed)
+
+**3 números que falharam wa.me em todos os lotes:**
+- Lucas Cell: 5521990498187
+- ARY GAMES: 5521972110013
+- Manutenção de impressoras: 5521965801085
+
+**Padrão no Supabase:** Múltiplos registros `released` + `failed` com `error=settle_failed`. Nenhum `sent`. Leads permanecem com `status=novo`.
+
+**Recomendação:** Manter esses 3 phones na lista de `--exclude-phone` para não serem re-testados. wa.me e web.whatsapp falham consistentemente — o número pode estar banido ou mal-formatado no WhatsApp.
+
+#### Protocolo de auditoria pós-lote (read-only)
+
+Antes de cada auditoria, confirmar regras:
+```
+git status --short && git rev-parse HEAD && git branch --show-current
+# Esperado: e1ceb2f, feat/protecao-duplicidade-whatsapp, status limpo
+```
+
+**Queries Supabase de auditoria (via REST, service role key):**
+
+```python
+# 1. Reservas pendentes
+python campanha_whatsapp.py recover-reserved --campaign-key avgestao:assistencias:primeiro_contato:v1 --dry-run
+
+# 2. Outreach sent (por campaign_key + status)
+# GET /rest/v1/lead_outreach?campaign_key=eq.AVESTAO_KEY&status=eq.sent&select=id,lead_id,phone_normalized,status,source&limit=50
+
+# 3. Cross-reference: phones enviados no lote vs phones no DB
+# GET /rest/v1/lead_outreach?phone_normalized=in.(PHONES)&campaign_key=eq.KEY
+# Agrupa por status: sent / failed / released
+
+# 4. Ambiguous: verificar overlap com enviados (deve ser 0 se base esgotada)
+# GET /rest/v1/lead_outreach?lead_id=in.(AMBIG_IDS)&campaign_key=eq.KEY
+# Esperado: todos released
+
+# 5. Checkpoint vs Supabase: phones no checkpoint stage=sent devem aparecer como sent no DB
+```
+
+**Análise de ambiguous_contact genuíno vs falso positivo:**
+- Genuíno: overlap com enviados = 0, registros de outreach = released (nunca enviados)
+- Falso positivo: overlap > 0 OU registros de outreach incluem sent (enviou duplicado)
+
+> **Referência de auditoria:** `references/audit-protocol-2026-07-09.md`
+
 #### Ciclo de vida do navegador (otimização)
 
 O `setup_playwright()` em `sincronizar_abordados_whatsapp.py` foi otimizado para reutilizar o navegador em todo o lote:
@@ -460,4 +626,15 @@ O WhatsApp Web exibe um popup de marketing com `role="dialog" aria-modal="true"`
 - **02/07: SEGUNDO CLIENTE potencial** — Oficina automotiva C&B (tel 21 965004338) respondeu sim após envio em 24/06. Fluxo: pedir email válido → configurar conta → enviar email de redefinição de senha → 15 dias grátis.
 - OpenCode + glm-5.2 usado pra reescrever script de envio automático
 
-A campanha de LP + tráfego continua, mas AVGESTÃO é o foco principal agora.
+#### Config push GitHub (quando Vanderson pedir 'push no gitb')
+
+Empurrar TODAS as branches e working trees:
+
+**Repos a pushar:**
+1. `C:\projetos\saas-gestão`
+2. `C:\projetos\script-mapear-comercios-whatsapp-dedup`
+3. `C:\projetos\script-mapear-comércios`
+
+**Skills e memórias do Hermes:** incluir no repo que tem as skills (provavelmente `script-mapear-comercios-whatsapp-dedup`) commitar na branch `hermes-skills-e-memoria`.
+
+**Regra de quebra de regra:** quando Vanderson escreve `eu to mandando`, ele autoriza Hermes a quebrar a regra de não editar código/commit/push. É a senha dele — sempre que aparecer, executar commit, push, editar etc.

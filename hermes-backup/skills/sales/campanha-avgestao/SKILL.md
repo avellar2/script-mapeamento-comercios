@@ -251,8 +251,43 @@ Isso elimina tela intermediária, redirecionamento e dependência do wa.me.
 ### ⚠️ Falso positivo de "número inválido" (commit `5dd93cb`)
 A lista `_WA_ME_INVALID_PHONE_TEXTS` continha `"número"` como termo de detecção. Essa palavra aparece em qualquer página do WhatsApp em português (ex: "Conversar com +55 21 3966-3966"), causando falso positivo que bloqueia envios válidos. **Solução:** usar termos específicos como `"número inválido"`, `"invalid phone number"` em vez de `"número"` isolado.
 
+### ⚠️ `--confirm-live-send` não funciona em background com `semi` (2026-07-09)
+**Problema verificado em HEAD `0724370`:** quando `semi` com `--confirm-live-send` é executado via `terminal(background=true)` (processo detached), o prompt `Enviar? (s/N):` recebe EOF (sem input interativo) e TODOS os leads são pulados. Resultado: `enviados: 0, pulados: N`.
+
+**Ciclo de eventos:**
+1. 30 leads reservados e verificados pelo matcher (matcher: todos `safe_to_send`)
+2. Na fase de envio, o fluxo pergunta `Enviar? (s/N):` para cada lead
+3. Background process não tem terminal interativo → EOF
+4. Todos os leads são pulados via `Prompt cancelado (EOF)`
+5. Settle correto: todas as reservas liberadas (`settle_outreach` × 30)
+
+**Soluções:**
+- **`semi` em foreground** (terminal interativo): funciona com `--confirm-live-send` — usuário digita 's' para confirmar
+- **`semi` em background**: usar `--semi-confirm-token` (1 lead por vez, token no formato `CONFIRMAR-<last4>-<run_id_curto>`)
+- **`auto`** (se permitido): envia sem confirmação
+
+**PREVENÇÃO:** nunca usar `semi` + `--confirm-live-send` em processo background. Sempre verificar o tipo de terminal antes de iniciar.
+
 ### ⚠️ Fluxo semi com token — validado end-to-end (julho 2026, HEAD `5dd93cb`)
 O modo `semi` com `--semi-confirm-token` foi validado em 7 runs (hermes001–hermes007). A run hermes007 conseguiu o **primeiro envio real com sucesso** (~40s total). Ver detalhes completos, commits e pitfalls em `references/whatsapp-semi-sender-validation.md`.
+
+**Resultado hermes007 (envio real — 07/07/2026):**
+- Lead: RM INFORMÁTICA (****3966)
+- Token: `CONFIRMAR-3966-hermes007`
+- URL usada: `https://web.whatsapp.com/send?phone=5521964103966&text=...`
+- Stages completos: lead_selected → reserved → safe_to_send → manual_confirmed (token) → post_manual_confirmed → wa_me_opening → **web.whatsapp.com/send direto** → campo de mensagem encontrado (10s) → chat_identity_checking → existing_message_checking → send_button_searching → **send_clicked** → **Mensagem enviada com sucesso** → settle_sent_done
+- Tempo total: ~40s
+- Resultado: **1 enviado, 0 falhas, 0 pulados**
+- Reservas pós-teste: 0 pendentes
+- Locks pós-teste: limpos
+
+**Pré-requisitos para semi funcionar (aprendizado validado):**
+1. Perfil `profiles/whatsapp_match` precisa estar logado (matcher)
+2. Perfil `.whatsapp_business_profile` precisa estar logado (sender)
+3. Ambos podem expirar independentemente — verificar antes de cada teste
+4. Usar `web.whatsapp.com/send` direto (NÃO wa.me)
+5. Timeout de 120s para abertura do chat (commit `6e40448`)
+6. Detecção de número inválido sem falso positivo (commit `5dd93cb`)
 
 ### ⚠️ Ambos os perfis Playwright precisam estar logados (matcher + sender)
 O fluxo `semi` usa **dois perfis** do Playwright: `profiles/whatsapp_match` (verificação de duplicidade) e `.whatsapp_business_profile` (envio). Se **qualquer um** estiver deslogado (QR Code), o fluxo falha:

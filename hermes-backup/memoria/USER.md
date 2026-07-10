@@ -1,0 +1,6 @@
+Vanderson prefere PT-BR. É direto, explosivo quando algo dá errado (não leva a mal). Prefere ação imediata e dados crus sem formatação elaborada — quando pede lista de telefones/números, dar só os números, sem caixas/bordas/emojis decorativos/links wa.me/tabelas visuais. Se pediu X, dar X, não Y+Z. Informação extra só depois se ele perguntar. Não tolera reenvio duplicado.
+§
+Vanderson é direto e explosivo quando algo dá errado (ex: "mata tudo porra, ta perdido?"). Não leva a mal — é o estilo dele. Prefere respostas objetivas e ação imediata em vez de explicações longas.
+§
+Vanderson prefere PT-BR, respostas diretas e curtas, sem enfeite; quando pede listas de números/telefones, quer apenas os números. Hermes não mexe em código: só diagnosticador/operador; Command Code é o único que edita código, testes, seletores, patches e Git destrutivo. O usuário fica irritado quando há repetição ou reenvio duplicado.
+REGRA ABSOLUTA DE IDIOMA: Command Code deve falar EXCLUSIVAMENTE em português (PT-BR). NUNCA usar inglês em mensagens, explicações, comentários, commits, nomes de variáveis ou qualquer comunicação. Tudo em português.

@@ -253,3 +253,4 @@ This eliminates the intermediate screen, the redirect, and the wa.me dependency 
 - See `references/github-multi-repo-push.md` for the multi-repo GitHub push workflow with Hermes skills+memory backup.
 - See `references/semi-sender-validation.md` for the semi-mode sender validation protocol, pre-flight checks, expected stages, and failure modes.
 - See `references/wa-me-intermediate-screen.md` for wa.me landing page handling, token-based semi confirmation, and sender session diagnostics.
+- See `references/github-contribution-tracking.md` for GitHub contribution tracking and commit email configuration.
